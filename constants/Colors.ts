@@ -1,0 +1,27 @@
+const Colors = {
+  primary:       '#F97316',
+  primaryLight:  '#FB923C',
+  primaryDark:   '#EA580C',
+  accent:        '#FBBF24',
+  accentLight:   '#FDE68A',
+  background:    '#FFF8ED',
+  surface:       '#FFFFFF',
+  surfaceAlt:    '#FFF3DC',
+  text:          '#1C1917',
+  textSecondary: '#78716C',
+  textInverse:   '#FFFFFF',
+  success:       '#22C55E',
+  successLight:  '#DCFCE7',
+  danger:        '#EF4444',
+  dangerLight:   '#FEE2E2',
+  warning:       '#F59E0B',
+  warningLight:  '#FEF3C7',
+  border:        '#E7E5E4',
+  borderLight:   '#F5F5F4',
+  shadow:        '#1C1917',
+  overlay:       'rgba(28, 25, 23, 0.5)',
+  gradientStart: '#FBBF24',
+  gradientEnd:   '#F97316',
+} as const;
+
+export default Colors;
