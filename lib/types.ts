@@ -51,7 +51,6 @@ export type Rsvp = {
   activity_id: string;
   user_id: string;
   status: 'pending' | 'in' | 'out' | 'maybe';
-  maybe_pct?: 25 | 50 | 75 | null;
   note?: string | null;
   created_at: string;
   updated_at: string;
