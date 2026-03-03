@@ -1,12 +1,9 @@
--- ============================================================
--- MIBA — Demo Users + Creator RSVP Lock
--- Run this entire file in the Supabase SQL Editor
--- ============================================================
+-- Migration 1 — Demo users + RSVP policy updates
 
--- 1. Add is_demo flag to profiles
+-- Add is_demo flag to profiles
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
 
--- 2. Insert fake auth users (two demo accounts with no real login)
+-- Insert fake auth users (two demo accounts — no real login possible)
 INSERT INTO auth.users (
   id, instance_id, aud, role,
   email, encrypted_password,
@@ -38,19 +35,18 @@ VALUES
   )
 ON CONFLICT (id) DO NOTHING;
 
--- 3. Insert their profiles
+-- Insert demo profiles
 INSERT INTO public.profiles (id, full_name, username, is_demo)
 VALUES
-  ('00000000-0000-0000-0000-000000000001', 'Alex Chen',   'alex_chen',   true),
-  ('00000000-0000-0000-0000-000000000002', 'Sam Rivera',  'sam_rivera',  true)
+  ('00000000-0000-0000-0000-000000000001', 'Alex Chen',  'alex_chen',  true),
+  ('00000000-0000-0000-0000-000000000002', 'Sam Rivera', 'sam_rivera', true)
 ON CONFLICT (id) DO UPDATE SET
-  is_demo    = true,
-  full_name  = EXCLUDED.full_name,
-  username   = EXCLUDED.username;
+  is_demo   = true,
+  full_name = EXCLUDED.full_name,
+  username  = EXCLUDED.username;
 
--- 4. Allow creator to remove any invitee (not just their own row).
+-- Allow creator to remove any invitee from their activity
 DROP POLICY IF EXISTS "Users delete own RSVP" ON public.rsvps;
-
 CREATE POLICY "Users delete own RSVP"
   ON public.rsvps FOR DELETE USING (
     auth.uid() = user_id
@@ -60,15 +56,12 @@ CREATE POLICY "Users delete own RSVP"
     )
   );
 
--- 5. Allow activity creators to update RSVP status on behalf of demo users.
---    (Real users can still only update their own RSVP.)
+-- Allow creator to update RSVP on behalf of demo users
 DROP POLICY IF EXISTS "Users manage own RSVP" ON public.rsvps;
-
 CREATE POLICY "Users manage own RSVP"
   ON public.rsvps FOR UPDATE USING (
     auth.uid() = user_id
     OR (
-      -- Creator can flip the status of demo-user RSVPs on their activity
       EXISTS (
         SELECT 1 FROM public.activities
         WHERE id = activity_id AND created_by = auth.uid()
@@ -79,8 +72,3 @@ CREATE POLICY "Users manage own RSVP"
       )
     )
   );
-
--- ============================================================
--- Done. Demo users "Alex Chen" (@alex_chen) and
--- "Sam Rivera" (@sam_rivera) are now searchable and invitable.
--- ============================================================

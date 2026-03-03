@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
-  TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView,
+  TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView, BackHandler,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -81,6 +81,19 @@ export default function ActivityDetailScreen() {
 
   useEffect(() => { setLoading(true); fetchActivity().finally(() => setLoading(false)); }, [fetchActivity]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await fetchActivity(); setRefreshing(false); }, [fetchActivity]);
+
+  // Bug fix: reset edit mode when navigating to a different activity
+  useEffect(() => { setIsEditing(false); }, [id]);
+
+  // Android back button exits edit mode instead of navigating away
+  useEffect(() => {
+    if (!isEditing) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setIsEditing(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [isEditing]);
 
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
@@ -194,9 +207,9 @@ export default function ActivityDetailScreen() {
     ]);
   };
 
-  const handleCancel = () => Alert.alert('Cancel Activity', 'Cancel this activity?', [
+  const handleCancel = () => Alert.alert('Delete Activity', 'This will cancel the activity for everyone. Continue?', [
     { text: 'No', style: 'cancel' },
-    { text: 'Yes', style: 'destructive', onPress: async () => {
+    { text: 'Delete', style: 'destructive', onPress: async () => {
       await supabase.from('activities').update({ status: 'cancelled' }).eq('id', id);
       fetchActivity();
     }},
@@ -317,14 +330,8 @@ export default function ActivityDetailScreen() {
   const notGoing = activity.rsvps?.filter(r => r.status === 'out') ?? [];
   const pending = activity.rsvps?.filter(r => r.status === 'pending') ?? [];
 
-  const headerActions = isEditing ? [
-    { icon: 'checkmark-outline' as const, label: 'Save', onPress: handleSaveEdit },
-  ] : [
+  const headerActions = [
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat`), badge: hasUnread },
-    ...(isCreator && !past && activity.status === 'active' ? [
-      { icon: 'create-outline' as const, onPress: startEditing },
-      { icon: 'close-circle-outline' as const, onPress: handleCancel },
-    ] : []),
   ];
 
   return (
@@ -443,23 +450,6 @@ export default function ActivityDetailScreen() {
           <View style={styles.descCard}><Text style={styles.descText}>{activity.description}</Text></View>
         ) : null}
 
-        {/* Edit save / cancel */}
-        {isEditing && (
-          <View style={styles.editActions}>
-            <TouchableOpacity style={styles.editCancelBtn} onPress={() => setIsEditing(false)}>
-              <Text style={styles.editCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.editSaveBtn, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.5 }]}
-              onPress={handleSaveEdit}
-              disabled={saveLoading || editTitle.trim().length < 2}
-            >
-              {saveLoading
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={styles.editSaveText}>Save changes</Text>}
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* RSVP section */}
         {!past && activity.status === 'active' && !isEditing && (
@@ -757,6 +747,34 @@ export default function ActivityDetailScreen() {
             <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
           </TouchableOpacity>
         )}
+
+        {/* Creator actions / save — inside scroll at the bottom */}
+        {(isEditing || (isCreator && !past && activity.status === 'active')) && (
+          <View style={styles.creatorFooter}>
+            {isEditing ? (
+              <TouchableOpacity
+                style={[styles.footerBtn, styles.footerBtnPrimary, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.4 }]}
+                onPress={handleSaveEdit}
+                disabled={saveLoading || editTitle.trim().length < 2}
+              >
+                {saveLoading
+                  ? <ActivityIndicator size="small" color={Colors.primary} />
+                  : <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Save changes</Text>}
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity style={[styles.footerBtn, styles.footerBtnPrimary]} onPress={startEditing}>
+                  <Ionicons name="create-outline" size={16} color={Colors.primary} />
+                  <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.footerBtn, styles.footerBtnDanger]} onPress={handleCancel}>
+                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+                  <Text style={[styles.footerBtnText, { color: Colors.danger }]}>Delete</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -804,11 +822,14 @@ const styles = StyleSheet.create({
   noteCardTitle: { fontSize: 14, fontWeight: '600', color: Colors.primary, flex: 1 },
   noteInput: { fontSize: 14, color: Colors.text, lineHeight: 20, minHeight: 64 },
   titleInput: { fontSize: 26, fontWeight: '800', color: Colors.text, lineHeight: 32, marginBottom: 12, borderBottomWidth: 2, borderBottomColor: Colors.primary, paddingBottom: 4 },
-  editActions: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  editCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
-  editCancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
-  editSaveBtn: { flex: 2, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 14, backgroundColor: Colors.primary },
-  editSaveText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  creatorFooter: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  footerBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5,
+  },
+  footerBtnPrimary: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  footerBtnDanger: { borderColor: Colors.danger, backgroundColor: Colors.dangerLight },
+  footerBtnText: { fontSize: 15, fontWeight: '600' },
   editQuickRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   editQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.background, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 5 },
   editQuickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
