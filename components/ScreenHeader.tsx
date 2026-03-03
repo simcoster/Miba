@@ -5,20 +5,28 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/Colors';
 
+type RightAction = {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPress: () => void;
+  label?: string;
+  badge?: boolean;
+};
+
 type ScreenHeaderProps = {
   title: string;
   subtitle?: string;
   showBack?: boolean;
-  rightAction?: {
-    icon: React.ComponentProps<typeof Ionicons>['name'];
-    onPress: () => void;
-    label?: string;
-  };
+  /** Single right action (legacy). Use rightActions for multiple. */
+  rightAction?: RightAction;
+  /** Multiple right actions rendered left-to-right. Takes precedence over rightAction. */
+  rightActions?: RightAction[];
 };
 
-export function ScreenHeader({ title, subtitle, showBack = false, rightAction }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = false, rightAction, rightActions }: ScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  const actions = rightActions ?? (rightAction ? [rightAction] : []);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -32,13 +40,22 @@ export function ScreenHeader({ title, subtitle, showBack = false, rightAction }:
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           {subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
         </View>
-        {rightAction ? (
-          <TouchableOpacity onPress={rightAction.onPress} style={styles.rightButton}>
-            {rightAction.label
-              ? <Text style={styles.rightButtonLabel}>{rightAction.label}</Text>
-              : <Ionicons name={rightAction.icon} size={24} color={Colors.primary} />
-            }
-          </TouchableOpacity>
+        {actions.length > 0 ? (
+          <View style={styles.rightActions}>
+            {actions.map((a, i) => (
+              <TouchableOpacity key={i} onPress={a.onPress} style={styles.rightButton}>
+                {a.label
+                  ? <Text style={styles.rightButtonLabel}>{a.label}</Text>
+                  : (
+                    <View>
+                      <Ionicons name={a.icon} size={24} color={Colors.primary} />
+                      {a.badge && <View style={styles.badge} />}
+                    </View>
+                  )
+                }
+              </TouchableOpacity>
+            ))}
+          </View>
         ) : (
           <View style={styles.placeholder} />
         )}
@@ -57,7 +74,14 @@ const styles = StyleSheet.create({
   titleContainer: { flex: 1 },
   title: { fontSize: 22, fontWeight: '700', color: Colors.text },
   subtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 1 },
+  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rightButton: { width: 44, height: 40, alignItems: 'flex-end', justifyContent: 'center' },
   rightButtonLabel: { fontSize: 16, fontWeight: '600', color: Colors.primary },
   placeholder: { width: 44 },
+  badge: {
+    position: 'absolute', top: -1, right: -1,
+    width: 9, height: 9, borderRadius: 5,
+    backgroundColor: Colors.danger,
+    borderWidth: 1.5, borderColor: Colors.background,
+  },
 });

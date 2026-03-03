@@ -3,6 +3,7 @@ export type Profile = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  is_demo: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -36,7 +37,7 @@ export type Activity = {
   activity_time: string;
   status: 'active' | 'cancelled';
   created_at: string;
-  creator?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  creator?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
   rsvps?: Rsvp[];
   my_rsvp?: Rsvp | null;
   going_count?: number;
@@ -49,6 +50,15 @@ export type Rsvp = {
   status: 'pending' | 'in' | 'out';
   created_at: string;
   updated_at: string;
+  profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
+};
+
+export type Message = {
+  id: string;
+  activity_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };
 

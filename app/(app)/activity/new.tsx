@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
-  ActivityIndicator,
+  ActivityIndicator, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,7 +18,7 @@ import { Button } from '@/components/Button';
 import Colors from '@/constants/Colors';
 
 export default function NewActivityScreen() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const router = useRouter();
 
   const [title, setTitle] = useState('');
@@ -273,6 +273,24 @@ export default function NewActivityScreen() {
               })}
             </View>
           )}
+          {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 &&
+            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(searchQuery.trim()) && (
+            <TouchableOpacity
+              style={styles.inviteEmailBtn}
+              onPress={() => {
+                const email = searchQuery.trim();
+                const name = profile?.full_name ?? 'A friend';
+                const subject = encodeURIComponent('Join me on Miba!');
+                const body = encodeURIComponent(
+                  `Hey!\n\n${name} is inviting you to join Miba — an app for organising hangouts with friends.\n\nDownload it and we can start planning!\n\nhttps://miba.app\n\n— ${name}`
+                );
+                Linking.openURL(`mailto:${email}?subject=${subject}&body=${body}`);
+              }}
+            >
+              <Ionicons name="mail-outline" size={18} color={Colors.primary} />
+              <Text style={styles.inviteEmailText}>Invite <Text style={{ fontWeight: '700' }}>{searchQuery.trim()}</Text> to Miba</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Invite pool preview */}
@@ -334,4 +352,6 @@ const styles = StyleSheet.create({
   invitePool: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   inviteChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.accentLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 130 },
   inviteChipName: { fontSize: 13, fontWeight: '600', color: Colors.primaryDark, flex: 1 },
+  inviteEmailBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6, backgroundColor: Colors.accentLight, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', paddingHorizontal: 14, paddingVertical: 12 },
+  inviteEmailText: { flex: 1, fontSize: 14, color: Colors.primaryDark },
 });

@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 
@@ -11,14 +12,15 @@ function TabIcon({ name, focused, label }: {
   return (
     <View style={styles.tabIconContainer}>
       <Ionicons name={name} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
-      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{label}</Text>
+      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>{label}</Text>
     </View>
   );
 }
 
 export default function AppLayout() {
+  const insets = useSafeAreaInsets();
   return (
-    <Tabs screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: styles.tabBar }}>
+    <Tabs screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}>
       <Tabs.Screen
         name="index"
         options={{
@@ -46,8 +48,9 @@ export default function AppLayout() {
       <Tabs.Screen name="circle/new"              options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/index"      options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/invite"     options={{ href: null }} />
-      <Tabs.Screen name="activity/new"           options={{ href: null }} />
-      <Tabs.Screen name="activity/[id]"          options={{ href: null }} />
+      <Tabs.Screen name="activity/new"              options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/index"     options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/chat"      options={{ href: null }} />
     </Tabs>
   );
 }
@@ -55,9 +58,9 @@ export default function AppLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.border,
-    height: 70, paddingBottom: 8, paddingTop: 4,
+    paddingTop: 4,
   },
-  tabIconContainer: { alignItems: 'center', justifyContent: 'center', gap: 2 },
+  tabIconContainer: { alignItems: 'center', justifyContent: 'center', gap: 2, minWidth: 60 },
   tabLabel: { fontSize: 10, color: Colors.textSecondary, fontWeight: '500' },
   tabLabelActive: { color: Colors.primary, fontWeight: '600' },
 });

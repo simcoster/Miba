@@ -22,12 +22,6 @@ export function CircleCard({ circle }: { circle: Circle }) {
         {circle.description && (
           <Text style={styles.description} numberOfLines={1}>{circle.description}</Text>
         )}
-        {circle.is_admin && (
-          <View style={styles.meta}>
-            <Ionicons name="shield-checkmark-outline" size={13} color={Colors.primary} />
-            <Text style={[styles.metaText, { color: Colors.primary }]}>Admin</Text>
-          </View>
-        )}
       </View>
       <Ionicons name="chevron-forward" size={20} color={Colors.border} />
     </TouchableOpacity>
