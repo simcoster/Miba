@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ function formatMessageTime(dateStr: string): string {
 export default function ActivityChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
+  const router = useRouter();
 
   const insets = useSafeAreaInsets();
 
@@ -79,7 +80,6 @@ export default function ActivityChatScreen() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
         async (payload) => {
-          // Fetch the full message row with profile join
           const { data } = await supabase
             .from('messages')
             .select('*, profile:profiles(id, full_name, avatar_url)')
@@ -90,6 +90,23 @@ export default function ActivityChatScreen() {
             setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
             markRead();
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
+        (payload) => {
+          // System messages can be updated in-place when edits are merged.
+          setMessages(prev =>
+            prev.map(m => m.id === (payload.new as Message).id ? { ...m, ...(payload.new as Message) } : m)
+          );
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
+        (payload) => {
+          setMessages(prev => prev.filter(m => m.id !== (payload.old as Message).id));
         }
       )
       .subscribe();
@@ -121,9 +138,26 @@ export default function ActivityChatScreen() {
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+    if (item.type === 'system') {
+      return (
+        <TouchableOpacity
+          style={styles.systemPillWrapper}
+          onPress={() => router.push(`/(app)/activity/${id}/edit-changes?messageId=${item.id}`)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.systemPill}>
+            <Ionicons name="pencil-outline" size={13} color={Colors.textSecondary} />
+            <Text style={styles.systemPillText}>Host edited the event</Text>
+            <Ionicons name="chevron-forward" size={13} color={Colors.textSecondary} />
+          </View>
+          <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
+        </TouchableOpacity>
+      );
+    }
+
     const isMe = item.user_id === user?.id;
     const prev = index > 0 ? messages[index - 1] : null;
-    const showHeader = !prev || prev.user_id !== item.user_id;
+    const showHeader = !prev || prev.user_id !== item.user_id || prev.type === 'system';
 
     return (
       <View style={[styles.msgWrapper, isMe ? styles.msgWrapperMe : styles.msgWrapperThem]}>
@@ -268,4 +302,15 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   sendBtnDisabled: { backgroundColor: Colors.border },
+
+  systemPillWrapper: { alignItems: 'center', marginVertical: 10, gap: 4 },
+  systemPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    borderRadius: 20,
+  },
+  systemPillText: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
+  systemPillTimestamp: { fontSize: 11, color: Colors.textSecondary },
 });

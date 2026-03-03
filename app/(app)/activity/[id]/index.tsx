@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
   TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView, BackHandler, Keyboard,
+  Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,15 +14,17 @@ import { format, isToday, isTomorrow, isPast, addHours, addMinutes } from 'date-
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity, Profile, Rsvp, NOW_SENTINEL } from '@/lib/types';
+import { Activity, Profile, Rsvp, NOW_SENTINEL, EditableFields } from '@/lib/types';
+import { postEditSystemMessage } from '@/lib/postEditSystemMessage';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, edit } = useLocalSearchParams<{ id: string; edit?: string }>();
   const { user, profile } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [activity, setActivity] = useState<Activity | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +53,15 @@ export default function ActivityDetailScreen() {
   const [editQuickHighlight, setEditQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
 
+  // Menu / clone state
+  const [showMenu, setShowMenu] = useState(false);
+  const [cloneLoading, setCloneLoading] = useState(false);
+  // Tracks whether we should enter edit mode on the next successful fetch.
+  // Reset whenever id/edit params change so it works even when the component
+  // is reused across navigations by Expo Router.
+  const editOnLoad = useRef(false);
+  useEffect(() => { editOnLoad.current = edit === '1'; }, [id, edit]);
+
   // Maybe RSVP state
   const [maybeNote, setMaybeNote] = useState('');
   const [noteLoading, setNoteLoading] = useState(false);
@@ -72,11 +85,24 @@ export default function ActivityDetailScreen() {
       return;
     }
     if (data) {
-      setActivity({
+      const act = {
         ...data,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
         going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
-      } as Activity);
+      } as Activity;
+      setActivity(act);
+
+      // Auto-enter edit mode when cloned (navigated with ?edit=1)
+      if (editOnLoad.current) {
+        editOnLoad.current = false;
+        setEditTitle(act.title);
+        setEditDesc(act.description ?? '');
+        setEditLocation(act.location ?? '');
+        const nowMode = act.activity_time === NOW_SENTINEL;
+        setEditIsNow(nowMode);
+        setEditTime(nowMode ? new Date() : new Date(act.activity_time));
+        setIsEditing(true);
+      }
     }
   }, [id, user]);
 
@@ -216,6 +242,40 @@ export default function ActivityDetailScreen() {
     }},
   ]);
 
+  const handleClone = async () => {
+    if (!activity || !user) return;
+    try {
+      setCloneLoading(true);
+      const newTime = addMinutes(new Date(), 10).toISOString();
+      const { data: newActivity, error } = await supabase
+        .from('activities')
+        .insert({
+          title: activity.title,
+          description: activity.description,
+          location: activity.location,
+          activity_time: newTime,
+          created_by: user.id,
+        })
+        .select('id')
+        .single();
+      if (error || !newActivity) throw error ?? new Error('Clone failed');
+
+      const rsvpsToClone = (activity.rsvps ?? []).map(r => ({
+        activity_id: newActivity.id,
+        user_id: r.user_id,
+        status: r.user_id === user.id ? 'in' : 'pending',
+      }));
+      if (rsvpsToClone.length > 0) {
+        await supabase.from('rsvps').insert(rsvpsToClone);
+      }
+      router.push(`/(app)/activity/${newActivity.id}?edit=1`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not clone activity.');
+    } finally {
+      setCloneLoading(false);
+    }
+  };
+
   const startEditing = () => {
     if (!activity) return;
     setEditTitle(activity.title);
@@ -231,15 +291,29 @@ export default function ActivityDetailScreen() {
     if (!activity || editTitle.trim().length < 2) return;
     try {
       setSaveLoading(true);
-      const { error } = await supabase.from('activities').update({
+
+      const oldValues: EditableFields = {
+        title: activity.title,
+        description: activity.description,
+        location: activity.location,
+        activity_time: activity.activity_time,
+      };
+      const newValues: EditableFields = {
         title: editTitle.trim(),
         description: editDesc.trim() || null,
         location: editLocation.trim() || null,
         activity_time: editIsNow ? NOW_SENTINEL : editTime.toISOString(),
-      }).eq('id', activity.id);
+      };
+
+      const { error } = await supabase.from('activities').update(newValues).eq('id', activity.id);
       if (error) throw error;
+
       setIsEditing(false);
       await fetchActivity();
+
+      if (user) {
+        await postEditSystemMessage(activity.id, user.id, oldValues, newValues);
+      }
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Could not save changes.');
     } finally {
@@ -340,11 +414,14 @@ export default function ActivityDetailScreen() {
 
   const headerActions = [
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat`), badge: hasUnread },
+    ...(isCreator && activity.status === 'active' && !isEditing
+      ? [{ icon: 'ellipsis-vertical' as const, onPress: () => setShowMenu(true) }]
+      : []),
   ];
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScreenHeader title="" showBack rightActions={headerActions} />
+      <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : undefined} rightActions={headerActions} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
@@ -644,7 +721,7 @@ export default function ActivityDetailScreen() {
                     <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
                     {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                     {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>{canProxy ? 'Going ✎' : 'Going'}</Text></View>
+                    {!(isMe && isHost) && <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>{canProxy ? 'Going ✎' : 'Going'}</Text></View>}
                   </TouchableOpacity>
                 );
               })}
@@ -734,34 +811,49 @@ export default function ActivityDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Creator actions / save — inside scroll at the bottom */}
-        {(isEditing || (isCreator && activity.status === 'active')) && (
+        {/* Save / Delete — visible only while editing */}
+        {isEditing && (
           <View style={styles.creatorFooter}>
-            {isEditing ? (
-              <TouchableOpacity
-                style={[styles.footerBtn, styles.footerBtnPrimary, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.4 }]}
-                onPress={handleSaveEdit}
-                disabled={saveLoading || editTitle.trim().length < 2}
-              >
-                {saveLoading
-                  ? <ActivityIndicator size="small" color={Colors.primary} />
-                  : <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Save changes</Text>}
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity style={[styles.footerBtn, styles.footerBtnPrimary]} onPress={startEditing}>
-                  <Ionicons name="create-outline" size={16} color={Colors.primary} />
-                  <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.footerBtn, styles.footerBtnDanger]} onPress={handleCancel}>
-                  <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-                  <Text style={[styles.footerBtnText, { color: Colors.danger }]}>Delete</Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <TouchableOpacity
+              style={[styles.footerBtn, styles.footerBtnPrimary, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.4 }]}
+              onPress={handleSaveEdit}
+              disabled={saveLoading || editTitle.trim().length < 2}
+            >
+              {saveLoading
+                ? <ActivityIndicator size="small" color={Colors.primary} />
+                : <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Save changes</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.footerBtn, styles.footerBtnDanger, { flex: 0, paddingHorizontal: 20 }]} onPress={handleCancel}>
+              <Ionicons name="trash-outline" size={16} color={Colors.danger} />
+              <Text style={[styles.footerBtnText, { color: Colors.danger }]}>Delete</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
+
+      {/* ⋮ dropdown menu */}
+      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
+          <View style={[styles.menuCard, { top: insets.top + 56 }]}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); startEditing(); }}>
+              <Ionicons name="create-outline" size={18} color={Colors.text} />
+              <Text style={styles.menuItemText}>Edit</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleClone(); }} disabled={cloneLoading}>
+              {cloneLoading
+                ? <ActivityIndicator size="small" color={Colors.primary} style={{ width: 18 }} />
+                : <Ionicons name="copy-outline" size={18} color={Colors.text} />}
+              <Text style={styles.menuItemText}>Clone</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleCancel(); }}>
+              <Ionicons name="trash-outline" size={18} color={Colors.danger} />
+              <Text style={[styles.menuItemText, { color: Colors.danger }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -799,7 +891,20 @@ const styles = StyleSheet.create({
   noteSaveBtn: { marginLeft: 'auto', backgroundColor: Colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3 },
   noteSaveBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
   titleInput: { fontSize: 26, fontWeight: '800', color: Colors.text, lineHeight: 32, marginBottom: 12, borderBottomWidth: 2, borderBottomColor: Colors.primary, paddingBottom: 4 },
-  creatorFooter: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  creatorFooter: { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 8 },
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
+  menuCard: {
+    position: 'absolute', right: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight,
+    minWidth: 180,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  menuItemText: { fontSize: 15, fontWeight: '500', color: Colors.text },
+  menuDivider: { height: 1, backgroundColor: Colors.borderLight },
   footerBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5,

@@ -57,11 +57,27 @@ export type Rsvp = {
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
 };
 
+export type EditableFields = {
+  title: string;
+  description: string | null;
+  location: string | null;
+  activity_time: string;
+};
+
+export type EditMetadata = {
+  /** The "from" values at the start of this edit batch (preserved across merges). */
+  original_values: Partial<EditableFields>;
+  /** The "to" values after the most recent edit in the batch. */
+  current_values: Partial<EditableFields>;
+};
+
 export type Message = {
   id: string;
   activity_id: string;
   user_id: string;
   content: string;
+  type: 'user' | 'system';
+  metadata?: EditMetadata | null;
   created_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };

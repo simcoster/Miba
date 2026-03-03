@@ -16,13 +16,15 @@ type ScreenHeaderProps = {
   title: string;
   subtitle?: string;
   showBack?: boolean;
+  /** Override the back button behaviour. Defaults to router.back(). */
+  onBack?: () => void;
   /** Single right action (legacy). Use rightActions for multiple. */
   rightAction?: RightAction;
   /** Multiple right actions rendered left-to-right. Takes precedence over rightAction. */
   rightActions?: RightAction[];
 };
 
-export function ScreenHeader({ title, subtitle, showBack = false, rightAction, rightActions }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = false, onBack, rightAction, rightActions }: ScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -32,7 +34,7 @@ export function ScreenHeader({ title, subtitle, showBack = false, rightAction, r
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
       <View style={styles.row}>
         {showBack && (
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={onBack ?? (() => router.back())} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color={Colors.text} />
           </TouchableOpacity>
         )}

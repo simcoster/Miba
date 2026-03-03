@@ -48,9 +48,10 @@ export default function AppLayout() {
       <Tabs.Screen name="circle/new"              options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/index"      options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/invite"     options={{ href: null }} />
-      <Tabs.Screen name="activity/new"              options={{ href: null }} />
-      <Tabs.Screen name="activity/[id]/index"     options={{ href: null }} />
-      <Tabs.Screen name="activity/[id]/chat"      options={{ href: null }} />
+      <Tabs.Screen name="activity/new"                    options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/index"            options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/chat"             options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>
   );
 }
