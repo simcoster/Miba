@@ -26,7 +26,9 @@ const RSVP_CONFIG: Record<RsvpStatus, RsvpConfig> = {
   pending: { iconName: 'mail-open-outline', iconColor: INVITED_BLUE, bg: INVITED_BLUE_LIGHT, label: 'Invited', textColor: INVITED_BLUE },
 };
 
-export function ActivityCard({ activity }: { activity: Activity }) {
+type EventsFilter = 'upcoming' | 'invited' | 'past' | 'declined';
+
+export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTab?: EventsFilter }) {
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
   const past = isPast(activityDate);
@@ -45,10 +47,12 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     ? `Tomorrow · ${format(activityDate, 'h:mm a')}`
     : format(activityDate, 'EEE, MMM d · h:mm a');
 
+  const href = fromTab ? `/(app)/activity/${activity.id}?fromTab=${fromTab}` : `/(app)/activity/${activity.id}`;
+
   return (
     <TouchableOpacity
       style={[styles.card, past && styles.cardPast, isPending && styles.cardPending]}
-      onPress={() => router.push(`/(app)/activity/${activity.id}`)}
+      onPress={() => router.push(href as any)}
       activeOpacity={0.85}
     >
       <View style={styles.header}>

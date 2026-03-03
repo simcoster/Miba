@@ -21,7 +21,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
-  const { id, edit } = useLocalSearchParams<{ id: string; edit?: string }>();
+  const { id, edit, fromTab } = useLocalSearchParams<{ id: string; edit?: string; fromTab?: string }>();
   const { user, profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -426,7 +426,7 @@ export default function ActivityDetailScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : undefined} rightActions={headerActions} />
+      <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}

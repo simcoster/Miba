@@ -225,7 +225,7 @@ export default function EventsScreen() {
                 </View>
               );
             }
-            return <ActivityCard activity={item} />;
+            return <ActivityCard activity={item} fromTab={filter} />;
           }}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
