@@ -1,17 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
-  TextInput, ActivityIndicator, Linking,
+  TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { format, isToday, isTomorrow, isPast } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { format, isToday, isTomorrow, isPast, addHours, addMinutes } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity, Profile, Rsvp } from '@/lib/types';
+import { Activity, Profile, Rsvp, NOW_SENTINEL } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
@@ -23,6 +24,7 @@ export default function ActivityDetailScreen() {
 
   const [activity, setActivity] = useState<Activity | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rsvpLoading, setRsvpLoading] = useState(false);
 
@@ -35,17 +37,40 @@ export default function ActivityDetailScreen() {
   const [addSearching, setAddSearching] = useState(false);
   const [addLoading, setAddLoading] = useState<string | null>(null);
 
+  // Activity edit state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editIsNow, setEditIsNow] = useState(false);
+  const [editTime, setEditTime] = useState(new Date());
+  const [showEditPicker, setShowEditPicker] = useState(false);
+  const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
+  const [saveLoading, setSaveLoading] = useState(false);
+
+  // Maybe RSVP state
+  const [showMaybePanel, setShowMaybePanel] = useState(false);
+  const [maybeNote, setMaybeNote] = useState('');
+  const [noteLoading, setNoteLoading] = useState(false);
+  const lastSavedNote = useRef<string>('');
+
   const isCreator = activity?.created_by === user?.id;
 
   const fetchActivity = useCallback(async () => {
     if (!id || !user) return;
+    setFetchError(null);
     const { data, error } = await supabase.from('activities').select(`
       *,
       creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
-      rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url, is_demo))
+      rsvps(*, profile:profiles(id, full_name, avatar_url, is_demo))
     `).eq('id', id).single();
 
-    if (!error && data) {
+    if (error) {
+      console.error('[Activity] fetch error:', error.message);
+      setFetchError(error.message);
+      return;
+    }
+    if (data) {
       setActivity({
         ...data,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
@@ -177,7 +202,80 @@ export default function ActivityDetailScreen() {
     }},
   ]);
 
-  if (loading || !activity) {
+  const startEditing = () => {
+    if (!activity) return;
+    setEditTitle(activity.title);
+    setEditDesc(activity.description ?? '');
+    setEditLocation(activity.location ?? '');
+    const nowMode = activity.activity_time === NOW_SENTINEL;
+    setEditIsNow(nowMode);
+    setEditTime(nowMode ? new Date() : new Date(activity.activity_time));
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!activity || editTitle.trim().length < 2) return;
+    try {
+      setSaveLoading(true);
+      const { error } = await supabase.from('activities').update({
+        title: editTitle.trim(),
+        description: editDesc.trim() || null,
+        location: editLocation.trim() || null,
+        activity_time: editIsNow ? NOW_SENTINEL : editTime.toISOString(),
+      }).eq('id', activity.id);
+      if (error) throw error;
+      setIsEditing(false);
+      await fetchActivity();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not save changes.');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleMaybeRsvp = async (pct: 25 | 50 | 75) => {
+    if (!user || !activity) return;
+    try {
+      setRsvpLoading(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const existing = activity.my_rsvp;
+      if (existing) {
+        await supabase.from('rsvps').update({ status: 'maybe', maybe_pct: pct }).eq('id', existing.id);
+      } else {
+        await supabase.from('rsvps').insert({ activity_id: activity.id, user_id: user.id, status: 'maybe', maybe_pct: pct });
+      }
+      setShowMaybePanel(false);
+      await fetchActivity();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not update RSVP.');
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    if (!activity?.my_rsvp) return;
+    const trimmed = maybeNote.trim();
+    if (trimmed === lastSavedNote.current) return;
+    try {
+      setNoteLoading(true);
+      await supabase.from('rsvps').update({ note: trimmed || null }).eq('id', activity.my_rsvp.id);
+      lastSavedNote.current = trimmed;
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not save note.');
+    } finally {
+      setNoteLoading(false);
+    }
+  };
+
+  // Sync note field when rsvp first loads
+  useEffect(() => {
+    const note = activity?.my_rsvp?.note ?? '';
+    setMaybeNote(note);
+    lastSavedNote.current = note;
+  }, [activity?.my_rsvp?.id]);
+
+  if (loading) {
     return (
       <View style={styles.container}>
         <ScreenHeader title="Activity" showBack />
@@ -186,35 +284,72 @@ export default function ActivityDetailScreen() {
     );
   }
 
-  const activityDate = new Date(activity.activity_time);
-  const past = isPast(activityDate);
+  if (fetchError || !activity) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Activity" showBack />
+        <View style={styles.center}>
+          <Ionicons name="alert-circle-outline" size={40} color={Colors.danger} />
+          <Text style={[styles.loadingText, { marginTop: 10, color: Colors.danger }]}>
+            {fetchError ?? 'Activity not found.'}
+          </Text>
+          <TouchableOpacity onPress={() => { setLoading(true); fetchActivity().finally(() => setLoading(false)); }} style={{ marginTop: 16 }}>
+            <Text style={{ color: Colors.primary, fontWeight: '600' }}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  const isHappeningNow = activity.activity_time === NOW_SENTINEL;
+  const activityDate = isHappeningNow ? new Date() : new Date(activity.activity_time);
+  const past = isHappeningNow ? false : isPast(activityDate);
   const myRsvp = activity.my_rsvp;
 
-  const dateLabel = isToday(activityDate) ? `Today at ${format(activityDate, 'h:mm a')}`
+  const dateLabel = isHappeningNow ? 'Happening now'
+    : isToday(activityDate) ? `Today at ${format(activityDate, 'h:mm a')}`
     : isTomorrow(activityDate) ? `Tomorrow at ${format(activityDate, 'h:mm a')}`
     : format(activityDate, 'EEEE, MMMM d · h:mm a');
 
   // Split invitees by status
   const going = activity.rsvps?.filter(r => r.status === 'in') ?? [];
+  const maybe = activity.rsvps?.filter(r => r.status === 'maybe') ?? [];
   const notGoing = activity.rsvps?.filter(r => r.status === 'out') ?? [];
   const pending = activity.rsvps?.filter(r => r.status === 'pending') ?? [];
 
-  const headerActions = [
+  const headerActions = isEditing ? [
+    { icon: 'checkmark-outline' as const, label: 'Save', onPress: handleSaveEdit },
+  ] : [
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat`), badge: hasUnread },
-    ...(isCreator && !past && activity.status === 'active'
-      ? [{ icon: 'close-circle-outline' as const, onPress: handleCancel }]
-      : []),
+    ...(isCreator && !past && activity.status === 'active' ? [
+      { icon: 'create-outline' as const, onPress: startEditing },
+      { icon: 'close-circle-outline' as const, onPress: handleCancel },
+    ] : []),
   ];
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack rightActions={headerActions} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={[styles.title, past && styles.titlePast]}>{activity.title}</Text>
+        {/* Title */}
+        {isEditing ? (
+          <TextInput
+            style={styles.titleInput}
+            value={editTitle}
+            onChangeText={setEditTitle}
+            placeholder="Activity title…"
+            placeholderTextColor={Colors.textSecondary}
+            maxLength={80}
+            autoFocus
+          />
+        ) : (
+          <Text style={[styles.title, past && styles.titlePast]}>{activity.title}</Text>
+        )}
 
         {activity.status === 'cancelled' && (
           <View style={styles.cancelBanner}>
@@ -223,18 +358,57 @@ export default function ActivityDetailScreen() {
           </View>
         )}
 
+        {/* Meta card */}
         <View style={styles.metaCard}>
           <View style={styles.metaRow}>
             <View style={styles.metaIcon}><Ionicons name="calendar" size={20} color={Colors.primary} /></View>
-            <View><Text style={styles.metaLabel}>When</Text><Text style={styles.metaValue}>{dateLabel}</Text></View>
+            {isEditing ? (
+              <View style={{ flex: 1 }}>
+                <View style={styles.editQuickRow}>
+                  <TouchableOpacity style={[styles.editQuickBtn, editIsNow && styles.editQuickBtnActive]} onPress={() => setEditIsNow(true)}>
+                    <Ionicons name="flash" size={13} color={editIsNow ? Colors.primary : Colors.textSecondary} />
+                    <Text style={[styles.editQuickBtnText, editIsNow && styles.editQuickBtnTextActive]}>Now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editQuickBtn} onPress={() => { setEditIsNow(false); setEditTime(addMinutes(new Date(), 10)); }}>
+                    <Text style={styles.editQuickBtnText}>+10 min</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editQuickBtn} onPress={() => { setEditIsNow(false); setEditTime(addHours(new Date(), 1)); }}>
+                    <Text style={styles.editQuickBtnText}>+1 hour</Text>
+                  </TouchableOpacity>
+                </View>
+                {!editIsNow && (
+                  <View style={[styles.editDatetimeRow, { marginTop: 8 }]}>
+                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
+                      <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
+                      <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
+                      <Ionicons name="time-outline" size={15} color={Colors.primary} />
+                      <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View><Text style={styles.metaLabel}>When</Text><Text style={styles.metaValue}>{dateLabel}</Text></View>
+            )}
           </View>
-          {activity.location && (
-            <View style={styles.metaRow}>
-              <View style={styles.metaIcon}><Ionicons name="location" size={20} color={Colors.primary} /></View>
+          <View style={styles.metaRow}>
+            <View style={styles.metaIcon}><Ionicons name="location" size={20} color={Colors.primary} /></View>
+            {isEditing ? (
+              <TextInput
+                style={styles.editInlineInput}
+                value={editLocation}
+                onChangeText={setEditLocation}
+                placeholder="Where? (optional)"
+                placeholderTextColor={Colors.textSecondary}
+                maxLength={150}
+              />
+            ) : activity.location ? (
               <View style={{ flex: 1 }}><Text style={styles.metaLabel}>Where</Text><Text style={styles.metaValue}>{activity.location}</Text></View>
-            </View>
-          )}
-          {activity.creator && (
+            ) : null}
+          </View>
+          {activity.creator && !isEditing && (
             <View style={styles.metaRow}>
               <View style={styles.metaIcon}><Avatar uri={activity.creator.avatar_url} name={activity.creator.full_name} size={20} /></View>
               <View><Text style={styles.metaLabel}>Posted by</Text><Text style={styles.metaValue}>{activity.creator.full_name}</Text></View>
@@ -242,12 +416,53 @@ export default function ActivityDetailScreen() {
           )}
         </View>
 
-        {activity.description && (
+        {/* DateTimePicker for edit mode */}
+        {isEditing && !editIsNow && showEditPicker && (
+          <DateTimePicker
+            value={editTime} mode={editPickerMode}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            minimumDate={new Date()}
+            onChange={(_, date) => { setShowEditPicker(false); if (date) setEditTime(date); }}
+          />
+        )}
+
+        {/* Description */}
+        {isEditing ? (
+          <TextInput
+            style={[styles.editInput, styles.editTextArea]}
+            value={editDesc}
+            onChangeText={setEditDesc}
+            placeholder="Details (optional)"
+            placeholderTextColor={Colors.textSecondary}
+            maxLength={300}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        ) : activity.description ? (
           <View style={styles.descCard}><Text style={styles.descText}>{activity.description}</Text></View>
+        ) : null}
+
+        {/* Edit save / cancel */}
+        {isEditing && (
+          <View style={styles.editActions}>
+            <TouchableOpacity style={styles.editCancelBtn} onPress={() => setIsEditing(false)}>
+              <Text style={styles.editCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.editSaveBtn, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.5 }]}
+              onPress={handleSaveEdit}
+              disabled={saveLoading || editTitle.trim().length < 2}
+            >
+              {saveLoading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.editSaveText}>Save changes</Text>}
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* RSVP section */}
-        {!past && activity.status === 'active' && (
+        {!past && activity.status === 'active' && !isEditing && (
           <View style={styles.rsvpSection}>
             {isCreator ? (
               <View style={styles.hostBanner}>
@@ -260,27 +475,90 @@ export default function ActivityDetailScreen() {
               <>
                 <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Are you joining?</Text>
                 <View style={styles.rsvpButtons}>
+                  {/* I'm in — long press opens Maybe panel */}
                   <TouchableOpacity
-                    style={[styles.rsvpBtn, myRsvp?.status === 'in' && styles.rsvpBtnInActive]}
-                    onPress={() => handleRsvp('in')} disabled={rsvpLoading} activeOpacity={0.85}
+                    style={[
+                      styles.rsvpBtn,
+                      myRsvp?.status === 'in' && styles.rsvpBtnInActive,
+                      myRsvp?.status === 'maybe' && styles.rsvpBtnMaybeActive,
+                    ]}
+                    onPress={() => { setShowMaybePanel(false); handleRsvp('in'); }}
+                    onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowMaybePanel(v => !v); }}
+                    delayLongPress={400}
+                    disabled={rsvpLoading}
+                    activeOpacity={0.85}
                   >
                     {myRsvp?.status === 'in' ? (
                       <LinearGradient colors={[Colors.gradientStart, Colors.gradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.rsvpGradient}>
                         <Ionicons name="checkmark-circle" size={22} color="#fff" />
                         <Text style={styles.rsvpBtnTextActive}>I'm in! 🙌</Text>
                       </LinearGradient>
+                    ) : myRsvp?.status === 'maybe' ? (
+                      <>
+                        <Text style={styles.maybePctDisplay}>{myRsvp.maybe_pct}%</Text>
+                        <Text style={[styles.rsvpBtnText, { color: Colors.warning }]}>Maybe</Text>
+                      </>
                     ) : (
                       <><Ionicons name="checkmark-circle-outline" size={22} color={Colors.success} /><Text style={[styles.rsvpBtnText, { color: Colors.success }]}>I'm in</Text></>
                     )}
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.rsvpBtn, myRsvp?.status === 'out' && styles.rsvpBtnOutActive]}
-                    onPress={() => handleRsvp('out')} disabled={rsvpLoading} activeOpacity={0.85}
+                    onPress={() => { setShowMaybePanel(false); handleRsvp('out'); }}
+                    disabled={rsvpLoading}
+                    activeOpacity={0.85}
                   >
                     <Ionicons name="close-circle-outline" size={22} color={myRsvp?.status === 'out' ? Colors.danger : Colors.textSecondary} />
                     <Text style={[styles.rsvpBtnText, myRsvp?.status === 'out' && { color: Colors.danger }]}>Can't make it</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* Maybe panel */}
+                {showMaybePanel && (
+                  <View style={styles.maybePanel}>
+                    <Text style={styles.maybePanelTitle}>How likely are you?</Text>
+                    <View style={styles.maybePctRow}>
+                      {([25, 50, 75] as const).map(pct => {
+                        const active = myRsvp?.status === 'maybe' && myRsvp.maybe_pct === pct;
+                        return (
+                          <TouchableOpacity
+                            key={pct}
+                            style={[styles.maybePctBtn, active && styles.maybePctBtnActive]}
+                            onPress={() => handleMaybeRsvp(pct)}
+                            disabled={rsvpLoading}
+                          >
+                            <Text style={[styles.maybePctNum, active && { color: Colors.primary }]}>{pct}%</Text>
+                            <Text style={styles.maybePctLabel}>
+                              {pct === 25 ? 'Likely not' : pct === 50 ? 'On the fence' : 'Probably yes'}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {/* Note / conditions input — shown when status is maybe */}
+                {myRsvp?.status === 'maybe' && (
+                  <View style={styles.noteCard}>
+                    <View style={styles.noteCardHeader}>
+                      <Ionicons name="document-text-outline" size={15} color={Colors.primary} />
+                      <Text style={styles.noteCardTitle}>Need to check first?</Text>
+                      {noteLoading && <ActivityIndicator size="small" color={Colors.primary} style={{ marginLeft: 6 }} />}
+                    </View>
+                    <TextInput
+                      style={styles.noteInput}
+                      value={maybeNote}
+                      onChangeText={setMaybeNote}
+                      onBlur={handleSaveNote}
+                      placeholder="What do you need to confirm first? e.g. check work schedule, other plans…"
+                      placeholderTextColor={Colors.textSecondary}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -400,6 +678,28 @@ export default function ActivityDetailScreen() {
                   </TouchableOpacity>
                 );
               })}
+              {maybe.map(rsvp => {
+                const isMe = rsvp.user_id === user?.id;
+                const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
+                const visibleNote = (isMe || isCreator) ? (rsvp.note ?? null) : null;
+                return (
+                  <TouchableOpacity
+                    key={rsvp.id} style={styles.attendeeRow}
+                    onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
+                    activeOpacity={canRemove ? 0.7 : 1}
+                  >
+                    <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      {visibleNote ? <Text style={styles.attendeeNote} numberOfLines={2}>{visibleNote}</Text> : null}
+                    </View>
+                    {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                    <View style={styles.statusBadgeMaybe}>
+                      <Text style={styles.statusTextMaybe}>{rsvp.maybe_pct}% maybe</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
               {notGoing.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const canProxy = isCreator && rsvp.profile?.is_demo && activity.status === 'active' && !past;
@@ -441,22 +741,24 @@ export default function ActivityDetailScreen() {
         </View>
 
         {/* Chat entry */}
-        <TouchableOpacity
-          style={styles.chatEntry}
-          onPress={() => router.push(`/(app)/activity/${id}/chat`)}
-          activeOpacity={0.8}
-        >
-          <View style={styles.chatEntryIcon}>
-            <Ionicons name="chatbubble-ellipses" size={22} color={Colors.primary} />
-          </View>
-          <View style={styles.chatEntryText}>
-            <Text style={styles.chatEntryTitle}>Group Chat</Text>
-            <Text style={styles.chatEntrySubtitle}>Chat with everyone who's invited</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
-        </TouchableOpacity>
+        {!isEditing && (
+          <TouchableOpacity
+            style={styles.chatEntry}
+            onPress={() => router.push(`/(app)/activity/${id}/chat`)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.chatEntryIcon}>
+              <Ionicons name="chatbubble-ellipses" size={22} color={Colors.primary} />
+            </View>
+            <View style={styles.chatEntryText}>
+              <Text style={styles.chatEntryTitle}>Group Chat</Text>
+              <Text style={styles.chatEntrySubtitle}>Chat with everyone who's invited</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        )}
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -481,13 +783,43 @@ const styles = StyleSheet.create({
   hostGradient: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 16 },
   hostBannerText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
-  rsvpButtons: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  rsvpButtons: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   rsvpBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface, paddingVertical: 14, overflow: 'hidden' },
   rsvpBtnInActive: { borderColor: Colors.primary, padding: 0 },
   rsvpBtnOutActive: { borderColor: Colors.danger, backgroundColor: Colors.dangerLight },
+  rsvpBtnMaybeActive: { borderColor: Colors.warning, backgroundColor: Colors.warningLight },
   rsvpGradient: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 8 },
   rsvpBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
   rsvpBtnTextActive: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  maybePctDisplay: { fontSize: 17, fontWeight: '800', color: Colors.warning },
+  maybePanel: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.warning, padding: 14, marginBottom: 12 },
+  maybePanelTitle: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 10, textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.4 },
+  maybePctRow: { flexDirection: 'row', gap: 8 },
+  maybePctBtn: { flex: 1, alignItems: 'center', backgroundColor: Colors.background, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingVertical: 10, gap: 2 },
+  maybePctBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  maybePctNum: { fontSize: 18, fontWeight: '800', color: Colors.textSecondary },
+  maybePctLabel: { fontSize: 11, color: Colors.textSecondary, textAlign: 'center' },
+  noteCard: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.borderLight, padding: 14, marginBottom: 16 },
+  noteCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  noteCardTitle: { fontSize: 14, fontWeight: '600', color: Colors.primary, flex: 1 },
+  noteInput: { fontSize: 14, color: Colors.text, lineHeight: 20, minHeight: 64 },
+  titleInput: { fontSize: 26, fontWeight: '800', color: Colors.text, lineHeight: 32, marginBottom: 12, borderBottomWidth: 2, borderBottomColor: Colors.primary, paddingBottom: 4 },
+  editActions: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  editCancelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
+  editCancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+  editSaveBtn: { flex: 2, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 14, backgroundColor: Colors.primary },
+  editSaveText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  editQuickRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  editQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.background, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 5 },
+  editQuickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  editQuickBtnText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  editQuickBtnTextActive: { color: Colors.primary },
+  editDatetimeRow: { flexDirection: 'row', gap: 8 },
+  editDatetimeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 8 },
+  editDatetimeText: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  editInlineInput: { flex: 1, fontSize: 15, color: Colors.text, borderBottomWidth: 1, borderBottomColor: Colors.border, paddingVertical: 4 },
+  editInput: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: Colors.text, marginBottom: 12 },
+  editTextArea: { minHeight: 80, paddingTop: 10, textAlignVertical: 'top' },
   attendeesSection: { marginTop: 8, marginBottom: 16 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   addInviteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: Colors.accentLight },
@@ -516,8 +848,11 @@ const styles = StyleSheet.create({
   statusTextOut: { fontSize: 11, fontWeight: '600', color: Colors.danger },
   statusBadgePending: { backgroundColor: Colors.borderLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   statusTextPending: { fontSize: 11, fontWeight: '600', color: Colors.textSecondary },
+  statusBadgeMaybe: { backgroundColor: Colors.warningLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  statusTextMaybe: { fontSize: 11, fontWeight: '600', color: Colors.warning },
   statusBadgeHost: { backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   statusTextHost: { fontSize: 11, fontWeight: '700', color: Colors.primary },
+  attendeeNote: { fontSize: 12, color: Colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
   chatEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, padding: 14 },
   chatEntryIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   chatEntryText: { flex: 1 },

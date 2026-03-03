@@ -7,11 +7,11 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addHours } from 'date-fns';
+import { format, addHours, addMinutes } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Circle, Profile } from '@/lib/types';
+import { Circle, Profile, NOW_SENTINEL } from '@/lib/types';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
@@ -24,10 +24,19 @@ export default function NewActivityScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [isNow, setIsNow] = useState(false);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
+  const [quickHighlight, setQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+
+  const setQuickTime = (key: '10min' | '1hour', date: Date) => {
+    setIsNow(false);
+    setActivityTime(date);
+    setQuickHighlight(key);
+    setTimeout(() => setQuickHighlight(null), 700);
+  };
 
   // Circles for quick-add
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -116,7 +125,7 @@ export default function NewActivityScreen() {
         title: title.trim(),
         description: description.trim() || null,
         location: location.trim() || null,
-        activity_time: activityTime.toISOString(),
+        activity_time: isNow ? NOW_SENTINEL : activityTime.toISOString(),
       });
       if (activityError) throw activityError;
 
@@ -161,19 +170,48 @@ export default function NewActivityScreen() {
         {/* Date & Time */}
         <View style={styles.section}>
           <Text style={styles.label}>When? *</Text>
-          <View style={styles.datetimeRow}>
-            <TouchableOpacity style={[styles.datetimeBtn, { flex: 2 }]} onPress={() => { setPickerMode('date'); setShowPicker(true); }}>
-              <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
-              <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
+          <View style={styles.quickWhenRow}>
+            <TouchableOpacity
+              style={[styles.quickBtn, isNow && styles.quickBtnActive]}
+              onPress={() => setIsNow(true)}
+            >
+              <Ionicons name="flash" size={14} color={isNow ? Colors.primary : Colors.textSecondary} />
+              <Text style={[styles.quickBtnText, isNow && styles.quickBtnTextActive]}>Now</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.datetimeBtn, { flex: 1 }]} onPress={() => { setPickerMode('time'); setShowPicker(true); }}>
-              <Ionicons name="time-outline" size={18} color={Colors.primary} />
-              <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
+            <TouchableOpacity
+              style={[styles.quickBtn, quickHighlight === '10min' && styles.quickBtnActive]}
+              onPress={() => setQuickTime('10min', addMinutes(new Date(), 10))}
+            >
+              <Text style={[styles.quickBtnText, quickHighlight === '10min' && styles.quickBtnTextActive]}>+10 min</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickBtn, quickHighlight === '1hour' && styles.quickBtnActive]}
+              onPress={() => setQuickTime('1hour', addHours(new Date(), 1))}
+            >
+              <Text style={[styles.quickBtnText, quickHighlight === '1hour' && styles.quickBtnTextActive]}>+1 hour</Text>
             </TouchableOpacity>
           </View>
+          {!isNow && (
+            <View style={[styles.datetimeRow, { marginTop: 10 }]}>
+              <TouchableOpacity
+                style={[styles.datetimeBtn, { flex: 2 }, !!quickHighlight && styles.datetimeBtnHighlight]}
+                onPress={() => { setPickerMode('date'); setShowPicker(true); }}
+              >
+                <Ionicons name="calendar-outline" size={18} color={quickHighlight ? Colors.primary : Colors.primary} />
+                <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.datetimeBtn, { flex: 1 }, !!quickHighlight && styles.datetimeBtnHighlight]}
+                onPress={() => { setPickerMode('time'); setShowPicker(true); }}
+              >
+                <Ionicons name="time-outline" size={18} color={Colors.primary} />
+                <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
-        {showPicker && (
+        {!isNow && showPicker && (
           <DateTimePicker
             value={activityTime} mode={pickerMode}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
@@ -332,8 +370,14 @@ const styles = StyleSheet.create({
   textArea: { minHeight: 100, paddingTop: 12 },
   inputRow: { position: 'relative' },
   inputIcon: { position: 'absolute', left: 14, top: 14, zIndex: 1 },
+  quickWhenRow: { flexDirection: 'row', gap: 8 },
+  quickBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8 },
+  quickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  quickBtnText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  quickBtnTextActive: { color: Colors.primary },
   datetimeRow: { flexDirection: 'row', gap: 10 },
   datetimeBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 12 },
+  datetimeBtnHighlight: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   datetimeText: { fontSize: 15, fontWeight: '600', color: Colors.text },
   emptyCircles: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', padding: 14 },
   emptyCirclesText: { fontSize: 15, color: Colors.primary, fontWeight: '500' },

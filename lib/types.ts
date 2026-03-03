@@ -1,3 +1,6 @@
+/** Sentinel stored in activity_time to mean "happening right now" */
+export const NOW_SENTINEL = '1970-01-01T00:00:00.000Z';
+
 export type Profile = {
   id: string;
   username: string | null;
@@ -47,7 +50,9 @@ export type Rsvp = {
   id: string;
   activity_id: string;
   user_id: string;
-  status: 'pending' | 'in' | 'out';
+  status: 'pending' | 'in' | 'out' | 'maybe';
+  maybe_pct?: 25 | 50 | 75 | null;
+  note?: string | null;
   created_at: string;
   updated_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
