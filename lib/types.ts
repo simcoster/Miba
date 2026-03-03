@@ -44,13 +44,21 @@ export type Activity = {
   rsvps?: Rsvp[];
   my_rsvp?: Rsvp | null;
   going_count?: number;
+  /** True if the current user has never opened this activity */
+  is_new?: boolean;
+  /** True if there are chat messages newer than the user's last view */
+  has_new_messages?: boolean;
+  /** ISO timestamp of latest message from others (when has_new_messages) */
+  latest_message_at?: string;
 };
+
+export type RsvpStatus = 'pending' | 'in' | 'out' | 'maybe' | 'hosting';
 
 export type Rsvp = {
   id: string;
   activity_id: string;
   user_id: string;
-  status: 'pending' | 'in' | 'out' | 'maybe';
+  status: RsvpStatus;
   note?: string | null;
   created_at: string;
   updated_at: string;

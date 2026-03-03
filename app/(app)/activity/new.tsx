@@ -129,9 +129,9 @@ export default function NewActivityScreen() {
       });
       if (activityError) throw activityError;
 
-      // Build rsvp rows: creator gets 'in', everyone in the pool gets 'pending'
+      // Build rsvp rows: creator gets 'hosting', everyone in the pool gets 'pending'
       const rsvpRows = [
-        { activity_id: activityId, user_id: user.id, status: 'in' as const },
+        { activity_id: activityId, user_id: user.id, status: 'hosting' as const },
         ...[...invitePool.keys()].map(uid => ({
           activity_id: activityId,
           user_id: uid,

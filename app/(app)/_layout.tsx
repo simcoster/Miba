@@ -25,7 +25,15 @@ export default function AppLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} label="Home" />
+            <TabIcon name={focused ? 'notifications' : 'notifications-outline'} focused={focused} label="Updates" />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="events"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} focused={focused} label="Events" />
           ),
         }}
       />

@@ -4,15 +4,40 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Activity } from '@/lib/types';
+import { Activity, RsvpStatus } from '@/lib/types';
 import { Avatar } from './Avatar';
+
+const INVITED_BLUE = '#3B82F6';
+const INVITED_BLUE_LIGHT = '#EFF6FF';
+
+type RsvpConfig = {
+  iconName: React.ComponentProps<typeof Ionicons>['name'];
+  iconColor: string;
+  bg: string;
+  label: string;
+  textColor: string;
+};
+
+const RSVP_CONFIG: Record<RsvpStatus, RsvpConfig> = {
+  hosting: { iconName: 'star', iconColor: Colors.primary, bg: Colors.accentLight, label: 'Hosting', textColor: Colors.primary },
+  in: { iconName: 'checkmark-circle', iconColor: Colors.success, bg: Colors.successLight, label: "You're in!", textColor: Colors.success },
+  maybe: { iconName: 'help-circle', iconColor: Colors.warning, bg: Colors.warningLight, label: 'Maybe', textColor: Colors.warning },
+  out: { iconName: 'close-circle', iconColor: Colors.danger, bg: Colors.dangerLight, label: "Can't go", textColor: Colors.danger },
+  pending: { iconName: 'mail-open-outline', iconColor: INVITED_BLUE, bg: INVITED_BLUE_LIGHT, label: 'Invited', textColor: INVITED_BLUE },
+};
 
 export function ActivityCard({ activity }: { activity: Activity }) {
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
   const past = isPast(activityDate);
-  const goingCount = activity.going_count ?? activity.rsvps?.filter(r => r.status === 'in').length ?? 0;
+  const goingCount = activity.going_count ?? activity.rsvps?.filter(r => r.status === 'in' || r.status === 'hosting').length ?? 0;
   const myRsvp = activity.my_rsvp;
+  const isPending = myRsvp?.status === 'pending';
+  // Treat the creator as 'hosting' even if their RSVP row still says 'in' (pre-migration data)
+  const effectiveStatus = (myRsvp && activity.created_by === myRsvp.user_id && myRsvp.status === 'in')
+    ? 'hosting'
+    : myRsvp?.status;
+  const rsvpConfig = effectiveStatus ? RSVP_CONFIG[effectiveStatus] ?? null : null;
 
   const dateLabel = isToday(activityDate)
     ? `Today · ${format(activityDate, 'h:mm a')}`
@@ -22,7 +47,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
 
   return (
     <TouchableOpacity
-      style={[styles.card, past && styles.cardPast]}
+      style={[styles.card, past && styles.cardPast, isPending && styles.cardPending]}
       onPress={() => router.push(`/(app)/activity/${activity.id}`)}
       activeOpacity={0.85}
     >
@@ -33,13 +58,24 @@ export function ActivityCard({ activity }: { activity: Activity }) {
               <Text style={styles.cancelledBadgeText}>Cancelled</Text>
             </View>
           )}
+          {activity.is_new && myRsvp?.status !== 'hosting' && (
+            <View style={styles.newBadge}>
+              <Text style={styles.newBadgeText}>New</Text>
+            </View>
+          )}
         </View>
-        {myRsvp?.status === 'in' && (
-          <View style={styles.goingBadge}>
-            <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
-            <Text style={styles.goingBadgeText}>You're in!</Text>
-          </View>
-        )}
+
+        <View style={styles.headerRight}>
+          {activity.has_new_messages && <View style={styles.newMsgDot} />}
+          {rsvpConfig && (
+            <View style={[styles.rsvpBadge, { backgroundColor: rsvpConfig.bg }]}>
+              <Ionicons name={rsvpConfig.iconName} size={13} color={rsvpConfig.iconColor} />
+              <Text style={[styles.rsvpBadgeText, { color: rsvpConfig.textColor }]}>
+                {rsvpConfig.label}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <Text style={[styles.title, past && styles.titlePast]} numberOfLines={2}>
@@ -62,7 +98,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       <View style={styles.footer}>
         <View style={styles.avatarStack}>
           {activity.rsvps
-            ?.filter(r => r.status === 'in')
+            ?.filter(r => r.status === 'in' || r.status === 'hosting')
             .slice(0, 4)
             .map((rsvp, i) => (
               <View key={rsvp.id} style={[styles.avatarWrapper, { left: i * 20 }]}>
@@ -86,17 +122,27 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.borderLight,
   },
   cardPast: { opacity: 0.6 },
+  cardPending: { borderWidth: 2, borderColor: INVITED_BLUE },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cancelledBadge: {
     backgroundColor: Colors.dangerLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
   },
   cancelledBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.danger },
-  goingBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.successLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+  newBadge: {
+    backgroundColor: INVITED_BLUE, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 20,
   },
-  goingBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
+  newBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 0.3 },
+  newMsgDot: {
+    width: 9, height: 9, borderRadius: 5,
+    backgroundColor: Colors.primary,
+  },
+  rsvpBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+  },
+  rsvpBadgeText: { fontSize: 11, fontWeight: '600' },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 10, lineHeight: 24 },
   titlePast: { color: Colors.textSecondary },
   meta: { gap: 4, marginBottom: 12 },

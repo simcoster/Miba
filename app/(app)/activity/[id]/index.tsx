@@ -88,9 +88,14 @@ export default function ActivityDetailScreen() {
       const act = {
         ...data,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
-        going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
+        going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in' || r.status === 'hosting').length ?? 0,
       } as Activity;
       setActivity(act);
+      // Mark this activity as seen (clears "new", "new messages", and RSVP changes from updates feed)
+      const now = new Date().toISOString();
+      AsyncStorage.setItem(`miba_activity_last_seen_${id}`, now).catch(() => {});
+      AsyncStorage.setItem(`miba_chat_last_read_${id}`, now).catch(() => {});
+      AsyncStorage.setItem(`miba_rsvp_changes_seen_${id}`, now).catch(() => {});
 
       // Auto-enter edit mode when cloned (navigated with ?edit=1)
       if (editOnLoad.current) {
@@ -407,7 +412,7 @@ export default function ActivityDetailScreen() {
     );
 
   // Split invitees by status, host always first
-  const going = sortHostFirst(activity.rsvps?.filter(r => r.status === 'in') ?? []);
+  const going = sortHostFirst(activity.rsvps?.filter(r => r.status === 'in' || r.status === 'hosting') ?? []);
   const maybe = sortHostFirst(activity.rsvps?.filter(r => r.status === 'maybe') ?? []);
   const notGoing = sortHostFirst(activity.rsvps?.filter(r => r.status === 'out') ?? []);
   const pending = sortHostFirst(activity.rsvps?.filter(r => r.status === 'pending') ?? []);
@@ -721,7 +726,11 @@ export default function ActivityDetailScreen() {
                     <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
                     {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                     {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    {!(isMe && isHost) && <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>{canProxy ? 'Going ✎' : 'Going'}</Text></View>}
+                    {!(isMe && isHost) && (
+                      rsvp.status === 'hosting'
+                        ? <View style={styles.statusBadgeHosting}><Text style={styles.statusTextHosting}>Hosting</Text></View>
+                        : <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>{canProxy ? 'Going ✎' : 'Going'}</Text></View>
+                    )}
                   </TouchableOpacity>
                 );
               })}
@@ -946,6 +955,8 @@ const styles = StyleSheet.create({
   attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: Colors.text },
   youBadge: { backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   youText: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
+  statusBadgeHosting: { backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  statusTextHosting: { fontSize: 11, fontWeight: '600', color: Colors.primary },
   statusBadgeGoing: { backgroundColor: Colors.successLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   statusTextGoing: { fontSize: 11, fontWeight: '600', color: Colors.success },
   statusBadgeOut: { backgroundColor: Colors.dangerLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
