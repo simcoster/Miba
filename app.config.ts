@@ -13,6 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         icon: './assets/images/icon.png',
         color: '#F97316',
+        defaultChannel: 'mipo-proximity',
         sounds: [],
       },
     ],

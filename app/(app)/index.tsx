@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView,
 } from 'react-native';
@@ -265,16 +265,6 @@ export default function UpdatesScreen() {
     fetchUpdates().finally(() => setLoading(false));
   }, [fetchUpdates]);
 
-  const hasCheckedInitialOpen = useRef(false);
-  useEffect(() => {
-    if (!loading && !error && user && !hasCheckedInitialOpen.current) {
-      hasCheckedInitialOpen.current = true;
-      if (eventUpdates.length === 0) {
-        router.replace('/(app)/events');
-      }
-    }
-  }, [loading, error, eventUpdates.length, user, router]);
-
   useFocusEffect(
     useCallback(() => {
       if (!user) return;
@@ -342,9 +332,6 @@ export default function UpdatesScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Updates</Text>
-        <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/activity/new')}>
-          <Ionicons name="add" size={28} color={Colors.primary} />
-        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -482,10 +469,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
   },
   seenAllBarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  newButton: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',
-  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   emptyContainer: { flexGrow: 1 },

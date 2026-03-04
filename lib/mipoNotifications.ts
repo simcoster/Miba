@@ -7,8 +7,13 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
+
+/** Android channel for Mipo proximity notifications - ensures they show when app is in background */
+const MIPO_CHANNEL_ID = 'mipo-proximity';
 
 /**
  * Register for push notifications and store token in profiles.push_token.
@@ -16,6 +21,14 @@ Notifications.setNotificationHandler({
  */
 export async function registerForPushNotifications(userId: string): Promise<string | null> {
   if (Platform.OS === 'web') return null;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync(MIPO_CHANNEL_ID, {
+      name: 'Mipo',
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: 'default',
+    });
+  }
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let finalStatus = existing;

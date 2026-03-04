@@ -280,13 +280,13 @@ export default function NewActivityScreen() {
               <SplashArt preset={splashArt} height={105} opacity={0.4} />
             </View>
           )}
-          <View style={styles.coverOverlay}>
+          <View style={[styles.coverOverlay, splashArt && styles.coverOverlayWithSplash]}>
             <TouchableOpacity
-              style={[styles.addCoverBtn, splashArt && styles.addCoverBtnOnImage]}
+              style={styles.addCoverBtn}
               onPress={() => setShowSplashPicker(v => !v)}
             >
-              <Ionicons name="image-outline" size={16} color={splashArt ? '#fff' : Colors.primary} />
-              <Text style={[styles.addCoverBtnText, splashArt && styles.addCoverBtnTextOnImage]}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
+              <Ionicons name="image-outline" size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
             </TouchableOpacity>
             {showSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
@@ -669,13 +669,12 @@ const styles = StyleSheet.create({
   coverSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
   splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, height: 105, overflow: 'hidden', borderRadius: 16 },
   coverOverlay: { paddingTop: 8, paddingBottom: 4 },
+  coverOverlayWithSplash: { paddingTop: 117 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
-  addCoverBtnOnImage: {},
-  addCoverBtnTextOnImage: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   splashScroll: { marginHorizontal: -20, marginTop: 10 },
   splashScrollContent: { paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
-  splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10 },
+  splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10, backgroundColor: Colors.surface },
   splashOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   splashOptionImage: { padding: 0, overflow: 'hidden', width: 80 },
   splashThumb: { width: 80, height: 56, overflow: 'hidden', borderTopLeftRadius: 10, borderTopRightRadius: 10 },

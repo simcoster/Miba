@@ -1,6 +1,8 @@
-import { Tabs } from 'expo-router';
+import { useEffect } from 'react';
+import { Tabs, useRouter } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { MipoProvider, useMipo } from '@/contexts/MipoContext';
@@ -31,10 +33,31 @@ function MipoTabIcon({ focused }: { focused: boolean }) {
   );
 }
 
+function NotificationHandler() {
+  const router = useRouter();
+  useEffect(() => {
+    const handleResponse = (response: Notifications.NotificationResponse) => {
+      const data = response.notification.request.content.data as { type?: string };
+      if (data?.type === 'mipo_proximity') {
+        router.push('/(app)/mipo');
+      }
+    };
+    const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    Notifications.getLastNotificationResponseAsync().then((last) => {
+      if (last) {
+        handleResponse(last);
+      }
+    });
+    return () => sub.remove();
+  }, [router]);
+  return null;
+}
+
 export default function AppLayout() {
   const insets = useSafeAreaInsets();
   return (
     <MipoProvider>
+    <NotificationHandler />
     <Tabs
       backBehavior="history"
       screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}

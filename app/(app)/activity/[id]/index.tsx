@@ -537,15 +537,15 @@ export default function ActivityDetailScreen() {
             <SplashArt preset={isEditing ? editSplashArt! : activity.splash_art!} height={105} opacity={0.4} />
           </View>
         ) : null}
-        <View style={styles.titleSectionOverlay}>
+        <View style={[styles.titleSectionOverlay, isEditing && editSplashArt && styles.titleSectionOverlayWithSplash]}>
         {isEditing ? (
           <>
             <TouchableOpacity
-              style={[styles.addCoverBtn, editSplashArt && styles.addCoverBtnOnImage]}
+              style={styles.addCoverBtn}
               onPress={() => setShowEditSplashPicker(v => !v)}
             >
-              <Ionicons name="image-outline" size={16} color={editSplashArt ? '#fff' : Colors.primary} />
-              <Text style={[styles.addCoverBtnText, editSplashArt && styles.addCoverBtnTextOnImage]}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
+              <Ionicons name="image-outline" size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
             </TouchableOpacity>
             {showEditSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
@@ -1142,14 +1142,13 @@ const styles = StyleSheet.create({
   titleSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
   splashBackground: { position: 'absolute' as const, top: 0, left: 20, right: 20, height: 105, overflow: 'hidden', borderRadius: 16 },
   titleSectionOverlay: { paddingTop: 8, paddingBottom: 4 },
+  titleSectionOverlayWithSplash: { paddingTop: 117 },
   editSection: { marginBottom: 16 },
   editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
-  addCoverBtnOnImage: {},
-  addCoverBtnTextOnImage: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   splashPickerContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  splashPickerOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16 },
+  splashPickerOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: Colors.surface },
   splashPickerOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   splashPickerOptionImg: { padding: 0, overflow: 'hidden', width: 64 },
   splashPickerThumb: { width: 64, height: 48, overflow: 'hidden', borderRadius: 10 },
