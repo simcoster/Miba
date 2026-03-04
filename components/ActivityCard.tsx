@@ -7,6 +7,7 @@ import Colors from '@/constants/Colors';
 import { Activity, RsvpStatus } from '@/lib/types';
 import { Avatar } from './Avatar';
 import { LocationDisplay } from './LocationDisplay';
+import { SplashArt } from './SplashArt';
 
 const INVITED_BLUE = '#3B82F6';
 const INVITED_BLUE_LIGHT = '#EFF6FF';
@@ -39,9 +40,13 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
   const myRsvp = activity.my_rsvp;
   const isPending = myRsvp?.status === 'pending';
   const isHost = activity.created_by === myRsvp?.user_id;
-  // Host who is going shows "Hosting" badge; others use their RSVP status
-  const displayStatus = (isHost && myRsvp?.status === 'in') ? 'hosting' : myRsvp?.status;
-  const rsvpConfig = displayStatus ? (RSVP_CONFIG[displayStatus as RsvpStatus] ?? (displayStatus === 'hosting' ? HOSTING_CONFIG : null)) : null;
+  // Host: show both "Hosting" and RSVP status (Going, Maybe, etc.); non-host: just RSVP status
+  const hostingConfig = isHost ? HOSTING_CONFIG : null;
+  const rsvpStatus = myRsvp?.status;
+  const baseRsvpConfig = rsvpStatus ? RSVP_CONFIG[rsvpStatus as RsvpStatus] : null;
+  const rsvpConfig = baseRsvpConfig
+    ? (isHost && rsvpStatus === 'in' ? { ...baseRsvpConfig, label: 'Going' } : baseRsvpConfig)
+    : null;
 
   const dateLabel = isToday(activityDate)
     ? `Today · ${format(activityDate, 'h:mm a')}`
@@ -57,6 +62,14 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
       onPress={() => router.push(href as any)}
       activeOpacity={0.85}
     >
+      <View style={styles.cardContent}>
+      <View style={[styles.titleSectionWrapper, activity.splash_art && styles.titleSectionWithSplash]}>
+        {activity.splash_art && (
+          <View style={styles.splashBackground}>
+            <SplashArt preset={activity.splash_art} height={80} opacity={0.2} />
+          </View>
+        )}
+        <View style={styles.titleSectionOverlay}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           {activity.status === 'cancelled' && (
@@ -73,6 +86,14 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
 
         <View style={styles.headerRight}>
           {activity.has_new_messages && <View style={styles.newMsgDot} />}
+          {hostingConfig && (
+            <View style={[styles.rsvpBadge, { backgroundColor: hostingConfig.bg }]}>
+              <Ionicons name={hostingConfig.iconName} size={13} color={hostingConfig.iconColor} />
+              <Text style={[styles.rsvpBadgeText, { color: hostingConfig.textColor }]}>
+                {hostingConfig.label}
+              </Text>
+            </View>
+          )}
           {rsvpConfig && (
             <View style={[styles.rsvpBadge, { backgroundColor: rsvpConfig.bg }]}>
               <Ionicons name={rsvpConfig.iconName} size={13} color={rsvpConfig.iconColor} />
@@ -87,6 +108,8 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
       <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={2}>
         {activity.title}
       </Text>
+        </View>
+      </View>
 
       <View style={styles.meta}>
         <View style={styles.metaRow}>
@@ -113,17 +136,23 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
           {goingCount > 0 ? `${goingCount} ${goingCount === 1 ? 'person' : 'people'} going` : 'Be the first to join!'}
         </Text>
       </View>
+      </View>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface, borderRadius: 18, padding: 16, marginBottom: 12,
+    backgroundColor: Colors.surface, borderRadius: 18, marginBottom: 12, overflow: 'hidden',
     shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
     borderWidth: 1, borderColor: Colors.borderLight,
   },
+  cardContent: { padding: 16 },
+  titleSectionWrapper: { position: 'relative' as const },
+  titleSectionWithSplash: { marginHorizontal: -16, marginTop: -16, marginBottom: 0, minHeight: 80 },
+  splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, overflow: 'hidden', borderTopLeftRadius: 17, borderTopRightRadius: 17 },
+  titleSectionOverlay: { padding: 16, paddingTop: 16 },
   cardPast: { opacity: 0.6 },
   cardPending: { borderWidth: 2, borderColor: INVITED_BLUE },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },

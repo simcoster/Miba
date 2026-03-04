@@ -17,6 +17,8 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
+import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
 export default function NewActivityScreen() {
@@ -26,6 +28,9 @@ export default function NewActivityScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [splashArt, setSplashArt] = useState<SplashPreset | null>(null);
+  const [showSplashPicker, setShowSplashPicker] = useState(false);
+  const [showDetailsInput, setShowDetailsInput] = useState(false);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
   const [quickHighlight, setQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [loading, setLoading] = useState(false);
@@ -126,6 +131,7 @@ export default function NewActivityScreen() {
         description: description.trim() || null,
         location: location.trim() || null,
         activity_time: activityTime.toISOString(),
+        splash_art: splashArt,
       });
       if (activityError) throw activityError;
 
@@ -165,6 +171,39 @@ export default function NewActivityScreen() {
             placeholder="e.g. Morning surf, Escape room…"
             placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
           />
+        </View>
+
+        {/* Cover image (hidden until button tapped) */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.addCoverBtn}
+            onPress={() => setShowSplashPicker(v => !v)}
+          >
+            <Ionicons name="image-outline" size={16} color={Colors.primary} />
+            <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
+          </TouchableOpacity>
+          {showSplashPicker && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
+              <TouchableOpacity
+                style={[styles.splashOption, !splashArt && styles.splashOptionActive]}
+                onPress={() => setSplashArt(null)}
+              >
+                <Text style={styles.splashOptionText}>None</Text>
+              </TouchableOpacity>
+              {SPLASH_PRESETS.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
+                  onPress={() => setSplashArt(p.id)}
+                >
+                  <View style={styles.splashThumb}>
+                    <SplashArt preset={p.id} height={56} opacity={1} />
+                  </View>
+                  <Text style={styles.splashOptionLabel}>{p.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {/* Date & Time */}
@@ -223,14 +262,28 @@ export default function NewActivityScreen() {
           />
         </View>
 
-        {/* Details */}
+        {/* Details (hidden until button tapped) */}
         <View style={styles.section}>
-          <Text style={styles.label}>Details (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]} value={description} onChangeText={setDescription}
-            placeholder="Any extra info…" placeholderTextColor={Colors.textSecondary}
-            maxLength={300} multiline numberOfLines={4} textAlignVertical="top"
-          />
+          <TouchableOpacity
+            style={styles.addCoverBtn}
+            onPress={() => setShowDetailsInput(v => !v)}
+          >
+            <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+            <Text style={styles.addCoverBtnText}>{description.trim() ? 'Change details' : 'Add details'}</Text>
+          </TouchableOpacity>
+          {showDetailsInput && (
+            <TextInput
+              style={[styles.input, styles.textArea, { marginTop: 10 }]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Any extra info…"
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={300}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+          )}
         </View>
 
         {/* Invite via Circles */}
@@ -380,6 +433,16 @@ const styles = StyleSheet.create({
   searchResults: { marginTop: 6, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   searchInfo: { flex: 1 },
+  addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  splashScroll: { marginHorizontal: -20, marginTop: 10 },
+  splashScrollContent: { paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
+  splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10 },
+  splashOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  splashOptionImage: { padding: 0, overflow: 'hidden', width: 80 },
+  splashThumb: { width: 80, height: 56, overflow: 'hidden', borderTopLeftRadius: 10, borderTopRightRadius: 10 },
+  splashOptionLabel: { fontSize: 11, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
+  splashOptionText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   searchName: { fontSize: 15, fontWeight: '600', color: Colors.text },
   searchUsername: { fontSize: 13, color: Colors.textSecondary },
   invitePool: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

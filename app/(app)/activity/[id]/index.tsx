@@ -23,6 +23,8 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { LocationDisplay } from '@/components/LocationDisplay';
+import { SplashArt } from '@/components/SplashArt';
+import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import Colors from '@/constants/Colors';
 
@@ -53,6 +55,9 @@ export default function ActivityDetailScreen() {
   const [editDesc, setEditDesc] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editTime, setEditTime] = useState(new Date());
+  const [editSplashArt, setEditSplashArt] = useState<SplashPreset | null>(null);
+  const [showEditSplashPicker, setShowEditSplashPicker] = useState(false);
+  const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
   const [editQuickHighlight, setEditQuickHighlight] = useState<'10min' | '1hour' | null>(null);
@@ -118,6 +123,7 @@ export default function ActivityDetailScreen() {
         setEditDesc(act.description ?? '');
         setEditLocation(act.location ?? '');
         setEditTime(new Date(act.activity_time));
+        setEditSplashArt(act.splash_art ?? null);
         setIsEditing(true);
       }
     }
@@ -127,7 +133,8 @@ export default function ActivityDetailScreen() {
   const onRefresh = useCallback(async () => { setRefreshing(true); await fetchActivity(); setRefreshing(false); }, [fetchActivity]);
 
   // Bug fix: reset edit mode when navigating to a different activity
-  useEffect(() => { setIsEditing(false); }, [id]);
+  useEffect(() => { setIsEditing(false); setEditSplashArt(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
+  useEffect(() => { if (!isEditing) setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [isEditing]);
 
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
@@ -312,6 +319,7 @@ export default function ActivityDetailScreen() {
           location: activity.location,
           activity_time: newTime,
           created_by: user.id,
+          splash_art: activity.splash_art,
         })
         .select('id')
         .single();
@@ -339,6 +347,7 @@ export default function ActivityDetailScreen() {
     setEditDesc(activity.description ?? '');
     setEditLocation(activity.location ?? '');
     setEditTime(new Date(activity.activity_time));
+    setEditSplashArt(activity.splash_art ?? null);
     setIsEditing(true);
   };
 
@@ -352,12 +361,14 @@ export default function ActivityDetailScreen() {
         description: activity.description,
         location: activity.location,
         activity_time: activity.activity_time,
+        splash_art: activity.splash_art ?? undefined,
       };
       const newValues: EditableFields = {
         title: editTitle.trim(),
         description: editDesc.trim() || null,
         location: editLocation.trim() || null,
         activity_time: editTime.toISOString(),
+        splash_art: editSplashArt,
       };
 
       const { error } = await supabase.from('activities').update(newValues).eq('id', activity.id);
@@ -518,7 +529,13 @@ export default function ActivityDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
-      <View style={styles.titleSection}>
+      <View style={[styles.titleSection, activity.splash_art && !isEditing && styles.titleSectionWithSplash]}>
+        {activity.splash_art && !isEditing && (
+          <View style={styles.splashBackground}>
+            <SplashArt preset={activity.splash_art} height={105} opacity={0.4} />
+          </View>
+        )}
+        <View style={styles.titleSectionOverlay}>
         {isEditing ? (
           <TextInput
             style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
@@ -538,6 +555,7 @@ export default function ActivityDetailScreen() {
             <Text style={styles.cancelText}>This activity has been cancelled</Text>
           </View>
         )}
+        </View>
       </View>
 
       <ScrollView
@@ -614,19 +632,65 @@ export default function ActivityDetailScreen() {
           />
         )}
 
-        {/* Description */}
+        {/* Cover image (edit mode — hidden until button tapped) */}
+        {isEditing && (
+          <View style={styles.editSection}>
+            <TouchableOpacity
+              style={styles.addCoverBtn}
+              onPress={() => setShowEditSplashPicker(v => !v)}
+            >
+              <Ionicons name="image-outline" size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
+            </TouchableOpacity>
+            {showEditSplashPicker && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
+                <TouchableOpacity
+                  style={[styles.splashPickerOption, !editSplashArt && styles.splashPickerOptionActive]}
+                  onPress={() => setEditSplashArt(null)}
+                >
+                  <Text style={styles.splashPickerOptionText}>None</Text>
+                </TouchableOpacity>
+                {SPLASH_PRESETS.map(p => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
+                    onPress={() => setEditSplashArt(p.id)}
+                  >
+                    <View style={styles.splashPickerThumb}>
+                      <SplashArt preset={p.id} height={48} opacity={1} />
+                    </View>
+                    <Text style={styles.splashPickerOptionLabel}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+
+        {/* Description (edit: hidden until button tapped) */}
         {isEditing ? (
-          <TextInput
-            style={[styles.editInput, styles.editTextArea]}
-            value={editDesc}
-            onChangeText={setEditDesc}
-            placeholder="Details (optional)"
-            placeholderTextColor={Colors.textSecondary}
-            maxLength={300}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-          />
+          <View style={styles.editSection}>
+            <TouchableOpacity
+              style={styles.addCoverBtn}
+              onPress={() => setShowEditDetailsInput(v => !v)}
+            >
+              <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>{editDesc.trim() ? 'Change details' : 'Add details'}</Text>
+            </TouchableOpacity>
+            {showEditDetailsInput && (
+              <TextInput
+                style={[styles.editInput, styles.editTextArea, { marginTop: 10 }]}
+                value={editDesc}
+                onChangeText={setEditDesc}
+                placeholder="Any extra info…"
+                placeholderTextColor={Colors.textSecondary}
+                maxLength={300}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+            )}
+          </View>
         ) : activity.description ? (
           <View style={styles.descCard}><Text style={styles.descText}>{activity.description}</Text></View>
         ) : null}
@@ -960,7 +1024,7 @@ export default function ActivityDetailScreen() {
         {isEditing && (
           <View style={styles.creatorFooter}>
             <TouchableOpacity
-              style={[styles.footerBtn, styles.footerBtnPrimary, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.4 }]}
+              style={[styles.footerBtn, styles.footerBtnPrimary, (saveLoading || editTitle.trim().length < 2) && { opacity: 0.2 }]}
               onPress={handleSaveEdit}
               disabled={saveLoading || editTitle.trim().length < 2}
             >
@@ -1076,9 +1140,23 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
-  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, position: 'relative' as const },
+  titleSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
+  splashBackground: { position: 'absolute' as const, top: 0, left: 20, right: 20, height: 105, overflow: 'hidden', borderRadius: 16 },
+  titleSectionOverlay: { paddingTop: 8, paddingBottom: 4 },
+  editSection: { marginBottom: 16 },
+  editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
+  addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  splashPickerContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  splashPickerOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16 },
+  splashPickerOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  splashPickerOptionImg: { padding: 0, overflow: 'hidden', width: 64 },
+  splashPickerThumb: { width: 64, height: 48, overflow: 'hidden', borderRadius: 10 },
+  splashPickerOptionLabel: { fontSize: 10, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
+  splashPickerOptionText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   content: { padding: 20, paddingBottom: 60 },
-  title: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 12 },
+  title: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 12, paddingVertical: 8, paddingHorizontal: 4 },
   titleRtl: { textAlign: 'right' },
   titlePast: { color: Colors.textSecondary },
   cancelBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.dangerLight, borderRadius: 12, padding: 12, marginBottom: 12 },

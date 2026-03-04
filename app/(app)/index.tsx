@@ -16,6 +16,7 @@ import { markUpdatesAsSeen } from '@/lib/markUpdatesSeen';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
+import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
@@ -407,7 +408,14 @@ export default function UpdatesScreen() {
                 onPress={() => handlePress(item)}
                 activeOpacity={0.85}
               >
-                <View style={styles.cardHeader}>
+                <View style={[styles.cardContent, item.activity.splash_art && styles.cardContentWithSplash]}>
+                <View style={[styles.cardHeaderWrapper, item.activity.splash_art && styles.cardHeaderWithSplash]}>
+                  {item.activity.splash_art && (
+                    <View style={styles.cardSplashBackground}>
+                      <SplashArt preset={item.activity.splash_art} height={90} opacity={0.2} />
+                    </View>
+                  )}
+                <View style={[styles.cardHeader, item.activity.splash_art && styles.cardHeaderOverlay]}>
                   <Text style={[styles.cardTitle, isHebrew(item.activity.title) && styles.titleRtl]} numberOfLines={2}>{item.activity.title}</Text>
                   <TouchableOpacity
                     style={styles.dismissButton}
@@ -427,6 +435,7 @@ export default function UpdatesScreen() {
                       ))}
                   </View>
                 </View>
+                </View>
                 <View style={styles.meta}>
                   <Ionicons name="time-outline" size={13} color={Colors.textSecondary} />
                   <Text style={styles.metaText}>{formatDate(item.activity.activity_time)}</Text>
@@ -435,6 +444,7 @@ export default function UpdatesScreen() {
                   {item.updates.map((u, i) => (
                     <View key={i}>{renderUpdateLabel(u)}</View>
                   ))}
+                </View>
                 </View>
               </TouchableOpacity>
             </Swipeable>
@@ -471,12 +481,18 @@ const styles = StyleSheet.create({
   emptyContainer: { flexGrow: 1 },
   list: { paddingHorizontal: 20, paddingBottom: 100 },
   card: {
-    backgroundColor: Colors.surface, borderRadius: 18, padding: 16,
+    backgroundColor: Colors.surface, borderRadius: 18, overflow: 'hidden',
     shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
     borderWidth: 1, borderColor: Colors.borderLight,
   },
+  cardContent: { padding: 16 },
+  cardContentWithSplash: {},
+  cardHeaderWrapper: { position: 'relative' as const },
+  cardHeaderWithSplash: { marginHorizontal: -16, marginTop: -16, minHeight: 90 },
+  cardSplashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, overflow: 'hidden', borderTopLeftRadius: 17, borderTopRightRadius: 17 },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 },
+  cardHeaderOverlay: { padding: 16, paddingTop: 16, marginHorizontal: -16, marginTop: -16 },
   cardTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, flex: 1, marginRight: 8 },
   titleRtl: { textAlign: 'right' },
   dismissButton: { padding: 4, marginLeft: 4 },
