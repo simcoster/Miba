@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Message } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { parseLocation } from '@/lib/locationUtils';
 import Colors from '@/constants/Colors';
 
 function formatMessageTime(dateStr: string): string {
@@ -139,7 +140,8 @@ export default function ActivityChatScreen() {
   };
 
   const STATUS_LABELS: Record<string, string> = {
-    pending: 'Invited', in: "I'm in!", out: "Can't go", maybe: 'Maybe', hosting: 'Hosting',
+    pending: 'Invited', in: "I'm in!", out: "Can't go", maybe: 'Maybe',
+    hosting: 'Hosting', // legacy: old rsvp_changed messages
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
@@ -168,7 +170,8 @@ export default function ActivityChatScreen() {
           parts.push(`${format(d, 'h:mm a')}?`);
         }
         if (meta?.suggested_location) {
-          parts.push(meta.suggested_location);
+          const parsed = parseLocation(meta.suggested_location);
+          parts.push(parsed?.address ?? meta.suggested_location);
         }
         const text = parts.length > 0
           ? `${parts.join(' · ')}${meta?.note ? ` · ${meta.note}` : ''}`

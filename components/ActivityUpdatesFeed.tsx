@@ -8,6 +8,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { Avatar } from '@/components/Avatar';
 import Colors from '@/constants/Colors';
+import { parseLocation } from '@/lib/locationUtils';
 import type { RsvpStatus } from '@/lib/types';
 import type { RsvpChangeMetadata } from '@/lib/postRsvpChangeMessage';
 import type { EditSuggestionMetadata } from '@/lib/types';
@@ -40,8 +41,9 @@ const STATUS_LABELS: Record<RsvpStatus, string> = {
   in: "I'm in!",
   out: "Can't go",
   maybe: 'Maybe',
-  hosting: 'Hosting',
 };
+// Legacy: old rsvp_changed messages may have 'hosting' in metadata
+const STATUS_LABEL = (s: string) => STATUS_LABELS[s as RsvpStatus] ?? (s === 'hosting' ? 'Hosting' : s);
 
 function formatUpdateTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -106,7 +108,8 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
           parts.push(format(d, 'h:mm a'));
         }
         if (meta?.suggested_location) {
-          parts.push(meta.suggested_location);
+          const parsed = parseLocation(meta.suggested_location);
+          parts.push(parsed?.address ?? meta.suggested_location);
         }
         const suggestionText = parts.length > 0
           ? `suggested ${parts.join(' · ')}${meta?.note ? ` · ${meta.note}` : ''}`
@@ -121,8 +124,8 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
         });
       } else if (msg.content === 'rsvp_changed') {
         const meta = msg.metadata as RsvpChangeMetadata | null;
-        const oldLabel = meta?.old_status ? STATUS_LABELS[meta.old_status as RsvpStatus] ?? meta.old_status : '?';
-        const newLabel = meta?.new_status ? STATUS_LABELS[meta.new_status as RsvpStatus] ?? meta.new_status : '?';
+        const oldLabel = meta?.old_status ? STATUS_LABEL(meta.old_status) : '?';
+        const newLabel = meta?.new_status ? STATUS_LABEL(meta.new_status) : '?';
         const changedUserId = meta?.changed_user_id;
         let text: string;
         if (changedUserId && changedUserId !== msg.user_id) {

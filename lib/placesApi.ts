@@ -14,6 +14,12 @@ const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 const AUTocomplete_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const PLACE_DETAILS_URL = 'https://places.googleapis.com/v1/places';
 
+// Log API config on load (helps debug .env loading)
+if (__DEV__) {
+  const configured = !!API_KEY.trim();
+  console.log('[Places] API configured:', configured, configured ? `(key length: ${API_KEY.length})` : '(add EXPO_PUBLIC_GOOGLE_PLACES_API_KEY to .env — not .env.txt)');
+}
+
 export interface PlacePrediction {
   placeId: string;
   place: string; // resource name
@@ -23,6 +29,7 @@ export interface PlacePrediction {
 }
 
 export interface PlaceDetails {
+  placeId: string;
   displayName: string;
   formattedAddress: string;
 }
@@ -39,10 +46,17 @@ export async function fetchAutocomplete(
   input: string,
   sessionToken: string
 ): Promise<PlacePrediction[]> {
-  if (!isApiConfigured()) return [];
+  if (!isApiConfigured()) {
+    console.log('[Places] Autocomplete skipped: API key not configured');
+    return [];
+  }
   const trimmed = input.trim();
-  if (trimmed.length < 2) return [];
+  if (trimmed.length < 2) {
+    console.log('[Places] Autocomplete skipped: input too short (< 2 chars)');
+    return [];
+  }
 
+  console.log('[Places] Autocomplete request:', { input: trimmed, sessionToken: sessionToken.slice(0, 8) + '…' });
   const res = await fetch(AUTocomplete_URL, {
     method: 'POST',
     headers: {
@@ -53,16 +67,19 @@ export async function fetchAutocomplete(
       input: trimmed,
       sessionToken,
       includeQueryPredictions: false,
+      regionCode: 'IL',
     }),
   });
 
   if (!res.ok) {
-    console.warn('[Places] Autocomplete error:', res.status, await res.text());
+    const errText = await res.text();
+    console.warn('[Places] Autocomplete error:', res.status, errText);
     return [];
   }
 
   const data = await res.json();
   const suggestions = data.suggestions ?? [];
+  console.log('[Places] Autocomplete response:', suggestions.length, 'suggestions');
   const predictions: PlacePrediction[] = [];
 
   for (const s of suggestions) {
@@ -93,9 +110,13 @@ export async function fetchPlaceDetails(
   placeId: string,
   sessionToken: string
 ): Promise<PlaceDetails | null> {
-  if (!isApiConfigured()) return null;
+  if (!isApiConfigured()) {
+    console.log('[Places] Place Details skipped: API key not configured');
+    return null;
+  }
   const id = placeId.replace(/^places\//, '');
 
+  console.log('[Places] Place Details request:', { placeId: id });
   const url = `${PLACE_DETAILS_URL}/${id}?sessionToken=${encodeURIComponent(sessionToken)}`;
   const res = await fetch(url, {
     method: 'GET',
@@ -112,6 +133,7 @@ export async function fetchPlaceDetails(
   }
 
   const data = await res.json();
+  console.log('[Places] Place Details response:', data.displayName?.text ?? data.formattedAddress ?? 'ok');
   const displayName = data.displayName?.text ?? '';
   const formattedAddress = data.formattedAddress ?? '';
   // Prefer formatted address if available; otherwise use display name
@@ -119,6 +141,7 @@ export async function fetchPlaceDetails(
   if (!text) return null;
 
   return {
+    placeId: id,
     displayName,
     formattedAddress: text,
   };

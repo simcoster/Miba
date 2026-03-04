@@ -21,6 +21,9 @@ import { postRsvpChangeMessage } from '@/lib/postRsvpChangeMessage';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
+import { LocationAutocomplete } from '@/components/LocationAutocomplete';
+import { LocationDisplay } from '@/components/LocationDisplay';
+import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
@@ -86,7 +89,7 @@ export default function ActivityDetailScreen() {
     setFetchError(null);
     const { data, error } = await supabase.from('activities').select(`
       *,
-      creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+      host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
       rsvps(*, profile:profiles(id, full_name, avatar_url))
     `).eq('id', id).single();
 
@@ -99,7 +102,7 @@ export default function ActivityDetailScreen() {
       const act = {
         ...data,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
-        going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in' || r.status === 'hosting').length ?? 0,
+        going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
       } as Activity;
       setActivity(act);
       // Mark this activity as seen (clears "new", "new messages", and RSVP changes from updates feed)
@@ -146,7 +149,7 @@ export default function ActivityDetailScreen() {
   useFocusEffect(useCallback(() => { checkUnread(); }, [checkUnread]));
 
   const handleBack = useCallback(() => {
-    if (fromTab === 'declined' && activity?.my_rsvp && (activity.my_rsvp.status === 'in' || activity.my_rsvp.status === 'maybe' || activity.my_rsvp.status === 'hosting')) {
+    if (fromTab === 'declined' && activity?.my_rsvp && (activity.my_rsvp.status === 'in' || activity.my_rsvp.status === 'maybe')) {
       router.replace('/(app)/events?tab=upcoming');
       return;
     }
@@ -178,23 +181,53 @@ export default function ActivityDetailScreen() {
 
   const handleRsvp = async (status: 'in' | 'out') => {
     if (!user || !activity) return;
-    // Creator is always "in" — their RSVP is locked
-    if (activity.created_by === user.id) return;
+    const isCreator = activity.created_by === user.id;
+
+    // Host declining: show delete confirmation dialog
+    if (status === 'out' && isCreator) {
+      const existing = activity.my_rsvp;
+      const alreadyOut = existing?.status === 'out';
+      if (!alreadyOut) {
+        Alert.alert(
+          "You're declining this event",
+          'Would you like to delete the activity instead?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Just decline', onPress: () => performRsvpUpdate('out') },
+            { text: 'Delete event', style: 'destructive', onPress: async () => {
+              await supabase.from('activities').update({ status: 'cancelled' }).eq('id', activity.id);
+              fetchActivity();
+            }},
+          ]
+        );
+        return;
+      }
+    }
+
+    await performRsvpUpdate(status);
+  };
+
+  const performRsvpUpdate = async (status: 'in' | 'out') => {
+    if (!user || !activity) return;
     try {
       setRsvpLoading(true);
       Haptics.impactAsync(status === 'in' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
       const existing = activity.my_rsvp;
       const oldStatus = existing?.status ?? 'pending';
-      let newStatus: 'pending' | 'in' | 'out' = status;
+      const isCreator = activity.created_by === user.id;
+      const dbStatus = status;
+      const isAlreadySelected = status === 'in' ? existing?.status === 'in' : existing?.status === 'out';
+      let newStatus: 'pending' | 'in' | 'out' = dbStatus;
+
       if (existing) {
-        if (existing.status === status) {
+        if (isAlreadySelected) {
           await supabase.from('rsvps').update({ status: 'pending' }).eq('id', existing.id);
           newStatus = 'pending';
         } else {
-          await supabase.from('rsvps').update({ status }).eq('id', existing.id);
+          await supabase.from('rsvps').update({ status: dbStatus }).eq('id', existing.id);
         }
       } else {
-        await supabase.from('rsvps').insert({ activity_id: activity.id, user_id: user.id, status });
+        await supabase.from('rsvps').insert({ activity_id: activity.id, user_id: user.id, status: dbStatus });
       }
       if (oldStatus !== newStatus) {
         postRsvpChangeMessage(activity.id, user.id, oldStatus, newStatus).catch(() => {});
@@ -462,16 +495,17 @@ export default function ActivityDetailScreen() {
     : isTomorrow(activityDate) ? `Tomorrow at ${format(activityDate, 'h:mm a')}`
     : format(activityDate, 'EEEE, MMMM d · h:mm a');
 
-  const sortHostFirst = (rsvps: Rsvp[]) =>
-    [...rsvps].sort((a, b) =>
-      a.user_id === activity.created_by ? -1 : b.user_id === activity.created_by ? 1 : 0
-    );
+  const hostId = activity.created_by;
+  const hostRsvp = activity.rsvps?.find(r => r.user_id === hostId) ?? null;
+  const withoutHost = (rsvps: Rsvp[]) => rsvps.filter(r => r.user_id !== hostId);
 
-  // Split invitees by status, host always first
-  const going = sortHostFirst(activity.rsvps?.filter(r => r.status === 'in' || r.status === 'hosting') ?? []);
-  const maybe = sortHostFirst(activity.rsvps?.filter(r => r.status === 'maybe') ?? []);
-  const notGoing = sortHostFirst(activity.rsvps?.filter(r => r.status === 'out') ?? []);
-  const pending = sortHostFirst(activity.rsvps?.filter(r => r.status === 'pending') ?? []);
+  // Split invitees by status; host is rendered first separately
+  const going = withoutHost(activity.rsvps?.filter(r => r.status === 'in') ?? []);
+  const maybe = withoutHost(activity.rsvps?.filter(r => r.status === 'maybe') ?? []);
+  const notGoing = withoutHost(activity.rsvps?.filter(r => r.status === 'out') ?? []);
+  const pending = withoutHost(activity.rsvps?.filter(r => r.status === 'pending') ?? []);
+
+  const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
   const headerActions = [
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat`), badge: hasUnread },
@@ -483,16 +517,11 @@ export default function ActivityDetailScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Title */}
+      {/* Fixed title — does not scroll */}
+      <View style={styles.titleSection}>
         {isEditing ? (
           <TextInput
-            style={styles.titleInput}
+            style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
             value={editTitle}
             onChangeText={setEditTitle}
             placeholder="Activity title…"
@@ -501,16 +530,22 @@ export default function ActivityDetailScreen() {
             autoFocus
           />
         ) : (
-          <Text style={[styles.title, past && styles.titlePast]}>{activity.title}</Text>
+          <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]}>{activity.title}</Text>
         )}
-
         {activity.status === 'cancelled' && (
           <View style={styles.cancelBanner}>
             <Ionicons name="close-circle" size={16} color={Colors.danger} />
             <Text style={styles.cancelText}>This activity has been cancelled</Text>
           </View>
         )}
+      </View>
 
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Meta card */}
         <View style={styles.metaCard}>
           <View style={styles.metaRow}>
@@ -543,16 +578,22 @@ export default function ActivityDetailScreen() {
           <View style={styles.metaRow}>
             <View style={styles.metaIcon}><Ionicons name="location" size={20} color={Colors.primary} /></View>
             {isEditing ? (
-              <TextInput
-                style={styles.editInlineInput}
-                value={editLocation}
-                onChangeText={setEditLocation}
-                placeholder="Where? (optional)"
-                placeholderTextColor={Colors.textSecondary}
-                maxLength={150}
-              />
+              <View style={{ flex: 1 }}>
+                <LocationAutocomplete
+                  value={parseLocation(editLocation)?.address ?? editLocation ?? ''}
+                  onChangeText={(text) => setEditLocation(text)}
+                  onResolvedPlace={(p) => setEditLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
+                  placeholder="Where? (optional)"
+                  maxLength={150}
+                  showIcon={false}
+                  style={{ marginBottom: 0 }}
+                />
+              </View>
             ) : activity.location ? (
-              <View style={{ flex: 1 }}><Text style={styles.metaLabel}>Where</Text><Text style={styles.metaValue}>{activity.location}</Text></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.metaLabel}>Where</Text>
+                <LocationDisplay location={activity.location} variant="detail" showIcon={false} />
+              </View>
             ) : null}
           </View>
           {!past && activity.status === 'active' && !isEditing && !isCreator && (
@@ -592,7 +633,7 @@ export default function ActivityDetailScreen() {
 
 
         {/* RSVP section */}
-        {!past && activity.status === 'active' && !isEditing && !isCreator && (
+        {!past && activity.status === 'active' && !isEditing && (
           <View style={styles.rsvpSection}>
             <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Are you joining?</Text>
                 <View style={styles.rsvpButtons}>
@@ -766,6 +807,36 @@ export default function ActivityDetailScreen() {
             <Text style={styles.noAttendees}>No one invited yet.</Text>
           ) : (
             <View style={styles.attendeeList}>
+              {/* Host always first */}
+              {hostRsvp && (() => {
+                const rsvp = hostRsvp;
+                const isMe = rsvp.user_id === user?.id;
+                const isHost = true;
+                const canRemove = false;
+                const status = rsvp.status;
+                const rowOpacity = status === 'out' ? 0.6 : status === 'pending' ? 0.5 : 1;
+                return (
+                  <View key={rsvp.id} style={[styles.attendeeRow, { opacity: rowOpacity }]}>
+                    <TouchableOpacity style={styles.attendeeRowMain} activeOpacity={1}>
+                      <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                      {status === 'maybe' ? (
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                          {(isMe ? maybeNote : (isCreator ? rsvp.note : null)) ? <Text style={styles.attendeeNote} numberOfLines={2}>{isMe ? maybeNote : rsvp.note}</Text> : null}
+                        </View>
+                      ) : (
+                        <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      )}
+                      {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                      <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>
+                      {status === 'in' && <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>}
+                      {status === 'maybe' && <View style={styles.statusBadgeMaybe}><Text style={styles.statusTextMaybe}>Maybe</Text></View>}
+                      {status === 'out' && <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>Can't go</Text></View>}
+                      {status === 'pending' && <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>Invited</Text></View>}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
               {going.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
@@ -781,11 +852,7 @@ export default function ActivityDetailScreen() {
                       <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
                       {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                      {!(isMe && isHost) && (
-                        rsvp.status === 'hosting'
-                          ? <View style={styles.statusBadgeHosting}><Text style={styles.statusTextHosting}>Hosting</Text></View>
-                          : <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>
-                      )}
+                      <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>
                     </TouchableOpacity>
                     {canRemove && (
                       <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -954,13 +1021,15 @@ export default function ActivityDetailScreen() {
             </TouchableOpacity>
 
             <Text style={styles.suggestionLabel}>Suggested location (optional)</Text>
-            <TextInput
-              style={styles.suggestionTextInput}
-              value={suggestLocation}
-              onChangeText={setSuggestLocation}
+            <LocationAutocomplete
+              value={parseLocation(suggestLocation)?.address ?? suggestLocation ?? ''}
+              onChangeText={(text) => setSuggestLocation(text)}
+              onResolvedPlace={(p) => setSuggestLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
               placeholder="e.g. Coffee shop downtown"
-              placeholderTextColor={Colors.textSecondary}
               maxLength={150}
+              showIcon={false}
+              style={{ marginBottom: 16 }}
+              inputStyle={styles.suggestionTextInput}
             />
 
             <Text style={styles.suggestionLabel}>Note *</Text>
@@ -1007,8 +1076,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
+  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   content: { padding: 20, paddingBottom: 60 },
   title: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 12 },
+  titleRtl: { textAlign: 'right' },
   titlePast: { color: Colors.textSecondary },
   cancelBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.dangerLight, borderRadius: 12, padding: 12, marginBottom: 12 },
   cancelText: { fontSize: 14, color: Colors.danger, fontWeight: '600' },

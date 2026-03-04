@@ -52,7 +52,23 @@ npm install
 
 ---
 
-## Step 4 — Run the app
+## Step 4 — (Optional) Location autocomplete
+
+When creating or editing an activity, the location field supports Google Places autocomplete. To enable it:
+
+1. In [Google Cloud Console](https://console.cloud.google.com), enable **Places API (New)**
+2. Create an API key (or use an existing one) under **APIs & Services → Credentials**
+3. Add to your environment (e.g. `.env` or `app.config.js`):
+   ```
+   EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=your_api_key_here
+   ```
+4. Restrict the key (recommended): **Application restrictions** → iOS/Android app, or **API restrictions** → restrict to Places API only
+
+**Billing:** The app uses session tokens so that selecting a place bills as one Place Details request (~$0.017) instead of per keystroke. Abandoned searches use the free 10,000 Autocomplete requests/month allowance.
+
+---
+
+## Step 5 — Run the app
 
 ```bash
 npx expo start
@@ -106,3 +122,6 @@ Check that `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are co
 
 **Phone can't find the Expo dev server:**
 Your phone and computer must be on the same Wi-Fi network. Look at the IP shown in `expo start` and add `exp://192.168.x.x:8081` to Supabase redirect URLs.
+
+**Location autocomplete not showing:**
+Ensure `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set and Places API (New) is enabled in Google Cloud. Without the key, the location field works as a plain text input.

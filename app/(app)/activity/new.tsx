@@ -15,6 +15,8 @@ import { Circle, Profile } from '@/lib/types';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
+import { LocationAutocomplete } from '@/components/LocationAutocomplete';
+import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import Colors from '@/constants/Colors';
 
 export default function NewActivityScreen() {
@@ -127,9 +129,9 @@ export default function NewActivityScreen() {
       });
       if (activityError) throw activityError;
 
-      // Build rsvp rows: creator gets 'hosting', everyone in the pool gets 'pending'
+      // Build rsvp rows: creator gets 'in' (default host RSVP), everyone in the pool gets 'pending'
       const rsvpRows = [
-        { activity_id: activityId, user_id: user.id, status: 'hosting' as const },
+        { activity_id: activityId, user_id: user.id, status: 'in' as const },
         ...[...invitePool.keys()].map(uid => ({
           activity_id: activityId,
           user_id: uid,
@@ -212,13 +214,13 @@ export default function NewActivityScreen() {
         {/* Location */}
         <View style={styles.section}>
           <Text style={styles.label}>Where? (optional)</Text>
-          <View style={styles.inputRow}>
-            <Ionicons name="location-outline" size={18} color={Colors.textSecondary} style={styles.inputIcon} />
-            <TextInput
-              style={[styles.input, { paddingLeft: 40, flex: 1 }]} value={location} onChangeText={setLocation}
-              placeholder="Venue, address, or link…" placeholderTextColor={Colors.textSecondary} maxLength={150}
-            />
-          </View>
+          <LocationAutocomplete
+            value={parseLocation(location)?.address ?? location ?? ''}
+            onChangeText={(text) => setLocation(text)}
+            onResolvedPlace={(p) => setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
+            placeholder="Venue, address, or link…"
+            maxLength={150}
+          />
         </View>
 
         {/* Details */}
@@ -357,8 +359,6 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
   textArea: { minHeight: 100, paddingTop: 12 },
-  inputRow: { position: 'relative' },
-  inputIcon: { position: 'absolute', left: 14, top: 14, zIndex: 1 },
   quickWhenRow: { flexDirection: 'row', gap: 8 },
   quickBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8 },
   quickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },

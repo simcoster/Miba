@@ -17,6 +17,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   ViewStyle,
+  TextStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
@@ -25,12 +26,20 @@ import Colors from '@/constants/Colors';
 
 const DEBOUNCE_MS = 300;
 
+export interface ResolvedPlace {
+  address: string;
+  placeId: string;
+  displayName: string;
+}
+
 interface LocationAutocompleteProps {
   value: string;
   onChangeText: (text: string) => void;
+  /** Called when user selects a place from autocomplete (enables Maps link) */
+  onResolvedPlace?: (place: ResolvedPlace) => void;
   placeholder?: string;
   style?: ViewStyle;
-  inputStyle?: ViewStyle;
+  inputStyle?: TextStyle;
   maxLength?: number;
   /** Whether to show the location icon in the input row */
   showIcon?: boolean;
@@ -39,6 +48,7 @@ interface LocationAutocompleteProps {
 export function LocationAutocomplete({
   value,
   onChangeText,
+  onResolvedPlace,
   placeholder = 'Venue, address, or link…',
   style,
   inputStyle,
@@ -52,7 +62,9 @@ export function LocationAutocomplete({
   const lastInputRef = useRef('');
 
   const startNewSession = useCallback(() => {
-    setSessionToken(Crypto.randomUUID());
+    const token = Crypto.randomUUID();
+    console.log('[LocationAutocomplete] New session started');
+    setSessionToken(token);
   }, []);
 
   const fetchPredictions = useCallback(async (input: string, token: string) => {
@@ -60,9 +72,11 @@ export function LocationAutocomplete({
       setPredictions([]);
       return;
     }
+    console.log('[LocationAutocomplete] Fetching predictions for:', JSON.stringify(input));
     setLoading(true);
     try {
       const results = await fetchAutocomplete(input, token);
+      console.log('[LocationAutocomplete] Got', results.length, 'predictions');
       setPredictions(results);
     } catch (e) {
       console.warn('[LocationAutocomplete]', e);
@@ -79,6 +93,7 @@ export function LocationAutocomplete({
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
       if (!isApiConfigured()) {
+        if (text.length > 0) console.log('[LocationAutocomplete] Typing but API not configured');
         setPredictions([]);
         return;
       }
@@ -91,6 +106,7 @@ export function LocationAutocomplete({
       const token = sessionToken ?? Crypto.randomUUID();
       if (!sessionToken) setSessionToken(token);
 
+      console.log('[LocationAutocomplete] Debouncing, will fetch in', DEBOUNCE_MS, 'ms');
       debounceRef.current = setTimeout(() => {
         lastInputRef.current = text;
         fetchPredictions(text, token);
@@ -114,6 +130,11 @@ export function LocationAutocomplete({
         const details = await fetchPlaceDetails(prediction.placeId, sessionToken);
         if (details) {
           onChangeText(details.formattedAddress);
+          onResolvedPlace?.({
+            address: details.formattedAddress,
+            placeId: details.placeId,
+            displayName: details.displayName,
+          });
         } else {
           onChangeText(prediction.fullText);
         }
@@ -124,7 +145,7 @@ export function LocationAutocomplete({
         setSessionToken(null);
       }
     },
-    [sessionToken, onChangeText]
+    [sessionToken, onChangeText, onResolvedPlace]
   );
 
   const handleClear = useCallback(() => {

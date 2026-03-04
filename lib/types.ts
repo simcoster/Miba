@@ -36,7 +36,8 @@ export type Activity = {
   activity_time: string;
   status: 'active' | 'cancelled';
   created_at: string;
-  creator?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  /** Host profile (from created_by). Host is the event creator. */
+  host?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
   rsvps?: Rsvp[];
   my_rsvp?: Rsvp | null;
   going_count?: number;
@@ -48,7 +49,7 @@ export type Activity = {
   latest_message_at?: string;
 };
 
-export type RsvpStatus = 'pending' | 'in' | 'out' | 'maybe' | 'hosting';
+export type RsvpStatus = 'pending' | 'in' | 'out' | 'maybe';
 
 export type Rsvp = {
   id: string;

@@ -57,7 +57,7 @@ export default function EventsScreen() {
       .from('activities')
       .select(`
         *,
-        creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+        host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
         rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
       `)
       .eq('status', 'active')
@@ -71,15 +71,10 @@ export default function EventsScreen() {
 
     const raw = (data ?? []).map((a: any) => {
       const myRsvp = a.rsvps?.find((r: any) => r.user_id === user.id) ?? null;
-      // Normalise creator's 'in' → 'hosting' so filtering/badges are consistent
-      // regardless of whether the DB migration has been applied yet.
-      const normalisedRsvp = (myRsvp && a.created_by === myRsvp.user_id && myRsvp.status === 'in')
-        ? { ...myRsvp, status: 'hosting' }
-        : myRsvp;
       return {
         ...a,
-        my_rsvp: normalisedRsvp,
-        going_count: a.rsvps?.filter((r: any) => r.status === 'in' || r.status === 'hosting').length ?? 0,
+        my_rsvp: myRsvp,
+        going_count: a.rsvps?.filter((r: any) => r.status === 'in').length ?? 0,
       };
     }) as Activity[];
 
@@ -119,8 +114,9 @@ export default function EventsScreen() {
     switch (filter) {
       case 'upcoming': {
         const future = (s: string) => !isPast(new Date(s));
-        const going = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'in');
-        const hosting = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'hosting');
+        const isHost = (a: Activity) => a.created_by === user?.id;
+        const going = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'in' && !isHost(a));
+        const hosting = allActivities.filter(a => future(a.activity_time) && isHost(a) && a.my_rsvp?.status === 'in');
         const maybe = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'maybe');
 
         const result: ListItem[] = [...going];
@@ -139,7 +135,7 @@ export default function EventsScreen() {
           .reverse()
           .filter(a =>
             isPast(new Date(a.activity_time)) &&
-            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'hosting' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')
+            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')
           );
       case 'invited':
         return allActivities.filter(a =>

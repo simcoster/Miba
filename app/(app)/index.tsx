@@ -20,6 +20,7 @@ import Colors from '@/constants/Colors';
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 const RSVP_CHANGES_CUTOFF_DAYS = 7;
+const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 type UpdateItem =
   | { type: 'new_invite' }
@@ -51,7 +52,7 @@ export default function UpdatesScreen() {
       .from('activities')
       .select(`
         *,
-        creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+        host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
         rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
       `)
       .eq('status', 'active')
@@ -82,7 +83,7 @@ export default function UpdatesScreen() {
           activity_time,
           status,
           created_by,
-          creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+          host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
           rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
         )
       `)
@@ -96,13 +97,10 @@ export default function UpdatesScreen() {
       .map((r: any) => {
         const act = r.activity;
         const myRsvp = act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r;
-        const normalisedRsvp = (myRsvp && act.created_by === myRsvp.user_id && myRsvp.status === 'in')
-          ? { ...myRsvp, status: 'hosting' }
-          : myRsvp;
         return {
           ...act,
-          my_rsvp: normalisedRsvp,
-          going_count: act.rsvps?.filter((rv: any) => rv.status === 'in' || rv.status === 'hosting').length ?? 0,
+          my_rsvp: myRsvp,
+          going_count: act.rsvps?.filter((rv: any) => rv.status === 'in').length ?? 0,
         };
       });
 
@@ -113,13 +111,10 @@ export default function UpdatesScreen() {
 
     const raw = allActivitiesData.map((a: any) => {
       const myRsvp = a.rsvps?.find((r: any) => r.user_id === user.id) ?? null;
-      const normalisedRsvp = (myRsvp && a.created_by === myRsvp.user_id && myRsvp.status === 'in')
-        ? { ...myRsvp, status: 'hosting' }
-        : myRsvp;
       return {
         ...a,
-        my_rsvp: normalisedRsvp,
-        going_count: a.rsvps?.filter((r: any) => r.status === 'in' || r.status === 'hosting').length ?? 0,
+        my_rsvp: myRsvp,
+        going_count: a.rsvps?.filter((r: any) => r.status === 'in').length ?? 0,
       };
     }) as Activity[];
 
@@ -192,7 +187,7 @@ export default function UpdatesScreen() {
       const actToUse = (activity ?? {
         ...act,
         my_rsvp: act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r,
-        going_count: act.rsvps?.filter((rv: any) => rv.status === 'in' || rv.status === 'hosting').length ?? 0,
+        going_count: act.rsvps?.filter((rv: any) => rv.status === 'in').length ?? 0,
       }) as Activity;
       const rawRsvp = r as { id: string; activity_id: string; created_at: string; updated_at: string; profile?: unknown };
       const myRsvp: Activity['my_rsvp'] = actToUse.my_rsvp ?? {
@@ -204,10 +199,7 @@ export default function UpdatesScreen() {
         updated_at: rawRsvp.updated_at ?? rawRsvp.created_at,
         profile: Array.isArray(rawRsvp.profile) ? rawRsvp.profile[0] : rawRsvp.profile,
       } as Activity['my_rsvp'];
-      const normalisedRsvp = (myRsvp && act.created_by === myRsvp.user_id && myRsvp.status === 'in')
-        ? { ...myRsvp, status: 'hosting' as const }
-        : myRsvp;
-      const finalAct: Activity = { ...actToUse, my_rsvp: normalisedRsvp };
+      const finalAct: Activity = { ...actToUse, my_rsvp: myRsvp };
       const t = finalAct.my_rsvp?.created_at ? new Date(finalAct.my_rsvp.created_at).getTime() : Date.now();
       grouped.push({ activity: finalAct, updates: [{ type: 'new_invite' }], latestTimestamp: t });
       groupedIds.add(act.id);
@@ -416,7 +408,7 @@ export default function UpdatesScreen() {
                 activeOpacity={0.85}
               >
                 <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle} numberOfLines={2}>{item.activity.title}</Text>
+                  <Text style={[styles.cardTitle, isHebrew(item.activity.title) && styles.titleRtl]} numberOfLines={2}>{item.activity.title}</Text>
                   <TouchableOpacity
                     style={styles.dismissButton}
                     onPress={(e) => { e.stopPropagation(); handleDismiss(item); }}
@@ -426,7 +418,7 @@ export default function UpdatesScreen() {
                   </TouchableOpacity>
                   <View style={styles.avatarStack}>
                     {item.activity.rsvps
-                      ?.filter(r => r.status === 'in' || r.status === 'hosting')
+                      ?.filter(r => r.status === 'in')
                       .slice(0, 3)
                       .map((rsvp, i) => (
                         <View key={rsvp.id} style={[styles.avatarWrapper, { marginLeft: i === 0 ? 0 : -8 }]}>
@@ -486,6 +478,7 @@ const styles = StyleSheet.create({
   },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 },
   cardTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, flex: 1, marginRight: 8 },
+  titleRtl: { textAlign: 'right' },
   dismissButton: { padding: 4, marginLeft: 4 },
   avatarStack: { flexDirection: 'row' },
   avatarWrapper: { borderWidth: 2, borderColor: Colors.surface, borderRadius: 12 },

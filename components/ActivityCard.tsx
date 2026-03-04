@@ -6,6 +6,7 @@ import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
 import { Activity, RsvpStatus } from '@/lib/types';
 import { Avatar } from './Avatar';
+import { LocationDisplay } from './LocationDisplay';
 
 const INVITED_BLUE = '#3B82F6';
 const INVITED_BLUE_LIGHT = '#EFF6FF';
@@ -19,12 +20,14 @@ type RsvpConfig = {
 };
 
 const RSVP_CONFIG: Record<RsvpStatus, RsvpConfig> = {
-  hosting: { iconName: 'star', iconColor: Colors.primary, bg: Colors.accentLight, label: 'Hosting', textColor: Colors.primary },
   in: { iconName: 'checkmark-circle', iconColor: Colors.success, bg: Colors.successLight, label: "You're in!", textColor: Colors.success },
   maybe: { iconName: 'help-circle', iconColor: Colors.warning, bg: Colors.warningLight, label: 'Maybe', textColor: Colors.warning },
   out: { iconName: 'close-circle', iconColor: Colors.danger, bg: Colors.dangerLight, label: "Can't go", textColor: Colors.danger },
   pending: { iconName: 'mail-open-outline', iconColor: INVITED_BLUE, bg: INVITED_BLUE_LIGHT, label: 'Invited', textColor: INVITED_BLUE },
 };
+const HOSTING_CONFIG: RsvpConfig = { iconName: 'star', iconColor: Colors.primary, bg: Colors.accentLight, label: 'Hosting', textColor: Colors.primary };
+
+const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 type EventsFilter = 'upcoming' | 'invited' | 'past' | 'declined';
 
@@ -32,14 +35,13 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
   const past = isPast(activityDate);
-  const goingCount = activity.going_count ?? activity.rsvps?.filter(r => r.status === 'in' || r.status === 'hosting').length ?? 0;
+  const goingCount = activity.going_count ?? activity.rsvps?.filter(r => r.status === 'in').length ?? 0;
   const myRsvp = activity.my_rsvp;
   const isPending = myRsvp?.status === 'pending';
-  // Treat the creator as 'hosting' even if their RSVP row still says 'in' (pre-migration data)
-  const effectiveStatus = (myRsvp && activity.created_by === myRsvp.user_id && myRsvp.status === 'in')
-    ? 'hosting'
-    : myRsvp?.status;
-  const rsvpConfig = effectiveStatus ? RSVP_CONFIG[effectiveStatus] ?? null : null;
+  const isHost = activity.created_by === myRsvp?.user_id;
+  // Host who is going shows "Hosting" badge; others use their RSVP status
+  const displayStatus = (isHost && myRsvp?.status === 'in') ? 'hosting' : myRsvp?.status;
+  const rsvpConfig = displayStatus ? (RSVP_CONFIG[displayStatus as RsvpStatus] ?? (displayStatus === 'hosting' ? HOSTING_CONFIG : null)) : null;
 
   const dateLabel = isToday(activityDate)
     ? `Today · ${format(activityDate, 'h:mm a')}`
@@ -62,7 +64,7 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
               <Text style={styles.cancelledBadgeText}>Cancelled</Text>
             </View>
           )}
-          {activity.is_new && myRsvp?.status !== 'hosting' && (
+          {activity.is_new && !(isHost && myRsvp?.status === 'in') && (
             <View style={styles.newBadge}>
               <Text style={styles.newBadgeText}>New</Text>
             </View>
@@ -82,7 +84,7 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
         </View>
       </View>
 
-      <Text style={[styles.title, past && styles.titlePast]} numberOfLines={2}>
+      <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={2}>
         {activity.title}
       </Text>
 
@@ -92,17 +94,14 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
           <Text style={styles.metaText}>{dateLabel}</Text>
         </View>
         {activity.location && (
-          <View style={styles.metaRow}>
-            <Ionicons name="location-outline" size={14} color={Colors.textSecondary} />
-            <Text style={styles.metaText} numberOfLines={1}>{activity.location}</Text>
-          </View>
+          <LocationDisplay location={activity.location} variant="card" />
         )}
       </View>
 
       <View style={styles.footer}>
         <View style={styles.avatarStack}>
           {activity.rsvps
-            ?.filter(r => r.status === 'in' || r.status === 'hosting')
+            ?.filter(r => r.status === 'in')
             .slice(0, 4)
             .map((rsvp, i) => (
               <View key={rsvp.id} style={[styles.avatarWrapper, { left: i * 20 }]}>
@@ -149,6 +148,7 @@ const styles = StyleSheet.create({
   rsvpBadgeText: { fontSize: 11, fontWeight: '600' },
   title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 10, lineHeight: 24 },
   titlePast: { color: Colors.textSecondary },
+  titleRtl: { textAlign: 'right' },
   meta: { gap: 4, marginBottom: 12 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   metaText: { fontSize: 13, color: Colors.textSecondary, flex: 1 },
