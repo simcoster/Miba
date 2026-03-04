@@ -44,11 +44,13 @@ npm install
 6. Copy the **Client ID** and **Client Secret** into Supabase → Authentication → Google provider
 7. Under **OAuth consent screen**, add your test email(s)
 
-> **Important:** For native mobile deep links, also add these as redirect URIs in Supabase:
+> **Important:** For native mobile deep links, add these redirect URIs in Supabase:
 > `Authentication → URL Configuration → Redirect URLs`:
-> - `miba://auth/callback`
-> - `exp://localhost:8081` (for Expo Go during development)
-> - `exp://192.168.x.x:8081` (replace with your local IP — Expo will show this when you start)
+>
+> | Environment | Redirect URL(s) | Notes |
+> | ----------- | --------------- | ----- |
+> | Expo Go (local dev) | `exp://**` | Wildcard covers any dev machine IP on your LAN |
+> | Standalone (testers) | `miba://`, `miba:///` | For the APK/AAB from `eas build --profile production` |
 
 ---
 
@@ -76,6 +78,22 @@ npx expo start
 
 - Scan the QR code with **Expo Go** (Android) or the **Camera app** (iPhone)
 - The app should load on your phone!
+
+---
+
+## Step 6 — (Optional) Build standalone app for testers
+
+To build a standalone APK/AAB for testers (no Expo Go required):
+
+```bash
+eas build --platform android --profile production
+```
+
+Testers install the resulting APK/AAB directly. OAuth redirects use `miba://` — ensure those URLs are in Supabase (see Step 3).
+
+For internal-only distribution (no Play Store), use `--profile preview` instead.
+
+**Environment variables:** The app has fallbacks for Supabase URL and anon key. For production, consider setting `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in [expo.dev](https://expo.dev) → Project → Secrets.
 
 ---
 
@@ -115,13 +133,13 @@ supabase/
 ## Troubleshooting
 
 **"Invalid OAuth redirect" error on login:**
-Make sure you added `miba://auth/callback` to Supabase's allowed redirect URLs.
+Make sure you added `miba://`, `miba:///` (standalone) and `exp://**` (Expo Go) to Supabase's allowed redirect URLs.
 
 **App can't connect to Supabase:**
 Check that `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are correct in `lib/supabase.ts`.
 
 **Phone can't find the Expo dev server:**
-Your phone and computer must be on the same Wi-Fi network. Look at the IP shown in `expo start` and add `exp://192.168.x.x:8081` to Supabase redirect URLs.
+Your phone and computer must be on the same Wi-Fi network. The `exp://**` wildcard in Supabase covers any dev machine IP.
 
 **Location autocomplete not showing:**
 Ensure `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY` is set and Places API (New) is enabled in Google Cloud. Without the key, the location field works as a plain text input.

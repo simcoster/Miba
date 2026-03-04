@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, ActivityIndicator, Image,
+  TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import * as Crypto from 'expo-crypto';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addMinutes, subMinutes } from 'date-fns';
 import * as Location from 'expo-location';
@@ -31,16 +33,34 @@ type ProximityEventWithProfile = {
 
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
-const VISIBLE_MODE_TEXT = 'Visible mode means: if another user also turned on visible mode AND you both selected each other on the Mipo page AND you move within 100 meters of each other, you would both get a notification on this page and on your phone.';
+const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
+
+const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
+  <TouchableOpacity style={styles.howItWorksBtn} onPress={onPress} activeOpacity={0.7}>
+    <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
+    <Text style={styles.howItWorksCaption}>how it works</Text>
+  </TouchableOpacity>
+);
 
 export default function MipoScreen() {
   const { user } = useAuth();
   const { visibleState, setVisible, refreshVisibleState } = useMipo();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { width: screenWidth } = useWindowDimensions();
 
-  const [view, setView] = useState<'selection' | 'setup' | 'active'>('selection');
+  const comicSource = Image.resolveAssetSource(MIPO_COMIC);
+  const comicMaxWidth = Math.round(screenWidth - 80);
+  const comicAspectRatio = comicSource?.height && comicSource?.width
+    ? comicSource.height / comicSource.width
+    : 1.4;
+  const comicHeight = Math.round(comicMaxWidth * comicAspectRatio);
+
+  const [view, setView] = useState<'selection' | 'active'>('selection');
   const [circles, setCircles] = useState<Circle[]>([]);
   const [expandedCircleIds, setExpandedCircleIds] = useState<Set<string>>(new Set());
+  const [circleMembersMap, setCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
+  const [individuallyAddedUserIds, setIndividuallyAddedUserIds] = useState<Set<string>>(new Set());
   const [selectedPool, setSelectedPool] = useState<Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
@@ -49,6 +69,7 @@ export default function MipoScreen() {
   const [loading, setLoading] = useState(false);
   const [locationSub, setLocationSub] = useState<LocationSubscription | null>(null);
   const [nearbyEvents, setNearbyEvents] = useState<ProximityEventWithProfile[]>([]);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
@@ -85,30 +106,29 @@ export default function MipoScreen() {
     if (!user) return;
     const cutoff = subMinutes(new Date(), 30).toISOString();
     const fetchNearby = async () => {
-      const { data } = await supabase
-        .from('mipo_proximity_events')
-        .select(`
-          id, user_a_id, user_b_id, created_at,
-          user_a:profiles!user_a_id(id, full_name, avatar_url),
-          user_b:profiles!user_b_id(id, full_name, avatar_url)
-        `)
-        .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
-        .gte('created_at', cutoff)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      const { data } = await supabase.rpc('mipo_nearby_events', {
+        p_user_id: user.id,
+        p_cutoff: cutoff,
+      });
       const events: ProximityEventWithProfile[] = (data ?? []).map((row: any) => {
         const otherId = row.user_a_id === user.id ? row.user_b_id : row.user_a_id;
-        const otherProfile = row.user_a_id === user.id ? row.user_b : row.user_a;
-        return { id: row.id, user_a_id: row.user_a_id, user_b_id: row.user_b_id, created_at: row.created_at, other_profile: otherProfile };
+        return {
+          id: row.id,
+          user_a_id: row.user_a_id,
+          user_b_id: row.user_b_id,
+          created_at: row.created_at,
+          other_profile: { id: row.other_id, full_name: row.other_full_name, avatar_url: row.other_avatar_url },
+        };
       });
       setNearbyEvents(events);
     };
     fetchNearby();
-    const channel = supabase.channel('mipo_proximity').on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'mipo_proximity_events' },
-      () => fetchNearby()
-    ).subscribe();
+    const channel = supabase
+      .channel('mipo_nearby')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mipo_proximity_events' }, () => fetchNearby())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'mipo_visible_sessions' }, () => fetchNearby())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'mipo_visible_sessions' }, () => fetchNearby())
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
@@ -123,27 +143,50 @@ export default function MipoScreen() {
   const toggleCircle = useCallback(async (circle: Circle) => {
     if (!user) return;
     if (expandedCircleIds.has(circle.id)) {
+      const membersOfCircle = circleMembersMap.get(circle.id);
       setExpandedCircleIds(prev => { const s = new Set(prev); s.delete(circle.id); return s; });
+      setCircleMembersMap(prev => { const m = new Map(prev); m.delete(circle.id); return m; });
+      if (membersOfCircle && membersOfCircle.size > 0) {
+        const otherExpandedIds = new Set(expandedCircleIds);
+        otherExpandedIds.delete(circle.id);
+        const inOtherCircle = new Set<string>();
+        otherExpandedIds.forEach(cid => {
+          circleMembersMap.get(cid)?.forEach(uid => inOtherCircle.add(uid));
+        });
+        setSelectedPool(prev => {
+          const next = new Map(prev);
+          membersOfCircle.forEach(uid => {
+            if (!individuallyAddedUserIds.has(uid) && !inOtherCircle.has(uid)) {
+              next.delete(uid);
+            }
+          });
+          return next;
+        });
+      }
       return;
     }
     const { data, error } = await supabase
       .from('circle_members')
-      .select('user_id, profile:profiles(id, full_name, avatar_url)')
+      .select('user_id, profile:profiles!user_id(id, full_name, avatar_url)')
       .eq('circle_id', circle.id)
       .neq('user_id', user.id);
     if (error) { Alert.alert('Error', 'Could not load circle members.'); return; }
+    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
     setExpandedCircleIds(prev => new Set(prev).add(circle.id));
+    setCircleMembersMap(prev => new Map(prev).set(circle.id, memberIds));
     setSelectedPool(prev => {
       const next = new Map(prev);
-      (data ?? []).forEach((m: { user_id: string; profile?: Profile }) => {
-        if (m.profile) next.set(m.user_id, m.profile);
+      (data ?? []).forEach((m: { user_id: string; profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> | Pick<Profile, 'id' | 'full_name' | 'avatar_url'>[] }) => {
+        const profile = Array.isArray(m.profile) ? m.profile[0] : m.profile;
+        if (profile) next.set(m.user_id, profile);
       });
       return next;
     });
-  }, [user, expandedCircleIds]);
+  }, [user, expandedCircleIds, circleMembersMap, individuallyAddedUserIds]);
 
   const removeFromPool = useCallback((userId: string) => {
     setSelectedPool(prev => { const next = new Map(prev); next.delete(userId); return next; });
+    setIndividuallyAddedUserIds(prev => { const s = new Set(prev); s.delete(userId); return s; });
   }, []);
 
   const handleSearch = useCallback(async (text: string) => {
@@ -162,6 +205,7 @@ export default function MipoScreen() {
 
   const addFromSearch = useCallback((profile: Profile) => {
     setSelectedPool(prev => new Map(prev).set(profile.id, profile));
+    setIndividuallyAddedUserIds(prev => new Set(prev).add(profile.id));
     setSearchQuery('');
     setSearchResults([]);
   }, []);
@@ -177,12 +221,15 @@ export default function MipoScreen() {
     }
   }, [user, selectedPool]);
 
-  const handleMakeMeVisible = useCallback(async () => {
-    await saveSelections();
-    setView('setup');
-  }, [saveSelections]);
+  // Persist selection changes when editing while in visible mode
+  useEffect(() => {
+    if (view === 'active' && user) {
+      saveSelections();
+    }
+  }, [view, selectedPool, user, saveSelections]);
 
   const handleTurnOnVisible = useCallback(async () => {
+    await saveSelections();
     if (!user) return;
     const granted = await requestLocationPermission();
     if (!granted) {
@@ -196,7 +243,6 @@ export default function MipoScreen() {
       try {
         loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
-          maxWait: 20000,
         });
       } catch {
         loc = await Location.getLastKnownPositionAsync();
@@ -241,7 +287,7 @@ export default function MipoScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, timerOption, setVisible]);
+  }, [user, timerOption, setVisible, saveSelections]);
 
   const handleTurnOffVisible = useCallback(async () => {
     if (!user) return;
@@ -258,39 +304,57 @@ export default function MipoScreen() {
 
   turnOffRef.current = handleTurnOffVisible;
 
-  const selectedList = [...selectedPool.values()];
+  const openMipoChat = useCallback(async (e: ProximityEventWithProfile) => {
+    if (!user) return;
+    const otherId = e.user_a_id === user.id ? e.user_b_id : e.user_a_id;
+    const otherName = e.other_profile?.full_name ?? 'Someone';
+    const [userA, userB] = user.id < otherId ? [user.id, otherId] : [otherId, user.id];
 
-  if (view === 'setup') {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Text style={styles.title}>Make me visible</Text>
-          <Text style={styles.explanation}>{VISIBLE_MODE_TEXT}</Text>
-          <View style={styles.timerSection}>
-            <Text style={styles.label}>How long?</Text>
-            <View style={styles.timerRow}>
-              {(['10min', '1hour', 'unlimited'] as const).map(opt => (
-                <TouchableOpacity
-                  key={opt}
-                  style={[styles.timerChip, timerOption === opt && styles.timerChipActive]}
-                  onPress={() => setTimerOption(opt)}
-                >
-                  <Text style={[styles.timerChipText, timerOption === opt && styles.timerChipTextActive]}>
-                    {opt === '10min' ? '10 mins' : opt === '1hour' ? '1 hour' : 'No limit'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          <Image source={require('@/assets/images/radar.gif')} style={styles.radarGif} resizeMode="contain" />
-          <Button label="Turn on visible mode" onPress={handleTurnOnVisible} loading={loading} />
-          <TouchableOpacity style={styles.backLink} onPress={() => setView('selection')}>
-            <Text style={styles.backLinkText}>Back to selection</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-    );
-  }
+    const { data: existing } = await supabase
+      .from('mipo_dm_activities')
+      .select('activity_id')
+      .eq('user_a_id', userA)
+      .eq('user_b_id', userB)
+      .single();
+
+    if (existing?.activity_id) {
+      router.push(`/(app)/activity/${existing.activity_id}/chat`);
+      return;
+    }
+
+    const activityId = Crypto.randomUUID();
+    const now = new Date();
+    const { error: actErr } = await supabase.from('activities').insert({
+      id: activityId,
+      created_by: user.id,
+      title: `Mipo with ${otherName}`,
+      description: 'Quick chat from Mipo',
+      activity_time: now.toISOString(),
+    });
+    if (actErr) {
+      Alert.alert('Error', actErr.message ?? 'Could not create chat.');
+      return;
+    }
+
+    const { error: rsvpErr } = await supabase.from('rsvps').insert([
+      { activity_id: activityId, user_id: user.id, status: 'in' },
+      { activity_id: activityId, user_id: otherId, status: 'in' },
+    ]);
+    if (rsvpErr) {
+      Alert.alert('Error', rsvpErr.message ?? 'Could not add chat members.');
+      return;
+    }
+
+    await supabase.from('mipo_dm_activities').insert({
+      user_a_id: userA,
+      user_b_id: userB,
+      activity_id: activityId,
+    });
+
+    router.push(`/(app)/activity/${activityId}/chat`);
+  }, [user, router]);
+
+  const selectedList = [...selectedPool.values()];
 
   if (view === 'active') {
     const expiresLabel = visibleState.expiresAt
@@ -298,9 +362,9 @@ export default function MipoScreen() {
       : 'No time limit — turn off when done';
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>You're visible</Text>
-          <Text style={styles.explanation}>{VISIBLE_MODE_TEXT}</Text>
+          <HowItWorksButton onPress={() => setShowHowItWorks(true)} />
           <Text style={styles.expiresLabel}>{expiresLabel}</Text>
           {nearbyEvents.length > 0 && (
             <View style={styles.nearbySection}>
@@ -313,13 +377,106 @@ export default function MipoScreen() {
                     <Text style={styles.nearbyTime}>{format(new Date(e.created_at), 'HH:mm')}</Text>
                   </View>
                   <Ionicons name="location" size={20} color={Colors.success} />
+                  <TouchableOpacity onPress={() => openMipoChat(e)} style={styles.nearbyChatBtn}>
+                    <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
-          <Image source={require('@/assets/images/radar.gif')} style={styles.radarGif} resizeMode="contain" />
-          <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" />
+
+          <View style={styles.section}>
+            <Text style={styles.label}>Who can see you (edit anytime)</Text>
+            {circles.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                {circles.map(c => {
+                  const expanded = expandedCircleIds.has(c.id);
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[styles.chip, expanded && styles.chipSelected]}
+                      onPress={() => toggleCircle(c)}
+                    >
+                      <Text style={styles.chipEmoji}>{c.emoji}</Text>
+                      <Text style={[styles.chipName, expanded && styles.chipNameSelected]}>{c.name}</Text>
+                      {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={18} color={Colors.textSecondary} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={handleSearch}
+                placeholder="Search by name or username…"
+                placeholderTextColor={Colors.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searching && <ActivityIndicator size="small" color={Colors.primary} />}
+              {searchQuery.length > 0 && !searching && (
+                <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+                  <Ionicons name="close-circle" size={18} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {searchResults.length > 0 && (
+              <View style={styles.searchResults}>
+                {searchResults.map(p => {
+                  const already = selectedPool.has(p.id);
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.searchRow}
+                      onPress={() => !already && addFromSearch(p)}
+                      disabled={already}
+                    >
+                      <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
+                      <View style={styles.searchInfo}>
+                        <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
+                        {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
+                      </View>
+                      {already ? <Ionicons name="checkmark-circle" size={22} color={Colors.success} /> : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+            {selectedList.length > 0 && (
+              <View style={styles.invitePool}>
+                {selectedList.map(p => (
+                  <View key={p.id} style={styles.inviteChip}>
+                    <Avatar uri={p.avatar_url} name={p.full_name} size={28} />
+                    <Text style={styles.inviteChipName} numberOfLines={1}>{p.full_name?.split(' ')[0] ?? '?'}</Text>
+                    <TouchableOpacity onPress={() => removeFromPool(p.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                      <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.buttonWithRadar}>
+            <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" fullWidth={false} style={styles.buttonWithRadarBtn} />
+            <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
+          </View>
         </ScrollView>
+        <Modal visible={showHowItWorks} transparent animationType="fade">
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowHowItWorks(false)}>
+            <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]} onStartShouldSetResponder={() => true}>
+              <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+                <Image source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} resizeMode="contain" />
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     );
   }
@@ -328,9 +485,9 @@ export default function MipoScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Mipo</Text>
-        <Text style={styles.subtitle}>Select who can see you when you're nearby</Text>
+        <HowItWorksButton onPress={() => setShowHowItWorks(true)} />
 
-        {nearbyEvents.length > 0 && (
+        {nearbyEvents.length > 0 && visibleState.isVisible && (
           <View style={styles.nearbySection}>
             <Text style={styles.nearbyTitle}>Nearby now</Text>
             {nearbyEvents.map(e => (
@@ -341,6 +498,9 @@ export default function MipoScreen() {
                   <Text style={styles.nearbyTime}>{format(new Date(e.created_at), 'HH:mm')}</Text>
                 </View>
                 <Ionicons name="location" size={20} color={Colors.success} />
+                <TouchableOpacity onPress={() => openMipoChat(e)} style={styles.nearbyChatBtn}>
+                  <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                </TouchableOpacity>
               </View>
             ))}
           </View>
@@ -429,8 +589,40 @@ export default function MipoScreen() {
           </View>
         )}
 
-        <Button label="Make me visible" onPress={handleMakeMeVisible} />
+        <View style={styles.timerSection}>
+          <Text style={styles.label}>How long?</Text>
+          <View style={styles.timerRow}>
+            {(['10min', '1hour', 'unlimited'] as const).map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.timerChip, timerOption === opt && styles.timerChipActive]}
+                onPress={() => setTimerOption(opt)}
+              >
+                <Text style={[styles.timerChipText, timerOption === opt && styles.timerChipTextActive]}>
+                  {opt === '10min' ? '10 mins' : opt === '1hour' ? '1 hour' : 'No limit'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.buttonWithRadar}>
+          <Button label="Turn on visible mode" onPress={handleTurnOnVisible} loading={loading} fullWidth={false} style={styles.buttonWithRadarBtn} />
+          <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
+        </View>
       </ScrollView>
+      <Modal visible={showHowItWorks} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowHowItWorks(false)}>
+          <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]} onStartShouldSetResponder={() => true}>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
+              <Ionicons name="close" size={28} color={Colors.text} />
+            </TouchableOpacity>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
+              <Image source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} resizeMode="contain" />
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -441,7 +633,40 @@ const styles = StyleSheet.create({
   content: { padding: 20 },
   title: { fontSize: 24, fontWeight: '700', color: Colors.text, marginBottom: 8 },
   subtitle: { fontSize: 15, color: Colors.textSecondary, marginBottom: 24 },
-  explanation: { fontSize: 15, color: Colors.text, lineHeight: 22, marginBottom: 20 },
+  howItWorksBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 20,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  howItWorksCaption: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    maxWidth: 400,
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    padding: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+  },
+  modalScroll: { maxHeight: '100%' },
+  modalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   expiresLabel: { fontSize: 14, color: Colors.success, fontWeight: '600', marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   section: { marginBottom: 22 },
@@ -451,9 +676,9 @@ const styles = StyleSheet.create({
   timerChipActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   timerChipText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   timerChipTextActive: { color: Colors.primary },
-  radarGif: { width: 200, height: 200, alignSelf: 'center', marginVertical: 24 },
-  backLink: { marginTop: 16, alignSelf: 'center' },
-  backLinkText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  buttonWithRadar: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20 },
+  buttonWithRadarBtn: { flex: 1 },
+  radarGifSmall: { width: 50, height: 50 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
   chipSelected: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   chipEmoji: { fontSize: 16 },
@@ -472,6 +697,7 @@ const styles = StyleSheet.create({
   nearbySection: { backgroundColor: Colors.successLight, borderRadius: 14, padding: 14, marginBottom: 20 },
   nearbyTitle: { fontSize: 14, fontWeight: '700', color: Colors.success, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   nearbyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(34,197,94,0.2)' },
+  nearbyChatBtn: { padding: 4 },
   nearbyInfo: { flex: 1 },
   nearbyName: { fontSize: 16, fontWeight: '600', color: Colors.text },
   nearbyTime: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },

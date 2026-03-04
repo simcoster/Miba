@@ -6,6 +6,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'miba',
   owner: 'simcoster',
   plugins: [
+    ...(config.plugins ?? []),
     'expo-location',
     [
       'expo-notifications',
@@ -26,6 +27,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     ...config.android,
     permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
+  },
+  updates: {
+    url: `https://u.expo.dev/${config.extra?.eas?.projectId ?? '2085bc90-aea9-4f54-be69-f93013f3cd39'}`,
+    fallbackToCacheTimeout: 0,
+  },
+  runtimeVersion: {
+    policy: 'sdkVersion',
   },
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://qfdxnpryufkgdstergej.supabase.co',

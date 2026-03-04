@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Linking } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { isAuthCallbackUrl, processAuthCallbackUrl } from '@/lib/authCallback';
 import { Profile } from '@/lib/types';
 
 type AuthContextType = {
@@ -43,21 +45,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    console.log('[Auth] init — calling getSession');
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let cancelled = false;
+
+    const init = async () => {
+      const initialUrl = await Linking.getInitialURL();
+      if (initialUrl && isAuthCallbackUrl(initialUrl)) {
+        console.log('[Auth] Processing initial URL (OAuth callback from cold start)');
+        await processAuthCallbackUrl(initialUrl);
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      console.log('[Auth] init — calling getSession');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
       console.log('[Auth] getSession returned, user:', session?.user?.id ?? 'none');
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id).finally(() => {
-          console.log('[Auth] setLoading(false) via getSession path');
-          setLoading(false);
+          if (!cancelled) {
+            console.log('[Auth] setLoading(false) via getSession path');
+            setLoading(false);
+          }
         });
       } else {
         console.log('[Auth] setLoading(false) — no session');
         setLoading(false);
       }
-    });
+    };
+    init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
@@ -74,7 +91,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    const linkSub = Linking.addEventListener('url', ({ url }) => {
+      if (isAuthCallbackUrl(url)) {
+        console.log('[Auth] Processing URL from Linking event (app brought to foreground)');
+        processAuthCallbackUrl(url);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+      linkSub.remove();
+    };
   }, []);
 
   const signOut = async () => {

@@ -47,6 +47,10 @@ export default function NewActivityScreen() {
   const [circles, setCircles] = useState<Circle[]>([]);
   // Track which circle IDs have been expanded into the invite pool
   const [expandedCircleIds, setExpandedCircleIds] = useState<Set<string>>(new Set());
+  // Map circleId -> Set of userIds (for removing on unselect)
+  const [circleMembersMap, setCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
+  // Users added individually via search (keep when unselecting circle)
+  const [individuallyAddedUserIds, setIndividuallyAddedUserIds] = useState<Set<string>>(new Set());
 
   // Invite pool: map of userId → profile
   const [invitePool, setInvitePool] = useState<Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>>(new Map());
@@ -78,7 +82,26 @@ export default function NewActivityScreen() {
   // Expand or collapse a circle's members into/from the invite pool
   const toggleCircle = async (circle: Circle) => {
     if (expandedCircleIds.has(circle.id)) {
+      const membersOfCircle = circleMembersMap.get(circle.id);
       setExpandedCircleIds(prev => { const s = new Set(prev); s.delete(circle.id); return s; });
+      setCircleMembersMap(prev => { const m = new Map(prev); m.delete(circle.id); return m; });
+      if (membersOfCircle && membersOfCircle.size > 0) {
+        const otherExpandedIds = new Set(expandedCircleIds);
+        otherExpandedIds.delete(circle.id);
+        const inOtherCircle = new Set<string>();
+        otherExpandedIds.forEach(cid => {
+          circleMembersMap.get(cid)?.forEach(uid => inOtherCircle.add(uid));
+        });
+        setInvitePool(prev => {
+          const next = new Map(prev);
+          membersOfCircle.forEach(uid => {
+            if (!individuallyAddedUserIds.has(uid) && !inOtherCircle.has(uid)) {
+              next.delete(uid);
+            }
+          });
+          return next;
+        });
+      }
       return;
     }
 
@@ -90,6 +113,8 @@ export default function NewActivityScreen() {
 
     if (error) { Alert.alert('Error', 'Could not load circle members.'); return; }
 
+    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
+
     // Compute excluded set (may be stale in closure, so compute fresh)
     const excluded = new Set(excludeUserIds);
     if (excludeCircleIds.size > 0) {
@@ -98,6 +123,7 @@ export default function NewActivityScreen() {
     }
 
     setExpandedCircleIds(prev => new Set(prev).add(circle.id));
+    setCircleMembersMap(prev => new Map(prev).set(circle.id, memberIds));
     setInvitePool(prev => {
       const next = new Map(prev);
       (data ?? []).forEach((m: any) => {
@@ -109,6 +135,7 @@ export default function NewActivityScreen() {
 
   const removeFromPool = (userId: string) => {
     setInvitePool(prev => { const next = new Map(prev); next.delete(userId); return next; });
+    setIndividuallyAddedUserIds(prev => { const s = new Set(prev); s.delete(userId); return s; });
   };
 
   const handleSearch = async (text: string) => {
@@ -134,6 +161,7 @@ export default function NewActivityScreen() {
   const addFromSearch = (profile: Profile) => {
     if (excludeUserIds.has(profile.id)) return;
     setInvitePool(prev => new Map(prev).set(profile.id, profile));
+    setIndividuallyAddedUserIds(prev => new Set(prev).add(profile.id));
     setSearchQuery('');
     setSearchResults([]);
   };
@@ -157,6 +185,7 @@ export default function NewActivityScreen() {
     setExcludeUserIds(prev => new Set(prev).add(profile.id));
     setExcludeUserProfiles(prev => new Map(prev).set(profile.id, profile));
     setInvitePool(prev => { const next = new Map(prev); next.delete(profile.id); return next; });
+    setIndividuallyAddedUserIds(prev => { const s = new Set(prev); s.delete(profile.id); return s; });
     setExcludeQuery('');
     setExcludeResults([]);
   };
@@ -244,6 +273,46 @@ export default function NewActivityScreen() {
       <ScreenHeader title="New Activity" showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
+        {/* Cover image — above title, like event details */}
+        <View style={[styles.coverSection, splashArt && styles.coverSectionWithSplash]}>
+          {splashArt && (
+            <View style={styles.splashBackground}>
+              <SplashArt preset={splashArt} height={105} opacity={0.4} />
+            </View>
+          )}
+          <View style={styles.coverOverlay}>
+            <TouchableOpacity
+              style={[styles.addCoverBtn, splashArt && styles.addCoverBtnOnImage]}
+              onPress={() => setShowSplashPicker(v => !v)}
+            >
+              <Ionicons name="image-outline" size={16} color={splashArt ? '#fff' : Colors.primary} />
+              <Text style={[styles.addCoverBtnText, splashArt && styles.addCoverBtnTextOnImage]}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
+            </TouchableOpacity>
+            {showSplashPicker && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
+                <TouchableOpacity
+                  style={[styles.splashOption, !splashArt && styles.splashOptionActive]}
+                  onPress={() => { setSplashArt(null); setShowSplashPicker(false); }}
+                >
+                  <Text style={styles.splashOptionText}>None</Text>
+                </TouchableOpacity>
+                {SPLASH_PRESETS.map(p => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
+                    onPress={() => { setSplashArt(p.id); setShowSplashPicker(false); }}
+                  >
+                    <View style={styles.splashThumb}>
+                      <SplashArt preset={p.id} height={56} opacity={1} />
+                    </View>
+                    <Text style={styles.splashOptionLabel}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+
         {/* Title */}
         <View style={styles.section}>
           <Text style={styles.label}>What's happening? *</Text>
@@ -252,39 +321,6 @@ export default function NewActivityScreen() {
             placeholder="e.g. Morning surf, Escape room…"
             placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
           />
-        </View>
-
-        {/* Cover image (hidden until button tapped) */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.addCoverBtn}
-            onPress={() => setShowSplashPicker(v => !v)}
-          >
-            <Ionicons name="image-outline" size={16} color={Colors.primary} />
-            <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
-          </TouchableOpacity>
-          {showSplashPicker && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
-              <TouchableOpacity
-                style={[styles.splashOption, !splashArt && styles.splashOptionActive]}
-                onPress={() => setSplashArt(null)}
-              >
-                <Text style={styles.splashOptionText}>None</Text>
-              </TouchableOpacity>
-              {SPLASH_PRESETS.map(p => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
-                  onPress={() => setSplashArt(p.id)}
-                >
-                  <View style={styles.splashThumb}>
-                    <SplashArt preset={p.id} height={56} opacity={1} />
-                  </View>
-                  <Text style={styles.splashOptionLabel}>{p.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
         </View>
 
         {/* Date & Time */}
@@ -629,8 +665,14 @@ const styles = StyleSheet.create({
   searchResults: { marginTop: 6, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   searchInfo: { flex: 1 },
+  coverSection: { paddingTop: 8, paddingBottom: 4, marginBottom: 22, position: 'relative' as const },
+  coverSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
+  splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, height: 105, overflow: 'hidden', borderRadius: 16 },
+  coverOverlay: { paddingTop: 8, paddingBottom: 4 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  addCoverBtnOnImage: {},
+  addCoverBtnTextOnImage: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   splashScroll: { marginHorizontal: -20, marginTop: 10 },
   splashScrollContent: { paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
   splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10 },

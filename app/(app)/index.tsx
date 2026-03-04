@@ -265,6 +265,16 @@ export default function UpdatesScreen() {
     fetchUpdates().finally(() => setLoading(false));
   }, [fetchUpdates]);
 
+  const hasCheckedInitialOpen = useRef(false);
+  useEffect(() => {
+    if (!loading && !error && user && !hasCheckedInitialOpen.current) {
+      hasCheckedInitialOpen.current = true;
+      if (eventUpdates.length === 0) {
+        router.replace('/(app)/events');
+      }
+    }
+  }, [loading, error, eventUpdates.length, user, router]);
+
   useFocusEffect(
     useCallback(() => {
       if (!user) return;

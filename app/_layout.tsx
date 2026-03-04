@@ -23,7 +23,7 @@ function RootLayoutNav() {
     } else if (session && inAuthGroup) {
       router.replace('/(app)');
     }
-  }, [session, loading]);
+  }, [session, loading, segments]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

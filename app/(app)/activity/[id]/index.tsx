@@ -531,23 +531,54 @@ export default function ActivityDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
-      <View style={[styles.titleSection, activity.splash_art && !isEditing && styles.titleSectionWithSplash]}>
-        {activity.splash_art && !isEditing && (
+      <View style={[styles.titleSection, (activity.splash_art || (isEditing && editSplashArt)) && styles.titleSectionWithSplash]}>
+        {(activity.splash_art && !isEditing) || (isEditing && editSplashArt) ? (
           <View style={styles.splashBackground}>
-            <SplashArt preset={activity.splash_art} height={105} opacity={0.4} />
+            <SplashArt preset={isEditing ? editSplashArt! : activity.splash_art!} height={105} opacity={0.4} />
           </View>
-        )}
+        ) : null}
         <View style={styles.titleSectionOverlay}>
         {isEditing ? (
-          <TextInput
-            style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
-            value={editTitle}
-            onChangeText={setEditTitle}
-            placeholder="Activity title…"
-            placeholderTextColor={Colors.textSecondary}
-            maxLength={80}
-            autoFocus
-          />
+          <>
+            <TouchableOpacity
+              style={[styles.addCoverBtn, editSplashArt && styles.addCoverBtnOnImage]}
+              onPress={() => setShowEditSplashPicker(v => !v)}
+            >
+              <Ionicons name="image-outline" size={16} color={editSplashArt ? '#fff' : Colors.primary} />
+              <Text style={[styles.addCoverBtnText, editSplashArt && styles.addCoverBtnTextOnImage]}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
+            </TouchableOpacity>
+            {showEditSplashPicker && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
+                <TouchableOpacity
+                  style={[styles.splashPickerOption, !editSplashArt && styles.splashPickerOptionActive]}
+                  onPress={() => { setEditSplashArt(null); setShowEditSplashPicker(false); }}
+                >
+                  <Text style={styles.splashPickerOptionText}>None</Text>
+                </TouchableOpacity>
+                {SPLASH_PRESETS.map(p => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
+                    onPress={() => { setEditSplashArt(p.id); setShowEditSplashPicker(false); }}
+                  >
+                    <View style={styles.splashPickerThumb}>
+                      <SplashArt preset={p.id} height={48} opacity={1} />
+                    </View>
+                    <Text style={styles.splashPickerOptionLabel}>{p.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            <TextInput
+              style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder="Activity title…"
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={80}
+              autoFocus
+            />
+          </>
         ) : (
           <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]}>{activity.title}</Text>
         )}
@@ -632,41 +663,6 @@ export default function ActivityDetailScreen() {
             minimumDate={new Date()}
             onChange={(_, date) => { setShowEditPicker(false); if (date) setEditTime(date); }}
           />
-        )}
-
-        {/* Cover image (edit mode — hidden until button tapped) */}
-        {isEditing && (
-          <View style={styles.editSection}>
-            <TouchableOpacity
-              style={styles.addCoverBtn}
-              onPress={() => setShowEditSplashPicker(v => !v)}
-            >
-              <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
-            </TouchableOpacity>
-            {showEditSplashPicker && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
-                <TouchableOpacity
-                  style={[styles.splashPickerOption, !editSplashArt && styles.splashPickerOptionActive]}
-                  onPress={() => setEditSplashArt(null)}
-                >
-                  <Text style={styles.splashPickerOptionText}>None</Text>
-                </TouchableOpacity>
-                {SPLASH_PRESETS.map(p => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
-                    onPress={() => setEditSplashArt(p.id)}
-                  >
-                    <View style={styles.splashPickerThumb}>
-                      <SplashArt preset={p.id} height={48} opacity={1} />
-                    </View>
-                    <Text style={styles.splashPickerOptionLabel}>{p.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-          </View>
         )}
 
         {/* Description (edit: hidden until button tapped) */}
@@ -1150,6 +1146,8 @@ const styles = StyleSheet.create({
   editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  addCoverBtnOnImage: {},
+  addCoverBtnTextOnImage: { color: '#fff', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   splashPickerContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   splashPickerOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16 },
   splashPickerOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },

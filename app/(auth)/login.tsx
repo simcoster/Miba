@@ -4,7 +4,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
+import { makeRedirectUri } from 'expo-auth-session';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,14 +13,16 @@ import { Ionicons } from '@expo/vector-icons';
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const signInWithGoogle = async () => {
     try {
       setLoading(true);
 
-      // Let expo-auth-session auto-detect the correct URI for Expo Go vs production
-      const redirectTo = Linking.createURL('/');
+      // makeRedirectUri handles Expo Go vs standalone (miba://) correctly.
+      // PKCE flow (flowType in supabase.ts) uses query params, which Android preserves.
+      const redirectTo = makeRedirectUri();
       console.log('[OAuth] redirectTo:', redirectTo);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -77,6 +80,8 @@ export default function LoginScreen() {
       } else {
         throw new Error('No tokens or code found in redirect URL. Check Supabase redirect URL settings.');
       }
+
+      router.replace('/(app)');
     } catch (error: any) {
       Alert.alert('Sign-in failed', error.message ?? 'Something went wrong. Please try again.');
     } finally {
@@ -100,20 +105,6 @@ export default function LoginScreen() {
         <Text style={styles.tagline}>Who's joining?</Text>
       </View>
 
-      <View style={styles.valueProps}>
-        {[
-          { icon: 'people', text: 'Create Circles for every context' },
-          { icon: 'flash', text: 'Post spontaneous or planned activities' },
-          { icon: 'checkmark-circle', text: "See who's in — zero group-chat chaos" },
-        ].map(item => (
-          <View key={item.icon} style={styles.valuePropRow}>
-            <View style={styles.valuePropIcon}>
-              <Ionicons name={item.icon as any} size={20} color={Colors.primary} />
-            </View>
-            <Text style={styles.valuePropText}>{item.text}</Text>
-          </View>
-        ))}
-      </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Get started</Text>
