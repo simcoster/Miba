@@ -106,6 +106,14 @@ export type Message = {
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };
 
+export type MipoProximityEvent = {
+  id: string;
+  user_a_id: string;
+  user_b_id: string;
+  created_at: string;
+  other_profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+};
+
 export type CircleInvite = {
   id: string;
   circle_id: string;

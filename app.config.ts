@@ -5,6 +5,28 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'Miba',
   slug: 'miba',
   owner: 'simcoster',
+  plugins: [
+    'expo-location',
+    [
+      'expo-notifications',
+      {
+        icon: './assets/images/icon.png',
+        color: '#F97316',
+        sounds: [],
+      },
+    ],
+  ],
+  ios: {
+    ...(config.ios ?? {}),
+    infoPlist: {
+      NSLocationWhenInUseUsageDescription: 'Miba uses your location for Mipo visible mode so you can be notified when you and a friend are nearby.',
+      NSLocationAlwaysAndWhenInUseUsageDescription: 'Miba uses your location for Mipo visible mode so you can be notified when you and a friend are nearby.',
+    },
+  },
+  android: {
+    ...config.android,
+    permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
+  },
   extra: {
     supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://qfdxnpryufkgdstergej.supabase.co',
     supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmZHhucHJ5dWZrZ2RzdGVyZ2VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNzE0MzEsImV4cCI6MjA4Nzk0NzQzMX0.dVnuYQgYaTwFm0p7ndDYTVA6Cifx1Awo1GXuUbO_J7E',
