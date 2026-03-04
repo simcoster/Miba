@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -40,6 +40,7 @@ export default function EventsScreen() {
   const { user, profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
 
   const [allActivities, setAllActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,11 +83,15 @@ export default function EventsScreen() {
       };
     }) as Activity[];
 
-    setInvitedCount(raw.filter(a => a.my_rsvp?.status === 'pending').length);
+    setInvitedCount(raw.filter(a => a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time))).length);
 
     const enriched = await enrichWithSeenStatus(raw, user.id);
     setAllActivities(enriched);
   }, [user]);
+
+  useEffect(() => {
+    if (tab === 'upcoming') setFilter('upcoming');
+  }, [tab]);
 
   useEffect(() => {
     if (!user) return;
@@ -97,10 +102,11 @@ export default function EventsScreen() {
   const skipFirstFocus = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      if (tab === 'upcoming') setFilter('upcoming');
       if (skipFirstFocus.current) { skipFirstFocus.current = false; return; }
       if (!user) return;
       fetchActivities();
-    }, [fetchActivities, user])
+    }, [fetchActivities, user, tab])
   );
 
   const onRefresh = useCallback(async () => {
@@ -133,7 +139,7 @@ export default function EventsScreen() {
           .reverse()
           .filter(a =>
             isPast(new Date(a.activity_time)) &&
-            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'hosting' || a.my_rsvp?.status === 'maybe')
+            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'hosting' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')
           );
       case 'invited':
         return allActivities.filter(a =>

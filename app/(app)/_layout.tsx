@@ -20,7 +20,10 @@ function TabIcon({ name, focused, label }: {
 export default function AppLayout() {
   const insets = useSafeAreaInsets();
   return (
-    <Tabs screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}>
+    <Tabs
+      backBehavior="history"
+      screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}
+    >
       <Tabs.Screen
         name="index"
         options={{

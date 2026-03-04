@@ -6,7 +6,6 @@ import { format, isToday, isTomorrow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
-import { NOW_SENTINEL } from '@/lib/types';
 import type { EditMetadata, EditableFields } from '@/lib/types';
 
 const FIELD_LABELS: Record<keyof EditableFields, string> = {
@@ -19,7 +18,6 @@ const FIELD_LABELS: Record<keyof EditableFields, string> = {
 function formatFieldValue(field: keyof EditableFields, value: string | null | undefined): string {
   if (value === null || value === undefined || value === '') return '(none)';
   if (field === 'activity_time') {
-    if (value === NOW_SENTINEL) return 'Happening now';
     const d = new Date(value);
     if (isToday(d)) return `Today at ${format(d, 'h:mm a')}`;
     if (isTomorrow(d)) return `Tomorrow at ${format(d, 'h:mm a')}`;

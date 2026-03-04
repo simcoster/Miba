@@ -1,12 +1,8 @@
-/** Sentinel stored in activity_time to mean "happening right now" */
-export const NOW_SENTINEL = '1970-01-01T00:00:00.000Z';
-
 export type Profile = {
   id: string;
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
-  is_demo: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -19,14 +15,14 @@ export type Circle = {
   created_by: string | null;
   created_at: string;
   member_count?: number;
-  is_admin?: boolean;
+  is_owner?: boolean;
 };
 
 export type CircleMember = {
   id: string;
   circle_id: string;
   user_id: string;
-  role: 'admin' | 'member';
+  role: 'member';
   joined_at: string;
   profile?: Profile;
 };
@@ -40,7 +36,7 @@ export type Activity = {
   activity_time: string;
   status: 'active' | 'cancelled';
   created_at: string;
-  creator?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
+  creator?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
   rsvps?: Rsvp[];
   my_rsvp?: Rsvp | null;
   going_count?: number;
@@ -62,7 +58,7 @@ export type Rsvp = {
   note?: string | null;
   created_at: string;
   updated_at: string;
-  profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url' | 'is_demo'>;
+  profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };
 
 export type EditableFields = {
@@ -77,6 +73,12 @@ export type EditMetadata = {
   original_values: Partial<EditableFields>;
   /** The "to" values after the most recent edit in the batch. */
   current_values: Partial<EditableFields>;
+};
+
+export type EditSuggestionMetadata = {
+  suggested_time: string | null;
+  suggested_location: string | null;
+  note: string;
 };
 
 export type Message = {

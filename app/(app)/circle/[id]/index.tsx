@@ -1,26 +1,43 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
+  View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, Modal, BackHandler,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useGlobalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Circle, CircleMember } from '@/lib/types';
+import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { Button } from '@/components/Button';
 import Colors from '@/constants/Colors';
 
+const EMOJIS = ['👥','🏋️','🎲','🎮','🎵','🏖️','🍕','☕','🎭','🎬','📚','🚴','⚽','🏄','🧗','🎯','🌿','🎸','🏕️','🤿','🎪','🎡','🌮','🍻'];
+
 export default function CircleDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const localParams = useLocalSearchParams<{ id: string; fromTab?: string }>();
+  const globalParams = useGlobalSearchParams<{ fromTab?: string }>();
+  const { id } = localParams;
+  // useGlobalSearchParams as fallback — hidden tab screens may not get local query params
+  const fromTab = localParams.fromTab ?? globalParams.fromTab;
   const { user } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [circle, setCircle] = useState<Circle | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
   const [members, setMembers] = useState<CircleMember[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Edit state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editEmoji, setEditEmoji] = useState('👥');
+  const [saveLoading, setSaveLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!user || !id) return;
@@ -31,18 +48,33 @@ export default function CircleDetailScreen() {
         .eq('circle_id', id),
     ]);
 
-    if (circleRes.data) setCircle(circleRes.data as Circle);
-    if (membersRes.data) {
-      const mems = membersRes.data as CircleMember[];
-      setMembers(mems);
-      setIsAdmin(mems.some(m => m.user_id === user.id && m.role === 'admin'));
+    if (circleRes.data) {
+      const c = circleRes.data as Circle;
+      setCircle(c);
+      setIsOwner(c.created_by === user.id);
     }
+    if (membersRes.data) setMembers(membersRes.data as CircleMember[]);
   }, [user, id]);
 
   useEffect(() => {
     setLoading(true);
     fetchAll().finally(() => setLoading(false));
   }, [fetchAll]);
+
+  useEffect(() => { setIsEditing(false); }, [id]);
+
+  // Refetch when returning from invite screen (e.g. after adding members)
+  const skipFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFirstFocus.current) {
+        skipFirstFocus.current = false;
+        return;
+      }
+      if (!user || !id) return;
+      fetchAll();
+    }, [fetchAll, user, id])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -59,6 +91,64 @@ export default function CircleDetailScreen() {
     }},
   ]);
 
+  const handleBack = useCallback(() => {
+    const tab = typeof fromTab === 'string' ? fromTab : undefined;
+    if (tab === 'circles') {
+      router.replace('/(app)/circles');
+    } else if (tab === 'events') {
+      router.replace('/(app)/events');
+    } else if (tab === 'profile') {
+      router.replace('/(app)/profile');
+    } else if (tab === 'updates') {
+      router.replace('/(app)');
+    } else {
+      router.back();
+    }
+  }, [fromTab, router]);
+
+  // Android back button: cancel edit first, then navigate
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isEditing) {
+        setIsEditing(false);
+        return true;
+      }
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleBack, isEditing]);
+
+  const startEditing = () => {
+    if (!circle) return;
+    setEditName(circle.name);
+    setEditDesc(circle.description ?? '');
+    setEditEmoji(circle.emoji);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!circle || editName.trim().length < 2) return;
+    try {
+      setSaveLoading(true);
+      const { error } = await supabase
+        .from('circles')
+        .update({
+          name: editName.trim(),
+          description: editDesc.trim() || null,
+          emoji: editEmoji,
+        })
+        .eq('id', id);
+      if (error) throw error;
+      setCircle(prev => prev ? { ...prev, name: editName.trim(), description: editDesc.trim() || null, emoji: editEmoji } : null);
+      setIsEditing(false);
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not save changes.');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   const handleRemoveMember = (memberId: string, userId: string, name: string) => {
     if (userId === user?.id) return; // Can't remove yourself from here (use "Leave" or delete)
     Alert.alert('Remove Member', `Remove ${name} from this circle?`, [
@@ -74,26 +164,73 @@ export default function CircleDetailScreen() {
   if (loading || !circle) {
     return (
       <View style={styles.container}>
-        <ScreenHeader title="Circle" showBack />
+        <ScreenHeader title="Circle" showBack onBack={handleBack} />
         <View style={styles.center}><Text style={styles.loadingText}>Loading…</Text></View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader
-        title={`${circle.emoji} ${circle.name}`}
-        subtitle={`${members.length} ${members.length === 1 ? 'member' : 'members'}`}
+        title={isEditing ? 'Edit Circle' : `${circle.emoji} ${circle.name}`}
+        subtitle={isEditing ? undefined : `${members.length} ${members.length === 1 ? 'member' : 'members'}`}
         showBack
-        rightAction={isAdmin ? { icon: 'person-add-outline', onPress: () => router.push(`/(app)/circle/${id}/invite`) } : undefined}
+        onBack={isEditing ? () => setIsEditing(false) : handleBack}
+        rightActions={isOwner && !isEditing ? [
+          { icon: 'ellipsis-vertical', onPress: () => setShowMenu(true) },
+        ] : undefined}
       />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+        refreshControl={!isEditing ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} /> : undefined}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {circle.description ? (
+        {isEditing ? (
+          <>
+            <View style={styles.editSection}>
+              <Text style={styles.editLabel}>Pick an emoji</Text>
+              <View style={styles.emojiGrid}>
+                {EMOJIS.map(e => (
+                  <TouchableOpacity
+                    key={e}
+                    style={[styles.emojiOption, editEmoji === e && styles.emojiOptionSelected]}
+                    onPress={() => setEditEmoji(e)}
+                  >
+                    <Text style={styles.emojiText}>{e}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={styles.editSection}>
+              <Text style={styles.editLabel}>Circle name *</Text>
+              <TextInput
+                style={styles.editInput}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="e.g. Beach crew, Board game night…"
+                placeholderTextColor={Colors.textSecondary}
+                maxLength={50}
+                autoFocus
+              />
+            </View>
+            <View style={styles.editSection}>
+              <Text style={styles.editLabel}>Description (optional)</Text>
+              <TextInput
+                style={[styles.editInput, styles.editTextArea]}
+                value={editDesc}
+                onChangeText={setEditDesc}
+                placeholder="What's this circle for?"
+                placeholderTextColor={Colors.textSecondary}
+                maxLength={200}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
+            </View>
+          </>
+        ) : circle.description ? (
           <View style={styles.descCard}>
             <Text style={styles.descText}>{circle.description}</Text>
           </View>
@@ -102,7 +239,7 @@ export default function CircleDetailScreen() {
         <View style={styles.membersSection}>
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>Members</Text>
-            {isAdmin && (
+            {isOwner && (
               <TouchableOpacity onPress={() => router.push(`/(app)/circle/${id}/invite`)}>
                 <Text style={styles.addLink}>+ Add</Text>
               </TouchableOpacity>
@@ -113,10 +250,10 @@ export default function CircleDetailScreen() {
               <TouchableOpacity
                 key={member.id}
                 style={styles.memberRow}
-                onLongPress={() => isAdmin && member.user_id !== user?.id
+                onLongPress={() => isOwner && member.user_id !== user?.id
                   ? handleRemoveMember(member.id, member.user_id, member.profile?.full_name ?? 'this member')
                   : undefined}
-                activeOpacity={isAdmin && member.user_id !== user?.id ? 0.7 : 1}
+                activeOpacity={isOwner && member.user_id !== user?.id ? 0.7 : 1}
               >
                 <Avatar uri={member.profile?.avatar_url} name={member.profile?.full_name} size={40} />
                 <View style={styles.memberInfo}>
@@ -124,25 +261,47 @@ export default function CircleDetailScreen() {
                     {member.profile?.full_name ?? 'Unknown'}
                     {member.user_id === user?.id ? ' (you)' : ''}
                   </Text>
-                  {member.role === 'admin' && (
-                    <Text style={styles.memberRole}>Admin</Text>
-                  )}
                 </View>
               </TouchableOpacity>
             ))}
           </View>
-          {isAdmin && (
+          {isOwner && (
             <Text style={styles.removeHint}>Long-press a member to remove them</Text>
           )}
         </View>
 
-        <View style={styles.footer}>
-          {isAdmin && (
-            <Button label="Delete Circle" onPress={handleDelete} variant="danger" />
-          )}
-        </View>
+        {isEditing && (
+          <TouchableOpacity
+            style={[styles.saveBtn, (saveLoading || editName.trim().length < 2) && styles.saveBtnDisabled]}
+            onPress={handleSaveEdit}
+            disabled={saveLoading || editName.trim().length < 2}
+          >
+            {saveLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>Save changes</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </ScrollView>
-    </View>
+
+      {/* ⋮ dropdown menu */}
+      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
+          <View style={[styles.menuCard, { top: insets.top + 56 }]}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); startEditing(); }}>
+              <Ionicons name="create-outline" size={18} color={Colors.text} />
+              <Text style={styles.menuItemText}>Edit</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleDelete(); }}>
+              <Ionicons name="trash-outline" size={18} color={Colors.danger} />
+              <Text style={[styles.menuItemText, { color: Colors.danger }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -151,6 +310,17 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   content: { padding: 20, paddingBottom: 40 },
+  editSection: { marginBottom: 24 },
+  editLabel: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  editInput: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
+  editTextArea: { minHeight: 80, paddingTop: 12 },
+  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  emojiOption: { width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.borderLight, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
+  emojiOptionSelected: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  emojiText: { fontSize: 24 },
+  saveBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  saveBtnDisabled: { opacity: 0.5 },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: Colors.borderLight },
   descText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
   membersSection: { marginBottom: 24 },
@@ -161,7 +331,18 @@ const styles = StyleSheet.create({
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   memberInfo: { flex: 1 },
   memberName: { fontSize: 15, fontWeight: '500', color: Colors.text },
-  memberRole: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginTop: 1 },
   removeHint: { fontSize: 12, color: Colors.textSecondary, textAlign: 'center', marginTop: 8 },
-  footer: { marginTop: 8 },
+  menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
+  menuCard: {
+    position: 'absolute', right: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight,
+    minWidth: 180,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  menuItemText: { fontSize: 15, fontWeight: '500', color: Colors.text },
+  menuDivider: { height: 1, backgroundColor: Colors.borderLight },
 });

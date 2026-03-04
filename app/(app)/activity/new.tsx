@@ -11,7 +11,7 @@ import { format, addHours, addMinutes } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Circle, Profile, NOW_SENTINEL } from '@/lib/types';
+import { Circle, Profile } from '@/lib/types';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
@@ -24,7 +24,6 @@ export default function NewActivityScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [isNow, setIsNow] = useState(false);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
   const [quickHighlight, setQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +31,6 @@ export default function NewActivityScreen() {
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
 
   const setQuickTime = (key: '10min' | '1hour', date: Date) => {
-    setIsNow(false);
     setActivityTime(date);
     setQuickHighlight(key);
     setTimeout(() => setQuickHighlight(null), 700);
@@ -125,7 +123,7 @@ export default function NewActivityScreen() {
         title: title.trim(),
         description: description.trim() || null,
         location: location.trim() || null,
-        activity_time: isNow ? NOW_SENTINEL : activityTime.toISOString(),
+        activity_time: activityTime.toISOString(),
       });
       if (activityError) throw activityError;
 
@@ -142,7 +140,7 @@ export default function NewActivityScreen() {
       const { error: rsvpError } = await supabase.from('rsvps').insert(rsvpRows);
       if (rsvpError) throw rsvpError;
 
-      router.replace(`/(app)/activity/${activityId}`);
+      router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
     } catch (error: any) {
       Alert.alert('Error', error.message ?? 'Could not create activity.');
     } finally {
@@ -172,13 +170,6 @@ export default function NewActivityScreen() {
           <Text style={styles.label}>When? *</Text>
           <View style={styles.quickWhenRow}>
             <TouchableOpacity
-              style={[styles.quickBtn, isNow && styles.quickBtnActive]}
-              onPress={() => setIsNow(true)}
-            >
-              <Ionicons name="flash" size={14} color={isNow ? Colors.primary : Colors.textSecondary} />
-              <Text style={[styles.quickBtnText, isNow && styles.quickBtnTextActive]}>Now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={[styles.quickBtn, quickHighlight === '10min' && styles.quickBtnActive]}
               onPress={() => setQuickTime('10min', addMinutes(new Date(), 10))}
             >
@@ -191,8 +182,7 @@ export default function NewActivityScreen() {
               <Text style={[styles.quickBtnText, quickHighlight === '1hour' && styles.quickBtnTextActive]}>+1 hour</Text>
             </TouchableOpacity>
           </View>
-          {!isNow && (
-            <View style={[styles.datetimeRow, { marginTop: 10 }]}>
+          <View style={[styles.datetimeRow, { marginTop: 10 }]}>
               <TouchableOpacity
                 style={[styles.datetimeBtn, { flex: 2 }, !!quickHighlight && styles.datetimeBtnHighlight]}
                 onPress={() => { setPickerMode('date'); setShowPicker(true); }}
@@ -207,11 +197,10 @@ export default function NewActivityScreen() {
                 <Ionicons name="time-outline" size={18} color={Colors.primary} />
                 <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
               </TouchableOpacity>
-            </View>
-          )}
+          </View>
         </View>
 
-        {!isNow && showPicker && (
+        {showPicker && (
           <DateTimePicker
             value={activityTime} mode={pickerMode}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}

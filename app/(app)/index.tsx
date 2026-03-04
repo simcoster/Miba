@@ -46,7 +46,8 @@ export default function UpdatesScreen() {
     if (!user) return;
     setError(null);
 
-    const { data, error: fetchError } = await supabase
+    // Fetch activities (creator or invitee) — same as Events tab
+    const { data: activitiesData, error: fetchError } = await supabase
       .from('activities')
       .select(`
         *,
@@ -62,7 +63,55 @@ export default function UpdatesScreen() {
       return;
     }
 
-    const raw = (data ?? []).map((a: any) => {
+    // Also fetch pending invites directly from rsvps — ensures we never miss an invite
+    const { data: pendingInvitesData } = await supabase
+      .from('rsvps')
+      .select(`
+        id,
+        activity_id,
+        user_id,
+        status,
+        created_at,
+        updated_at,
+        profile:profiles(id, full_name, avatar_url),
+        activity:activities(
+          id,
+          title,
+          description,
+          location,
+          activity_time,
+          status,
+          created_by,
+          creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+          rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
+        )
+      `)
+      .eq('user_id', user.id)
+      .eq('status', 'pending');
+
+    // Merge any activities from pending invites that might not be in the main query
+    const existingIds = new Set((activitiesData ?? []).map((a: any) => a.id));
+    const missingInviteActivities = (pendingInvitesData ?? [])
+      .filter((r: any) => r.activity && !existingIds.has(r.activity.id))
+      .map((r: any) => {
+        const act = r.activity;
+        const myRsvp = act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r;
+        const normalisedRsvp = (myRsvp && act.created_by === myRsvp.user_id && myRsvp.status === 'in')
+          ? { ...myRsvp, status: 'hosting' }
+          : myRsvp;
+        return {
+          ...act,
+          my_rsvp: normalisedRsvp,
+          going_count: act.rsvps?.filter((rv: any) => rv.status === 'in' || rv.status === 'hosting').length ?? 0,
+        };
+      });
+
+    const allActivitiesData = [
+      ...(activitiesData ?? []),
+      ...missingInviteActivities,
+    ];
+
+    const raw = allActivitiesData.map((a: any) => {
       const myRsvp = a.rsvps?.find((r: any) => r.user_id === user.id) ?? null;
       const normalisedRsvp = (myRsvp && a.created_by === myRsvp.user_id && myRsvp.status === 'in')
         ? { ...myRsvp, status: 'hosting' }
@@ -76,14 +125,29 @@ export default function UpdatesScreen() {
 
     const enriched = await enrichWithSeenStatus(raw, user.id);
 
-    // Load last-seen RSVP changes for filtering
-    const activityIds = enriched.map(a => a.id);
+    // Collect all activity IDs we need (enriched + any from pending invites that might not be in enriched)
+    const pendingActivityIds = (pendingInvitesData ?? [])
+      .map((r: any) => {
+        const act = Array.isArray(r.activity) ? r.activity[0] : r.activity;
+        return act?.id;
+      })
+      .filter(Boolean) as string[];
+    const activityIds = [...new Set([...enriched.map(a => a.id), ...pendingActivityIds])];
     const rsvpSeenKeys = activityIds.map(id => `miba_rsvp_changes_seen_${id}`);
-    const rsvpSeenPairs = await AsyncStorage.multiGet(rsvpSeenKeys);
+    const activitySeenKeys = activityIds.map(id => `miba_activity_last_seen_${id}`);
+    const [rsvpSeenPairs, activitySeenPairs] = await Promise.all([
+      AsyncStorage.multiGet(rsvpSeenKeys),
+      AsyncStorage.multiGet(activitySeenKeys),
+    ]);
     const rsvpSeenMap: Record<string, string | null> = {};
     rsvpSeenPairs.forEach(([key, value]) => {
       const actId = key.replace('miba_rsvp_changes_seen_', '');
       rsvpSeenMap[actId] = value;
+    });
+    const activityLastSeenMap: Record<string, string | null> = {};
+    activitySeenPairs.forEach(([key, value]) => {
+      const actId = key.replace('miba_activity_last_seen_', '');
+      activityLastSeenMap[actId] = value;
     });
 
     // Fetch RSVP changes: rsvps where updated_at > created_at, user_id != me, recent
@@ -112,12 +176,52 @@ export default function UpdatesScreen() {
     });
 
     const grouped: EventUpdate[] = [];
+    const groupedIds = new Set<string>();
+
+    // Process pending invites FIRST — ensures new invites always show (primary source)
+    const pendingFromRsvps = (pendingInvitesData ?? []).filter((r: any) => r.activity);
+    for (const r of pendingFromRsvps) {
+      const act = Array.isArray(r.activity) ? r.activity[0] : r.activity;
+      if (!act || groupedIds.has(act.id)) continue;
+      if (isPast(new Date(act.activity_time))) continue; // skip past events
+      const lastSeen = activityLastSeenMap[act.id];
+      const inviteCreatedAt = (r as any).created_at;
+      const inviteIsNew = lastSeen == null || lastSeen === '' || (inviteCreatedAt && new Date(inviteCreatedAt) > new Date(lastSeen));
+      if (!inviteIsNew) continue;
+      const activity = enriched.find((a: Activity) => a.id === act.id);
+      const actToUse = (activity ?? {
+        ...act,
+        my_rsvp: act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r,
+        going_count: act.rsvps?.filter((rv: any) => rv.status === 'in' || rv.status === 'hosting').length ?? 0,
+      }) as Activity;
+      const rawRsvp = r as { id: string; activity_id: string; created_at: string; updated_at: string; profile?: unknown };
+      const myRsvp: Activity['my_rsvp'] = actToUse.my_rsvp ?? {
+        id: rawRsvp.id,
+        activity_id: rawRsvp.activity_id,
+        user_id: user.id,
+        status: 'pending',
+        created_at: rawRsvp.created_at,
+        updated_at: rawRsvp.updated_at ?? rawRsvp.created_at,
+        profile: Array.isArray(rawRsvp.profile) ? rawRsvp.profile[0] : rawRsvp.profile,
+      } as Activity['my_rsvp'];
+      const normalisedRsvp = (myRsvp && act.created_by === myRsvp.user_id && myRsvp.status === 'in')
+        ? { ...myRsvp, status: 'hosting' as const }
+        : myRsvp;
+      const finalAct: Activity = { ...actToUse, my_rsvp: normalisedRsvp };
+      const t = finalAct.my_rsvp?.created_at ? new Date(finalAct.my_rsvp.created_at).getTime() : Date.now();
+      grouped.push({ activity: finalAct, updates: [{ type: 'new_invite' }], latestTimestamp: t });
+      groupedIds.add(act.id);
+    }
+
+    // Then process enriched activities for other updates (merge new_invite with other update types)
     for (const activity of enriched) {
       const updates: UpdateItem[] = [];
       let latestTimestamp = 0;
 
-      // New invite: pending + is_new
-      if (activity.my_rsvp?.status === 'pending' && activity.is_new && !isPast(new Date(activity.activity_time))) {
+      // New invite: pending + (never seen OR invite arrived after last view)
+      const lastSeen = activityLastSeenMap[activity.id];
+      const inviteIsNew = lastSeen == null || lastSeen === '' || (activity.my_rsvp?.created_at && new Date(activity.my_rsvp.created_at) > new Date(lastSeen));
+      if (activity.my_rsvp?.status === 'pending' && inviteIsNew && !isPast(new Date(activity.activity_time))) {
         updates.push({ type: 'new_invite' });
         const t = new Date(activity.my_rsvp.created_at).getTime();
         if (t > latestTimestamp) latestTimestamp = t;
@@ -141,10 +245,23 @@ export default function UpdatesScreen() {
       }
 
       if (updates.length > 0) {
-        grouped.push({ activity, updates, latestTimestamp });
+        const existing = grouped.find(g => g.activity.id === activity.id);
+        if (existing) {
+          // Merge other updates into existing entry; use enriched activity (has full data)
+          existing.activity = activity;
+          const existingTypes = new Set(existing.updates.map(u => u.type));
+          for (const u of updates) {
+            if (!existingTypes.has(u.type)) {
+              existing.updates.push(u);
+              existingTypes.add(u.type);
+            }
+          }
+          existing.latestTimestamp = Math.max(existing.latestTimestamp, latestTimestamp);
+        } else {
+          grouped.push({ activity, updates, latestTimestamp });
+        }
       }
     }
-
     grouped.sort((a, b) => b.latestTimestamp - a.latestTimestamp);
     setEventUpdates(grouped);
   }, [user]);
@@ -155,10 +272,8 @@ export default function UpdatesScreen() {
     fetchUpdates().finally(() => setLoading(false));
   }, [fetchUpdates]);
 
-  const skipFirstFocus = useRef(true);
   useFocusEffect(
     useCallback(() => {
-      if (skipFirstFocus.current) { skipFirstFocus.current = false; return; }
       if (!user) return;
       fetchUpdates();
     }, [fetchUpdates, user])
@@ -175,9 +290,14 @@ export default function UpdatesScreen() {
     setEventUpdates(prev => prev.filter(e => e.activity.id !== item.activity.id));
   }, []);
 
+  const handleSeenAll = useCallback(async () => {
+    await Promise.all(eventUpdates.map(item => markUpdatesAsSeen(item.activity.id)));
+    setEventUpdates([]);
+  }, [eventUpdates]);
+
   const handlePress = useCallback(async (item: EventUpdate) => {
     await markUpdatesAsSeen(item.activity.id);
-    router.push(`/(app)/activity/${item.activity.id}`);
+    router.push(`/(app)/activity/${item.activity.id}?fromTab=updates`);
   }, [router]);
 
   const formatDate = (dateStr: string) => {
@@ -254,6 +374,14 @@ export default function UpdatesScreen() {
         <FlatList
           data={eventUpdates}
           keyExtractor={item => item.activity.id}
+          ListHeaderComponent={
+            eventUpdates.length > 0 ? (
+              <TouchableOpacity style={styles.seenAllBar} onPress={handleSeenAll}>
+                <Ionicons name="checkmark-done-outline" size={20} color="#fff" />
+                <Text style={styles.seenAllBarText}>Seen all</Text>
+              </TouchableOpacity>
+            ) : null
+          }
           renderItem={({ item }) => (
             <View style={styles.swipeableWrap}>
               <Swipeable
@@ -266,11 +394,21 @@ export default function UpdatesScreen() {
                     <Text style={styles.dismissActionText}>Dismiss</Text>
                   </TouchableOpacity>
                 )}
-                onSwipeableOpen={(direction) => {
-                  if (direction === 'left') handleDismiss(item);
+                renderRightActions={() => (
+                  <TouchableOpacity
+                    style={styles.dismissAction}
+                    onPress={() => handleDismiss(item)}
+                  >
+                    <Ionicons name="checkmark-circle" size={28} color="#fff" />
+                    <Text style={styles.dismissActionText}>Dismiss</Text>
+                  </TouchableOpacity>
+                )}
+                onSwipeableOpen={() => {
+                  handleDismiss(item);
                 }}
                 friction={2}
-                leftThreshold={80}
+                leftThreshold={60}
+                rightThreshold={60}
               >
               <TouchableOpacity
                 style={styles.card}
@@ -279,6 +417,13 @@ export default function UpdatesScreen() {
               >
                 <View style={styles.cardHeader}>
                   <Text style={styles.cardTitle} numberOfLines={2}>{item.activity.title}</Text>
+                  <TouchableOpacity
+                    style={styles.dismissButton}
+                    onPress={(e) => { e.stopPropagation(); handleDismiss(item); }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={24} color={Colors.primary} />
+                  </TouchableOpacity>
                   <View style={styles.avatarStack}>
                     {item.activity.rsvps
                       ?.filter(r => r.status === 'in' || r.status === 'hosting')
@@ -319,6 +464,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12,
   },
   title: { fontSize: 24, fontWeight: '800', color: Colors.text },
+  seenAllBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginHorizontal: 20, marginBottom: 12, paddingVertical: 12, borderRadius: 14,
+    backgroundColor: Colors.primary,
+  },
+  seenAllBarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   newButton: {
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',
@@ -334,7 +485,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.borderLight,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 },
-  cardTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, flex: 1, marginRight: 12 },
+  cardTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, flex: 1, marginRight: 8 },
+  dismissButton: { padding: 4, marginLeft: 4 },
   avatarStack: { flexDirection: 'row' },
   avatarWrapper: { borderWidth: 2, borderColor: Colors.surface, borderRadius: 12 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },

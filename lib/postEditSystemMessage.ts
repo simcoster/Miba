@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { NOW_SENTINEL } from '@/lib/types';
 import type { EditableFields, EditMetadata } from '@/lib/types';
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
@@ -20,7 +19,7 @@ export async function postEditSystemMessage(
   // toISOString() produces "Z", so the same instant would look like a string diff.
   const isSameValue = (key: keyof EditableFields, a: string | null, b: string | null): boolean => {
     if (a === b) return true;
-    if (key === 'activity_time' && a && b && a !== NOW_SENTINEL && b !== NOW_SENTINEL) {
+    if (key === 'activity_time' && a && b) {
       return new Date(a).getTime() === new Date(b).getTime();
     }
     return false;

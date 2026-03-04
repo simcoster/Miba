@@ -33,16 +33,16 @@ create table public.circles (
 );
 comment on table public.circles is 'A named group of contacts owned by one user. Used only as a bulk-invite shortcut when creating activities — no circle reference is stored on activities.';
 
--- Circle members (many-to-many users ↔ circles)
+-- Circle members (users in a circle — owner is NOT stored here, see circles.created_by)
 create table public.circle_members (
   id         uuid        primary key default uuid_generate_v4(),
   circle_id  uuid        not null references public.circles(id) on delete cascade,
   user_id    uuid        not null references public.profiles(id) on delete cascade,
-  role       text        not null default 'member' check (role in ('admin', 'member')),
+  role       text        not null default 'member' check (role = 'member'),
   joined_at  timestamptz not null default now(),
   unique (circle_id, user_id)
 );
-comment on table public.circle_members is 'Membership table linking users to circles.';
+comment on table public.circle_members is 'Membership table linking users to circles. Owner is circles.created_by, not stored here.';
 
 -- Activities (standalone events — no circle_id)
 create table public.activities (
@@ -178,23 +178,17 @@ create policy "Circle members can see membership"
     OR public.is_circle_owner(circle_id)
   );
 
--- Creator inserts themselves as admin; admins add others
-create policy "Creator or admin can add members"
+-- Owner can add members; user can add self (e.g. when accepting invite)
+create policy "Owner can add members; user can add self"
   on public.circle_members for insert with check (
-    user_id = auth.uid()
-    or exists (
-      select 1 from public.circle_members
-      where circle_id = circle_members.circle_id and user_id = auth.uid() and role = 'admin'
-    )
+    public.is_circle_owner(circle_id)
+    OR user_id = auth.uid()
   );
 
-create policy "Admin or self can remove members"
+create policy "Owner or self can remove members"
   on public.circle_members for delete using (
     user_id = auth.uid()
-    or exists (
-      select 1 from public.circle_members
-      where circle_id = circle_members.circle_id and user_id = auth.uid() and role = 'admin'
-    )
+    OR public.is_circle_owner(circle_id)
   );
 
 -- ---------- activities ----------
@@ -240,20 +234,18 @@ create policy "Users delete own RSVP"
 create policy "Involved parties can view invites"
   on public.circle_invites for select using (
     invited_user_id = auth.uid()
-    or invited_by = auth.uid()
-    or exists (
+    OR invited_by = auth.uid()
+    OR public.is_circle_owner(circle_id)
+    OR exists (
       select 1 from public.circle_members
       where circle_id = circle_invites.circle_id and user_id = auth.uid()
     )
   );
 
-create policy "Circle admins can create invites"
+create policy "Circle owner can create invites"
   on public.circle_invites for insert with check (
     auth.uid() = invited_by
-    and exists (
-      select 1 from public.circle_members
-      where circle_id = circle_invites.circle_id and user_id = auth.uid() and role = 'admin'
-    )
+    AND public.is_circle_owner(circle_id)
   );
 
 create policy "Invited user can update their invite"

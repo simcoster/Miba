@@ -11,7 +11,7 @@ export function CircleCard({ circle }: { circle: Circle }) {
   return (
     <TouchableOpacity
       style={styles.card}
-      onPress={() => router.push(`/(app)/circle/${circle.id}`)}
+      onPress={() => router.push({ pathname: '/(app)/circle/[id]', params: { id: circle.id, fromTab: 'circles' } } as any)}
       activeOpacity={0.85}
     >
       <View style={styles.emojiContainer}>

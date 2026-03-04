@@ -51,7 +51,7 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
 
   return (
     <TouchableOpacity
-      style={[styles.card, past && styles.cardPast, isPending && styles.cardPending]}
+      style={[styles.card, past && styles.cardPast, isPending && !past && styles.cardPending]}
       onPress={() => router.push(href as any)}
       activeOpacity={0.85}
     >

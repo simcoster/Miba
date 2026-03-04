@@ -42,7 +42,7 @@ export default function InviteScreen() {
     if (!circleId) return;
     try {
       setInviting(profile.id);
-      const { error } = await supabase.from('circle_members').insert({ circle_id: circleId, user_id: profile.id, role: 'member' });
+      const { error } = await supabase.from('circle_members').insert({ circle_id: circleId, user_id: profile.id });
       if (error) {
         if (error.code === '23505') Alert.alert('Already a member', `${profile.full_name} is already in this circle.`);
         else throw error;

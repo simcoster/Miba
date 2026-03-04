@@ -6,6 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
+import type { EditSuggestionMetadata } from '@/lib/types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -137,22 +138,71 @@ export default function ActivityChatScreen() {
     }
   };
 
+  const STATUS_LABELS: Record<string, string> = {
+    pending: 'Invited', in: "I'm in!", out: "Can't go", maybe: 'Maybe', hosting: 'Hosting',
+  };
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     if (item.type === 'system') {
-      return (
-        <TouchableOpacity
-          style={styles.systemPillWrapper}
-          onPress={() => router.push(`/(app)/activity/${id}/edit-changes?messageId=${item.id}`)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.systemPill}>
-            <Ionicons name="pencil-outline" size={13} color={Colors.textSecondary} />
-            <Text style={styles.systemPillText}>Host edited the event</Text>
-            <Ionicons name="chevron-forward" size={13} color={Colors.textSecondary} />
+      if (item.content === 'event_edited') {
+        return (
+          <TouchableOpacity
+            style={styles.systemPillWrapper}
+            onPress={() => router.push(`/(app)/activity/${id}/edit-changes?messageId=${item.id}`)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.systemPill}>
+              <Ionicons name="pencil-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.systemPillText}>Host edited the event</Text>
+              <Ionicons name="chevron-forward" size={13} color={Colors.textSecondary} />
+            </View>
+            <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
+          </TouchableOpacity>
+        );
+      }
+      if (item.content === 'edit_suggestion') {
+        const meta = item.metadata as EditSuggestionMetadata | null;
+        const parts: string[] = [];
+        if (meta?.suggested_time) {
+          const d = new Date(meta.suggested_time);
+          parts.push(`${format(d, 'h:mm a')}?`);
+        }
+        if (meta?.suggested_location) {
+          parts.push(meta.suggested_location);
+        }
+        const text = parts.length > 0
+          ? `${parts.join(' · ')}${meta?.note ? ` · ${meta.note}` : ''}`
+          : meta?.note ?? 'suggested a change';
+        const name = item.profile?.full_name ?? 'Someone';
+        return (
+          <View style={styles.systemPillWrapper}>
+            <View style={styles.systemPill}>
+              <Ionicons name="create-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.systemPillText}>{name} suggested: {text}</Text>
+            </View>
+            <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
           </View>
-          <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
-        </TouchableOpacity>
-      );
+        );
+      }
+      if (item.content === 'rsvp_changed') {
+        const meta = item.metadata as { old_status?: string; new_status?: string; changed_user_id?: string } | null;
+        const oldLabel = meta?.old_status ? STATUS_LABELS[meta.old_status] ?? meta.old_status : '?';
+        const newLabel = meta?.new_status ? STATUS_LABELS[meta.new_status] ?? meta.new_status : '?';
+        const name = item.profile?.full_name ?? 'Someone';
+        const text = meta?.changed_user_id && meta.changed_user_id !== item.user_id
+          ? `Host changed someone's status to ${newLabel}`
+          : `${name} changed their status '${oldLabel} → ${newLabel}'`;
+        return (
+          <View style={styles.systemPillWrapper}>
+            <View style={styles.systemPill}>
+              <Ionicons name="people-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.systemPillText}>{text}</Text>
+            </View>
+            <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
+          </View>
+        );
+      }
+      return null;
     }
 
     const isMe = item.user_id === user?.id;

@@ -4,7 +4,7 @@ import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -16,6 +16,7 @@ const EMOJIS = ['👥','🏋️','🎲','🎮','🎵','🏖️','🍕','☕','�
 export default function NewCircleScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { fromTab } = useLocalSearchParams<{ fromTab?: string }>();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [emoji, setEmoji] = useState('👥');
@@ -37,14 +38,11 @@ export default function NewCircleScreen() {
         throw e1;
       }
 
-      const { error: e2 } = await supabase
-        .from('circle_members').insert({ circle_id: circleId, user_id: user.id, role: 'admin' });
-      if (e2) {
-        console.error('Circle member insert error:', e2.code, e2.message, e2.details, e2.hint);
-        throw e2;
+      if (fromTab) {
+        router.replace({ pathname: '/(app)/circle/[id]', params: { id: circleId, fromTab } } as any);
+      } else {
+        router.replace(`/(app)/circle/${circleId}`);
       }
-
-      router.replace(`/(app)/circle/${circleId}`);
     } catch (error: any) {
       console.error('Create circle failed:', error);
       Alert.alert('Error', `${error.code ?? ''} ${error.message ?? 'Could not create circle.'}`.trim());

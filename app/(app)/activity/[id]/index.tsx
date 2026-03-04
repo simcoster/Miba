@@ -14,10 +14,13 @@ import { format, isToday, isTomorrow, isPast, addHours, addMinutes } from 'date-
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity, Profile, Rsvp, NOW_SENTINEL, EditableFields } from '@/lib/types';
+import { Activity, Profile, Rsvp, EditableFields } from '@/lib/types';
 import { postEditSystemMessage } from '@/lib/postEditSystemMessage';
+import { postEditSuggestionMessage } from '@/lib/postEditSuggestionMessage';
+import { postRsvpChangeMessage } from '@/lib/postRsvpChangeMessage';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
@@ -46,7 +49,6 @@ export default function ActivityDetailScreen() {
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editLocation, setEditLocation] = useState('');
-  const [editIsNow, setEditIsNow] = useState(false);
   const [editTime, setEditTime] = useState(new Date());
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
@@ -62,6 +64,15 @@ export default function ActivityDetailScreen() {
   const editOnLoad = useRef(false);
   useEffect(() => { editOnLoad.current = edit === '1'; }, [id, edit]);
 
+  // Edit suggestion state (invited users)
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [suggestTime, setSuggestTime] = useState<Date | null>(null);
+  const [suggestLocation, setSuggestLocation] = useState('');
+  const [suggestNote, setSuggestNote] = useState('');
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestPickerMode, setSuggestPickerMode] = useState<'date' | 'time'>('date');
+  const [showSuggestPicker, setShowSuggestPicker] = useState(false);
+
   // Maybe RSVP state
   const [maybeNote, setMaybeNote] = useState('');
   const [noteLoading, setNoteLoading] = useState(false);
@@ -76,7 +87,7 @@ export default function ActivityDetailScreen() {
     const { data, error } = await supabase.from('activities').select(`
       *,
       creator:profiles!activities_created_by_fkey(id, full_name, avatar_url),
-      rsvps(*, profile:profiles(id, full_name, avatar_url, is_demo))
+      rsvps(*, profile:profiles(id, full_name, avatar_url))
     `).eq('id', id).single();
 
     if (error) {
@@ -103,9 +114,7 @@ export default function ActivityDetailScreen() {
         setEditTitle(act.title);
         setEditDesc(act.description ?? '');
         setEditLocation(act.location ?? '');
-        const nowMode = act.activity_time === NOW_SENTINEL;
-        setEditIsNow(nowMode);
-        setEditTime(nowMode ? new Date() : new Date(act.activity_time));
+        setEditTime(new Date(act.activity_time));
         setIsEditing(true);
       }
     }
@@ -116,16 +125,6 @@ export default function ActivityDetailScreen() {
 
   // Bug fix: reset edit mode when navigating to a different activity
   useEffect(() => { setIsEditing(false); }, [id]);
-
-  // Android back button exits edit mode instead of navigating away
-  useEffect(() => {
-    if (!isEditing) return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setIsEditing(false);
-      return true;
-    });
-    return () => sub.remove();
-  }, [isEditing]);
 
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
@@ -146,6 +145,37 @@ export default function ActivityDetailScreen() {
 
   useFocusEffect(useCallback(() => { checkUnread(); }, [checkUnread]));
 
+  const handleBack = useCallback(() => {
+    if (fromTab === 'declined' && activity?.my_rsvp && (activity.my_rsvp.status === 'in' || activity.my_rsvp.status === 'maybe' || activity.my_rsvp.status === 'hosting')) {
+      router.replace('/(app)/events?tab=upcoming');
+      return;
+    }
+    // Navigate explicitly to the tab we came from (avoids router.back() always going to Updates)
+    const tab = typeof fromTab === 'string' ? fromTab : undefined;
+    if (tab === 'updates') {
+      router.replace('/(app)');
+    } else if (tab === 'circles') {
+      router.replace('/(app)/circles');
+    } else if (tab === 'upcoming' || tab === 'invited' || tab === 'past' || tab === 'declined') {
+      router.replace(`/(app)/events?tab=${tab}`);
+    } else {
+      router.back();
+    }
+  }, [fromTab, activity?.my_rsvp?.status, router]);
+
+  // Android back button: exit edit mode when editing, otherwise use handleBack
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isEditing) {
+        setIsEditing(false);
+        return true;
+      }
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isEditing, handleBack]);
+
   const handleRsvp = async (status: 'in' | 'out') => {
     if (!user || !activity) return;
     // Creator is always "in" — their RSVP is locked
@@ -154,40 +184,26 @@ export default function ActivityDetailScreen() {
       setRsvpLoading(true);
       Haptics.impactAsync(status === 'in' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
       const existing = activity.my_rsvp;
+      const oldStatus = existing?.status ?? 'pending';
+      let newStatus: 'pending' | 'in' | 'out' = status;
       if (existing) {
         if (existing.status === status) {
           await supabase.from('rsvps').update({ status: 'pending' }).eq('id', existing.id);
+          newStatus = 'pending';
         } else {
           await supabase.from('rsvps').update({ status }).eq('id', existing.id);
         }
       } else {
         await supabase.from('rsvps').insert({ activity_id: activity.id, user_id: user.id, status });
       }
+      if (oldStatus !== newStatus) {
+        postRsvpChangeMessage(activity.id, user.id, oldStatus, newStatus).catch(() => {});
+      }
       await fetchActivity();
     } catch (error: any) {
       Alert.alert('Error', error.message ?? 'Could not update RSVP.');
     } finally {
       setRsvpLoading(false);
-    }
-  };
-
-  const handleProxyRsvp = (rsvp: Rsvp) => {
-    if (!isCreator || !rsvp.profile?.is_demo) return;
-    const name = rsvp.profile.full_name ?? 'them';
-    Alert.alert(`RSVP for ${name}`, 'Set their response:', [
-      { text: 'Going ✓', onPress: () => applyProxyRsvp(rsvp.id, 'in') },
-      { text: "Can't make it ✗", onPress: () => applyProxyRsvp(rsvp.id, 'out') },
-      { text: 'Reset to invited', onPress: () => applyProxyRsvp(rsvp.id, 'pending') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
-
-  const applyProxyRsvp = async (rsvpId: string, status: 'pending' | 'in' | 'out') => {
-    try {
-      await supabase.from('rsvps').update({ status }).eq('id', rsvpId);
-      await fetchActivity();
-    } catch (e: any) {
-      Alert.alert('Error', e.message ?? 'Could not update RSVP.');
     }
   };
 
@@ -198,7 +214,7 @@ export default function ActivityDetailScreen() {
     const alreadyInvited = new Set((activity?.rsvps ?? []).map(r => r.user_id));
     const { data } = await supabase
       .from('profiles')
-      .select('id, full_name, avatar_url, username, is_demo, created_at, updated_at')
+      .select('id, full_name, avatar_url, username, created_at, updated_at')
       .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`)
       .neq('id', user!.id)
       .limit(20);
@@ -233,8 +249,11 @@ export default function ActivityDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => {
         const { error } = await supabase.from('rsvps').delete().eq('id', rsvp.id);
-        if (error) Alert.alert('Error', error.message);
-        else await fetchActivity();
+        if (error) {
+          Alert.alert('Could not remove', error.message ?? 'Please try again.');
+          return;
+        }
+        await fetchActivity();
       }},
     ]);
   };
@@ -286,9 +305,7 @@ export default function ActivityDetailScreen() {
     setEditTitle(activity.title);
     setEditDesc(activity.description ?? '');
     setEditLocation(activity.location ?? '');
-    const nowMode = activity.activity_time === NOW_SENTINEL;
-    setEditIsNow(nowMode);
-    setEditTime(nowMode ? new Date() : new Date(activity.activity_time));
+    setEditTime(new Date(activity.activity_time));
     setIsEditing(true);
   };
 
@@ -307,7 +324,7 @@ export default function ActivityDetailScreen() {
         title: editTitle.trim(),
         description: editDesc.trim() || null,
         location: editLocation.trim() || null,
-        activity_time: editIsNow ? NOW_SENTINEL : editTime.toISOString(),
+        activity_time: editTime.toISOString(),
       };
 
       const { error } = await supabase.from('activities').update(newValues).eq('id', activity.id);
@@ -332,10 +349,14 @@ export default function ActivityDetailScreen() {
       setRsvpLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const existing = activity.my_rsvp;
+      const oldStatus = (existing?.status ?? 'pending') as 'pending' | 'in' | 'out' | 'maybe';
       if (existing) {
         await supabase.from('rsvps').update({ status: 'maybe' }).eq('id', existing.id);
       } else {
         await supabase.from('rsvps').insert({ activity_id: activity.id, user_id: user.id, status: 'maybe' });
+      }
+      if (oldStatus !== 'maybe') {
+        postRsvpChangeMessage(activity.id, user.id, oldStatus, 'maybe').catch(() => {});
       }
       await fetchActivity();
     } catch (e: any) {
@@ -360,6 +381,43 @@ export default function ActivityDetailScreen() {
     } finally {
       setNoteLoading(false);
     }
+  };
+
+  const handleSubmitSuggestion = async () => {
+    if (!activity || !user) return;
+    const note = suggestNote.trim();
+    if (!note) {
+      Alert.alert('Note required', 'Please add a note explaining your suggestion.');
+      return;
+    }
+    if (!suggestTime && !suggestLocation.trim()) {
+      Alert.alert('Suggestion required', 'Please suggest a different time and/or location.');
+      return;
+    }
+    try {
+      setSuggestLoading(true);
+      await postEditSuggestionMessage(activity.id, user.id, {
+        suggested_time: suggestTime?.toISOString() ?? null,
+        suggested_location: suggestLocation.trim() || null,
+        note,
+      });
+      setShowSuggestionModal(false);
+      setSuggestTime(null);
+      setSuggestLocation('');
+      setSuggestNote('');
+      await fetchActivity();
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not post suggestion.');
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
+
+  const openSuggestionModal = () => {
+    setSuggestTime(new Date(activity!.activity_time));
+    setSuggestLocation(activity!.location ?? '');
+    setSuggestNote('');
+    setShowSuggestionModal(true);
   };
 
   // Sync note field when rsvp first loads
@@ -396,13 +454,11 @@ export default function ActivityDetailScreen() {
     );
   }
 
-  const isHappeningNow = activity.activity_time === NOW_SENTINEL;
-  const activityDate = isHappeningNow ? new Date() : new Date(activity.activity_time);
-  const past = isHappeningNow ? false : isPast(activityDate);
+  const activityDate = new Date(activity.activity_time);
+  const past = isPast(activityDate);
   const myRsvp = activity.my_rsvp;
 
-  const dateLabel = isHappeningNow ? 'Happening now'
-    : isToday(activityDate) ? `Today at ${format(activityDate, 'h:mm a')}`
+  const dateLabel = isToday(activityDate) ? `Today at ${format(activityDate, 'h:mm a')}`
     : isTomorrow(activityDate) ? `Tomorrow at ${format(activityDate, 'h:mm a')}`
     : format(activityDate, 'EEEE, MMMM d · h:mm a');
 
@@ -462,29 +518,23 @@ export default function ActivityDetailScreen() {
             {isEditing ? (
               <View style={{ flex: 1 }}>
                 <View style={styles.editQuickRow}>
-                  <TouchableOpacity style={[styles.editQuickBtn, editIsNow && styles.editQuickBtnActive]} onPress={() => setEditIsNow(true)}>
-                    <Ionicons name="flash" size={13} color={editIsNow ? Colors.primary : Colors.textSecondary} />
-                    <Text style={[styles.editQuickBtnText, editIsNow && styles.editQuickBtnTextActive]}>Now</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '10min' && styles.editQuickBtnActive]} onPress={() => { setEditIsNow(false); setEditTime(addMinutes(new Date(), 10)); setEditQuickHighlight('10min'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
+                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '10min' && styles.editQuickBtnActive]} onPress={() => { setEditTime(addMinutes(new Date(), 10)); setEditQuickHighlight('10min'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
                     <Text style={[styles.editQuickBtnText, editQuickHighlight === '10min' && styles.editQuickBtnTextActive]}>+10 min</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '1hour' && styles.editQuickBtnActive]} onPress={() => { setEditIsNow(false); setEditTime(addHours(new Date(), 1)); setEditQuickHighlight('1hour'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
+                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '1hour' && styles.editQuickBtnActive]} onPress={() => { setEditTime(addHours(new Date(), 1)); setEditQuickHighlight('1hour'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
                     <Text style={[styles.editQuickBtnText, editQuickHighlight === '1hour' && styles.editQuickBtnTextActive]}>+1 hour</Text>
                   </TouchableOpacity>
                 </View>
-                {!editIsNow && (
-                  <View style={[styles.editDatetimeRow, { marginTop: 8 }]}>
-                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
-                      <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
-                      <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
-                      <Ionicons name="time-outline" size={15} color={Colors.primary} />
-                      <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={[styles.editDatetimeRow, { marginTop: 8 }]}>
+                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
+                    <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
+                    <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
+                    <Ionicons name="time-outline" size={15} color={Colors.primary} />
+                    <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : (
               <View><Text style={styles.metaLabel}>When</Text><Text style={styles.metaValue}>{dateLabel}</Text></View>
@@ -505,10 +555,16 @@ export default function ActivityDetailScreen() {
               <View style={{ flex: 1 }}><Text style={styles.metaLabel}>Where</Text><Text style={styles.metaValue}>{activity.location}</Text></View>
             ) : null}
           </View>
+          {!past && activity.status === 'active' && !isEditing && !isCreator && (
+            <TouchableOpacity style={styles.suggestBtn} onPress={openSuggestionModal}>
+              <Ionicons name="create-outline" size={16} color={Colors.primary} />
+              <Text style={styles.suggestBtnText}>Suggest different time or location</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* DateTimePicker for edit mode */}
-        {isEditing && !editIsNow && showEditPicker && (
+        {isEditing && showEditPicker && (
           <DateTimePicker
             value={editTime} mode={editPickerMode}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
@@ -713,25 +769,30 @@ export default function ActivityDetailScreen() {
               {going.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
-                const canProxy = isCreator && rsvp.profile?.is_demo && activity.status === 'active' && !past;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
                 return (
-                  <TouchableOpacity
-                    key={rsvp.id} style={styles.attendeeRow}
-                    onPress={canProxy ? () => handleProxyRsvp(rsvp) : undefined}
-                    onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
-                    activeOpacity={canProxy || canRemove ? 0.7 : 1}
-                  >
-                    <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                    <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
-                    {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
-                    {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    {!(isMe && isHost) && (
-                      rsvp.status === 'hosting'
-                        ? <View style={styles.statusBadgeHosting}><Text style={styles.statusTextHosting}>Hosting</Text></View>
-                        : <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>{canProxy ? 'Going ✎' : 'Going'}</Text></View>
+                  <View key={rsvp.id} style={styles.attendeeRow}>
+                    <TouchableOpacity
+                      style={styles.attendeeRowMain}
+                      onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
+                      activeOpacity={canRemove ? 0.7 : 1}
+                    >
+                      <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                      {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
+                      {!(isMe && isHost) && (
+                        rsvp.status === 'hosting'
+                          ? <View style={styles.statusBadgeHosting}><Text style={styles.statusTextHosting}>Hosting</Text></View>
+                          : <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>
+                      )}
+                    </TouchableOpacity>
+                    {canRemove && (
+                      <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={24} color={Colors.danger} />
+                      </TouchableOpacity>
                     )}
-                  </TouchableOpacity>
+                  </View>
                 );
               })}
               {maybe.map(rsvp => {
@@ -740,87 +801,95 @@ export default function ActivityDetailScreen() {
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
                 const visibleNote = isMe ? (maybeNote || null) : (isCreator ? (rsvp.note ?? null) : null);
                 return (
-                  <TouchableOpacity
-                    key={rsvp.id} style={styles.attendeeRow}
-                    onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
-                    activeOpacity={canRemove ? 0.7 : 1}
-                  >
-                    <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
-                      {visibleNote ? <Text style={styles.attendeeNote} numberOfLines={2}>{visibleNote}</Text> : null}
-                    </View>
-                    {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
-                    {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    <View style={styles.statusBadgeMaybe}>
-                      <Text style={styles.statusTextMaybe}>Maybe</Text>
-                    </View>
-                  </TouchableOpacity>
+                  <View key={rsvp.id} style={styles.attendeeRow}>
+                    <TouchableOpacity
+                      style={styles.attendeeRowMain}
+                      onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
+                      activeOpacity={canRemove ? 0.7 : 1}
+                    >
+                      <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                        {visibleNote ? <Text style={styles.attendeeNote} numberOfLines={2}>{visibleNote}</Text> : null}
+                      </View>
+                      {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                      {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
+                      <View style={styles.statusBadgeMaybe}>
+                        <Text style={styles.statusTextMaybe}>Maybe</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {canRemove && (
+                      <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={24} color={Colors.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 );
               })}
               {notGoing.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
-                const canProxy = isCreator && rsvp.profile?.is_demo && activity.status === 'active' && !past;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
                 return (
-                  <TouchableOpacity
-                    key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.6 }]}
-                    onPress={canProxy ? () => handleProxyRsvp(rsvp) : undefined}
-                    onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
-                    activeOpacity={canProxy || canRemove ? 0.7 : 1}
-                  >
-                    <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                    <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
-                    {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
-                    {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>{canProxy ? "Can't go ✎" : "Can't go"}</Text></View>
-                  </TouchableOpacity>
+                  <View key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.6 }]}>
+                    <TouchableOpacity
+                      style={styles.attendeeRowMain}
+                      onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
+                      activeOpacity={canRemove ? 0.7 : 1}
+                    >
+                      <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                      {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
+                      <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>Can't go</Text></View>
+                    </TouchableOpacity>
+                    {canRemove && (
+                      <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close-circle" size={24} color={Colors.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 );
               })}
               {pending.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
-                const canProxy = isCreator && rsvp.profile?.is_demo && activity.status === 'active' && !past;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
                 return (
-                  <TouchableOpacity
-                    key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.5 }]}
-                    onPress={canProxy ? () => handleProxyRsvp(rsvp) : undefined}
-                    onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
-                    activeOpacity={canProxy || canRemove ? 0.7 : 1}
-                  >
-                    <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                    <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
-                    {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
-                    {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                    <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>{canProxy ? 'Invited ✎' : 'Invited'}</Text></View>
-                  </TouchableOpacity>
+                  <View key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.5 }]}>
+                    <TouchableOpacity
+                      style={styles.attendeeRowMain}
+                      onLongPress={canRemove ? () => handleRemoveInvitee(rsvp) : undefined}
+                      activeOpacity={canRemove ? 0.7 : 1}
+                    >
+                      <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
+                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
+                      {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
+                      <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>Invited</Text></View>
+                    </TouchableOpacity>
+                    {canRemove && (
+                      <TouchableOpacity
+                        style={styles.removeInviteeBtn}
+                        onPress={() => handleRemoveInvitee(rsvp)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle" size={24} color={Colors.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 );
               })}
             </View>
           )}
         </View>
 
-        {/* Chat entry */}
+        {/* Updates feed */}
         {!isEditing && (
-          <TouchableOpacity
-            style={styles.chatEntry}
-            onPress={() => router.push(`/(app)/activity/${id}/chat`)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.chatEntryIcon}>
-              <Ionicons name="chatbubble-ellipses" size={22} color={Colors.primary} />
-            </View>
-            <View style={styles.chatEntryText}>
-              <Text style={styles.chatEntryTitle}>Group Chat</Text>
-              <Text style={styles.chatEntrySubtitle}>Chat with everyone who's invited</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
-          </TouchableOpacity>
+          <ActivityUpdatesFeed activityId={id} hostId={activity.created_by} />
         )}
 
-        {/* Save / Delete — visible only while editing */}
+        {/* Save — visible only while editing */}
         {isEditing && (
           <View style={styles.creatorFooter}>
             <TouchableOpacity
@@ -831,10 +900,6 @@ export default function ActivityDetailScreen() {
               {saveLoading
                 ? <ActivityIndicator size="small" color={Colors.primary} />
                 : <Text style={[styles.footerBtnText, { color: Colors.primary }]}>Save changes</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.footerBtn, styles.footerBtnDanger, { flex: 0, paddingHorizontal: 20 }]} onPress={handleCancel}>
-              <Ionicons name="trash-outline" size={16} color={Colors.danger} />
-              <Text style={[styles.footerBtnText, { color: Colors.danger }]}>Delete</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -863,6 +928,77 @@ export default function ActivityDetailScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Suggest time/location modal (invited users) */}
+      <Modal visible={showSuggestionModal} transparent animationType="slide" onRequestClose={() => setShowSuggestionModal(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowSuggestionModal(false)} />
+          <View style={[styles.suggestionModal, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.suggestionHandle} />
+            <Text style={styles.suggestionTitle}>Suggest time or location</Text>
+            <Text style={styles.suggestionSubtitle}>Your suggestion will appear in the feed for the host to see.</Text>
+
+            <Text style={styles.suggestionLabel}>Suggested time (optional)</Text>
+            <View style={styles.suggestionRow}>
+              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('date'); if (!suggestTime) setSuggestTime(new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
+                <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+                <Text style={styles.suggestionInputText}>{suggestTime ? format(suggestTime, 'EEE, MMM d') : 'Pick date'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('time'); if (!suggestTime) setSuggestTime(new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
+                <Ionicons name="time-outline" size={18} color={Colors.primary} />
+                <Text style={styles.suggestionInputText}>{suggestTime ? format(suggestTime, 'h:mm a') : 'Pick time'}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.suggestionClear} onPress={() => setSuggestTime(null)}>
+              <Text style={styles.suggestionClearText}>Clear time</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.suggestionLabel}>Suggested location (optional)</Text>
+            <TextInput
+              style={styles.suggestionTextInput}
+              value={suggestLocation}
+              onChangeText={setSuggestLocation}
+              placeholder="e.g. Coffee shop downtown"
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={150}
+            />
+
+            <Text style={styles.suggestionLabel}>Note *</Text>
+            <TextInput
+              style={[styles.suggestionTextInput, styles.suggestionNoteInput]}
+              value={suggestNote}
+              onChangeText={setSuggestNote}
+              placeholder="e.g. too early bro"
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={200}
+              multiline
+            />
+
+            <View style={styles.suggestionActions}>
+              <TouchableOpacity style={styles.suggestionCancelBtn} onPress={() => setShowSuggestionModal(false)}>
+                <Text style={styles.suggestionCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.suggestionSubmitBtn, (!suggestNote.trim() || (!suggestTime && !suggestLocation.trim())) && styles.suggestionSubmitDisabled]}
+                onPress={handleSubmitSuggestion}
+                disabled={suggestLoading || !suggestNote.trim() || (!suggestTime && !suggestLocation.trim())}
+              >
+                {suggestLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.suggestionSubmitText}>Post suggestion</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+
+        {showSuggestPicker && (
+          <DateTimePicker
+            value={suggestTime ?? new Date(activity.activity_time)}
+            mode={suggestPickerMode}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            minimumDate={new Date()}
+            onChange={(_, date) => { setShowSuggestPicker(false); if (date) setSuggestTime(date); }}
+          />
+        )}
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -877,6 +1013,33 @@ const styles = StyleSheet.create({
   cancelBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.dangerLight, borderRadius: 12, padding: 12, marginBottom: 12 },
   cancelText: { fontSize: 14, color: Colors.danger, fontWeight: '600' },
   metaCard: { backgroundColor: Colors.surface, borderRadius: 16, padding: 16, gap: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },
+  suggestBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, paddingVertical: 8 },
+  suggestBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  suggestionModal: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  suggestionHandle: { width: 36, height: 4, backgroundColor: Colors.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
+  suggestionTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, marginBottom: 4 },
+  suggestionSubtitle: { fontSize: 14, color: Colors.textSecondary, marginBottom: 20 },
+  suggestionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  suggestionRow: { flexDirection: 'row', gap: 10, marginBottom: 6 },
+  suggestionInput: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.background, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 12 },
+  suggestionInputText: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  suggestionClear: { alignSelf: 'flex-start', marginBottom: 16 },
+  suggestionClearText: { fontSize: 13, color: Colors.textSecondary },
+  suggestionTextInput: { backgroundColor: Colors.background, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: Colors.text, marginBottom: 16 },
+  suggestionNoteInput: { minHeight: 60, textAlignVertical: 'top' },
+  suggestionActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  suggestionCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center' },
+  suggestionCancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+  suggestionSubmitBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  suggestionSubmitDisabled: { opacity: 0.5 },
+  suggestionSubmitText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   metaIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
   metaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -952,6 +1115,8 @@ const styles = StyleSheet.create({
   noAttendees: { fontSize: 14, color: Colors.textSecondary },
   attendeeList: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
   attendeeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  attendeeRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  removeInviteeBtn: { padding: 4 },
   attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: Colors.text },
   youBadge: { backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   youText: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
@@ -968,9 +1133,4 @@ const styles = StyleSheet.create({
   hostBadge: { backgroundColor: '#FEFCE8', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   hostText: { fontSize: 12, color: '#CA8A04', fontWeight: '600' },
   attendeeNote: { fontSize: 12, color: Colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
-  chatEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, padding: 14 },
-  chatEntryIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
-  chatEntryText: { flex: 1 },
-  chatEntryTitle: { fontSize: 15, fontWeight: '700', color: Colors.text },
-  chatEntrySubtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 1 },
 });

@@ -42,7 +42,7 @@ export default function CirclesScreen() {
     console.log('[Circles] query ok, count:', data?.length);
 
     setCircles(
-      (data ?? []).map((c: any) => ({ ...c, is_admin: true }))
+      (data ?? []).map((c: any) => ({ ...c, is_owner: true }))
     );
   }, [user]);
 
@@ -78,7 +78,7 @@ export default function CirclesScreen() {
           <Text style={styles.headerTitle}>Circles</Text>
           <Text style={styles.headerSubtitle}>Your curated friend groups</Text>
         </View>
-        <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/circle/new')}>
+        <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/circle/new?fromTab=circles')}>
           <Ionicons name="add" size={28} color={Colors.primary} />
         </TouchableOpacity>
       </View>
@@ -106,7 +106,7 @@ export default function CirclesScreen() {
             emoji="⭕"
             title="No circles yet"
             subtitle="Create a circle for each group of friends — gym crew, board game pals, spontaneous adventures…"
-            action={<Button label="Create your first Circle" onPress={() => router.push('/(app)/circle/new')} />}
+            action={<Button label="Create your first Circle" onPress={() => router.push('/(app)/circle/new?fromTab=circles')} />}
           />
         </ScrollView>
       ) : (
