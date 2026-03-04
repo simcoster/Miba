@@ -64,6 +64,16 @@ export type Rsvp = {
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };
 
+export type ActivityExclusion = {
+  id: string;
+  activity_id: string;
+  user_id: string | null;
+  circle_id: string | null;
+  created_at: string;
+  profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  circle?: Pick<Circle, 'id' | 'name' | 'emoji'>;
+};
+
 export type EditableFields = {
   title: string;
   description: string | null;

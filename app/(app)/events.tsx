@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView,
+  View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
@@ -238,7 +238,19 @@ export default function EventsScreen() {
                 </View>
               );
             }
-            return <ActivityCard activity={item} fromTab={filter} />;
+            const isHost = item.created_by === user?.id;
+            const canDelete = isHost && (filter === 'upcoming' || filter === 'past');
+            return (
+              <ActivityCard
+                activity={item}
+                fromTab={filter}
+                onDelete={canDelete ? async () => {
+                  const { error } = await supabase.from('activities').update({ status: 'cancelled' }).eq('id', item.id);
+                  if (!error) fetchActivities();
+                  else Alert.alert('Error', 'Could not delete event.');
+                } : undefined}
+              />
+            );
           }}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}

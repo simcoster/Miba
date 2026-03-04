@@ -43,9 +43,8 @@ export default function CircleDetailScreen() {
     if (!user || !id) return;
     const [circleRes, membersRes] = await Promise.all([
       supabase.from('circles').select('*').eq('id', id).single(),
-      supabase.from('circle_members')
-        .select('*, profile:profiles(id, full_name, avatar_url)')
-        .eq('circle_id', id),
+      // Fetch members without embed — profile embed can fail and return empty (e.g. ambiguous FK)
+      supabase.from('circle_members').select('id, circle_id, user_id, role, joined_at').eq('circle_id', id),
     ]);
 
     if (circleRes.data) {
@@ -53,7 +52,19 @@ export default function CircleDetailScreen() {
       setCircle(c);
       setIsOwner(c.created_by === user.id);
     }
-    if (membersRes.data) setMembers(membersRes.data as CircleMember[]);
+    if (membersRes.data && (membersRes.data as any[]).length > 0) {
+      const memberRows = membersRes.data as { id: string; circle_id: string; user_id: string; role: string; joined_at: string }[];
+      const userIds = [...new Set(memberRows.map(m => m.user_id))];
+      const { data: profilesData } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', userIds);
+      const profileMap = new Map((profilesData ?? []).map((p: any) => [p.id, p]));
+      const members: CircleMember[] = memberRows.map(m => ({
+        ...m,
+        profile: profileMap.get(m.user_id) ?? undefined,
+      }));
+      setMembers(members);
+    } else {
+      setMembers(membersRes.data ? (membersRes.data as CircleMember[]) : []);
+    }
   }, [user, id]);
 
   useEffect(() => {
@@ -174,7 +185,10 @@ export default function CircleDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader
         title={isEditing ? 'Edit Circle' : `${circle.emoji} ${circle.name}`}
-        subtitle={isEditing ? undefined : `${members.length} ${members.length === 1 ? 'member' : 'members'}`}
+        subtitle={isEditing ? undefined : (() => {
+          const others = members.filter(m => m.user_id !== user?.id);
+          return `${others.length} ${others.length === 1 ? 'member' : 'members'}`;
+        })()}
         showBack
         onBack={isEditing ? () => setIsEditing(false) : handleBack}
         rightActions={isOwner && !isEditing ? [
@@ -246,20 +260,17 @@ export default function CircleDetailScreen() {
             )}
           </View>
           <View style={styles.membersList}>
-            {members.map(member => (
+            {members.filter(m => m.user_id !== user?.id).map(member => (
               <TouchableOpacity
                 key={member.id}
                 style={styles.memberRow}
-                onLongPress={() => isOwner && member.user_id !== user?.id
-                  ? handleRemoveMember(member.id, member.user_id, member.profile?.full_name ?? 'this member')
-                  : undefined}
-                activeOpacity={isOwner && member.user_id !== user?.id ? 0.7 : 1}
+                onLongPress={() => isOwner ? handleRemoveMember(member.id, member.user_id, member.profile?.full_name ?? 'this member') : undefined}
+                activeOpacity={isOwner ? 0.7 : 1}
               >
                 <Avatar uri={member.profile?.avatar_url} name={member.profile?.full_name} size={40} />
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName} numberOfLines={1}>
                     {member.profile?.full_name ?? 'Unknown'}
-                    {member.user_id === user?.id ? ' (you)' : ''}
                   </Text>
                 </View>
               </TouchableOpacity>

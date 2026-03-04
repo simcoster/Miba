@@ -247,6 +247,7 @@ export default function ActivityDetailScreen() {
     }
   };
 
+  // Resolved excluded user IDs (explicit + from excluded circles)
   const handleAddSearch = async (text: string) => {
     setAddQuery(text);
     if (text.trim().length < 2) { setAddResults([]); return; }
@@ -261,6 +262,7 @@ export default function ActivityDetailScreen() {
     setAddResults(((data ?? []) as Profile[]).filter(p => !alreadyInvited.has(p.id)));
     setAddSearching(false);
   };
+
 
   const handleAddInvitee = async (profile: Profile) => {
     if (!activity) return;

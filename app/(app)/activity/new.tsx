@@ -56,6 +56,15 @@ export default function NewActivityScreen() {
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
 
+  // Exclude (host only, create only)
+  const [showExclude, setShowExclude] = useState(false);
+  const [excludeUserIds, setExcludeUserIds] = useState<Set<string>>(new Set());
+  const [excludeUserProfiles, setExcludeUserProfiles] = useState<Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>>(new Map());
+  const [excludeCircleIds, setExcludeCircleIds] = useState<Set<string>>(new Set());
+  const [excludeQuery, setExcludeQuery] = useState('');
+  const [excludeResults, setExcludeResults] = useState<Profile[]>([]);
+  const [excludeSearching, setExcludeSearching] = useState(false);
+
   useEffect(() => {
     if (!user) return;
     supabase
@@ -69,8 +78,6 @@ export default function NewActivityScreen() {
   // Expand or collapse a circle's members into/from the invite pool
   const toggleCircle = async (circle: Circle) => {
     if (expandedCircleIds.has(circle.id)) {
-      // Remove everyone who came from this circle (unless also added via another circle or search)
-      // Easiest approach: just mark collapsed; removal not needed for this UX
       setExpandedCircleIds(prev => { const s = new Set(prev); s.delete(circle.id); return s; });
       return;
     }
@@ -83,11 +90,18 @@ export default function NewActivityScreen() {
 
     if (error) { Alert.alert('Error', 'Could not load circle members.'); return; }
 
+    // Compute excluded set (may be stale in closure, so compute fresh)
+    const excluded = new Set(excludeUserIds);
+    if (excludeCircleIds.size > 0) {
+      const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', [...excludeCircleIds]);
+      (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
+    }
+
     setExpandedCircleIds(prev => new Set(prev).add(circle.id));
     setInvitePool(prev => {
       const next = new Map(prev);
       (data ?? []).forEach((m: any) => {
-        if (m.profile) next.set(m.user_id, m.profile);
+        if (m.profile && !excluded.has(m.user_id)) next.set(m.user_id, m.profile);
       });
       return next;
     });
@@ -101,20 +115,70 @@ export default function NewActivityScreen() {
     setSearchQuery(text);
     if (text.trim().length < 2) { setSearchResults([]); return; }
     setSearching(true);
+    const excluded = new Set(excludeUserIds);
+    if (excludeCircleIds.size > 0) {
+      const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', [...excludeCircleIds]);
+      (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
+    }
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, avatar_url, username')
       .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`)
       .neq('id', user!.id)
       .limit(20);
-    setSearchResults((data ?? []) as Profile[]);
+    const filtered = ((data ?? []) as Profile[]).filter(p => !excluded.has(p.id));
+    setSearchResults(filtered);
     setSearching(false);
   };
 
   const addFromSearch = (profile: Profile) => {
+    if (excludeUserIds.has(profile.id)) return;
     setInvitePool(prev => new Map(prev).set(profile.id, profile));
     setSearchQuery('');
     setSearchResults([]);
+  };
+
+  const handleExcludeSearch = async (text: string) => {
+    setExcludeQuery(text);
+    if (text.trim().length < 2) { setExcludeResults([]); return; }
+    setExcludeSearching(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url, username')
+      .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`)
+      .neq('id', user!.id)
+      .limit(20);
+    const filtered = ((data ?? []) as Profile[]).filter(p => !excludeUserIds.has(p.id));
+    setExcludeResults(filtered);
+    setExcludeSearching(false);
+  };
+
+  const addExclusionUser = (profile: Profile) => {
+    setExcludeUserIds(prev => new Set(prev).add(profile.id));
+    setExcludeUserProfiles(prev => new Map(prev).set(profile.id, profile));
+    setInvitePool(prev => { const next = new Map(prev); next.delete(profile.id); return next; });
+    setExcludeQuery('');
+    setExcludeResults([]);
+  };
+
+  const addExclusionCircle = async (circle: Circle) => {
+    setExcludeCircleIds(prev => new Set(prev).add(circle.id));
+    const { data } = await supabase.from('circle_members').select('user_id').eq('circle_id', circle.id);
+    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
+    setInvitePool(prev => {
+      const next = new Map(prev);
+      memberIds.forEach(uid => next.delete(uid));
+      return next;
+    });
+  };
+
+  const removeExclusionUser = (userId: string) => {
+    setExcludeUserIds(prev => { const s = new Set(prev); s.delete(userId); return s; });
+    setExcludeUserProfiles(prev => { const m = new Map(prev); m.delete(userId); return m; });
+  };
+
+  const removeExclusionCircle = (circleId: string) => {
+    setExcludeCircleIds(prev => { const s = new Set(prev); s.delete(circleId); return s; });
   };
 
   const handleCreate = async () => {
@@ -135,10 +199,18 @@ export default function NewActivityScreen() {
       });
       if (activityError) throw activityError;
 
-      // Build rsvp rows: creator gets 'in' (default host RSVP), everyone in the pool gets 'pending'
+      // Filter invite pool: exclude users in excludeUserIds + members of excludeCircleIds
+      const excluded = new Set(excludeUserIds);
+      if (excludeCircleIds.size > 0) {
+        const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', [...excludeCircleIds]);
+        (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
+      }
+      const finalInviteIds = [...invitePool.keys()].filter(uid => !excluded.has(uid));
+
+      // Build rsvp rows: creator gets 'in', everyone in filtered pool gets 'pending'
       const rsvpRows = [
         { activity_id: activityId, user_id: user.id, status: 'in' as const },
-        ...[...invitePool.keys()].map(uid => ({
+        ...finalInviteIds.map(uid => ({
           activity_id: activityId,
           user_id: uid,
           status: 'pending' as const,
@@ -147,6 +219,15 @@ export default function NewActivityScreen() {
 
       const { error: rsvpError } = await supabase.from('rsvps').insert(rsvpRows);
       if (rsvpError) throw rsvpError;
+
+      // Persist exclusions (host-only record)
+      const exclusionRows = [
+        ...[...excludeUserIds].map((uid: string) => ({ activity_id: activityId, user_id: uid, circle_id: null })),
+        ...[...excludeCircleIds].map((cid: string) => ({ activity_id: activityId, user_id: null, circle_id: cid })),
+      ];
+      if (exclusionRows.length > 0) {
+        await supabase.from('activity_exclusions').insert(exclusionRows);
+      }
 
       router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
     } catch (error: any) {
@@ -316,7 +397,16 @@ export default function NewActivityScreen() {
 
         {/* Individual Search */}
         <View style={styles.section}>
-          <Text style={styles.label}>Invite individuals</Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>Invite individuals</Text>
+            <TouchableOpacity
+              style={[styles.excludeBtn, showExclude && styles.excludeBtnActive]}
+              onPress={() => { setShowExclude(v => !v); setExcludeQuery(''); setExcludeResults([]); }}
+            >
+              <Ionicons name={showExclude ? 'chevron-up' : 'remove-circle-outline'} size={14} color={showExclude ? Colors.textSecondary : Colors.primary} />
+              <Text style={[styles.excludeBtnText, showExclude && { color: Colors.textSecondary }]}>Exclude</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={Colors.textSecondary} />
             <TextInput
@@ -373,6 +463,94 @@ export default function NewActivityScreen() {
               <Text style={styles.inviteEmailText}>Invite <Text style={{ fontWeight: '700' }}>{searchQuery.trim()}</Text> to Miba</Text>
             </TouchableOpacity>
           )}
+          {showExclude && (
+            <View style={styles.excludeSection}>
+              <Text style={styles.excludeHint}>Excluded users and circles will not be invited.</Text>
+              {circles.length > 0 && (
+                <View style={styles.excludeCirclesRow}>
+                  <Text style={styles.excludeSubLabel}>Exclude circle</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {circles.map(c => {
+                      const isExcluded = excludeCircleIds.has(c.id);
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          style={[styles.excludeChip, isExcluded && styles.excludeChipActive]}
+                          onPress={() => isExcluded ? removeExclusionCircle(c.id) : addExclusionCircle(c)}
+                        >
+                          <Text style={styles.excludeChipEmoji}>{c.emoji}</Text>
+                          <Text style={[styles.excludeChipName, isExcluded && styles.excludeChipNameActive]}>{c.name}</Text>
+                          {isExcluded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+              <Text style={styles.excludeSubLabel}>Exclude individual</Text>
+              <View style={styles.searchBox}>
+                <Ionicons name="search" size={18} color={Colors.textSecondary} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={excludeQuery}
+                  onChangeText={handleExcludeSearch}
+                  placeholder="Search by name or username…"
+                  placeholderTextColor={Colors.textSecondary}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {excludeSearching && <ActivityIndicator size="small" color={Colors.primary} />}
+                {excludeQuery.length > 0 && !excludeSearching && (
+                  <TouchableOpacity onPress={() => { setExcludeQuery(''); setExcludeResults([]); }}>
+                    <Ionicons name="close-circle" size={18} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {excludeResults.length > 0 && (
+                <View style={styles.searchResults}>
+                  {excludeResults.map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.searchRow}
+                      onPress={() => addExclusionUser(p)}
+                    >
+                      <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
+                      <View style={styles.searchInfo}>
+                        <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
+                        {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
+                      </View>
+                      <Ionicons name="remove-circle-outline" size={22} color={Colors.danger} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {(excludeUserIds.size > 0 || excludeCircleIds.size > 0) && (
+                <View style={styles.excludedList}>
+                  <Text style={styles.excludeSubLabel}>Excluded ({excludeUserIds.size + excludeCircleIds.size})</Text>
+                  <View style={styles.excludedChips}>
+                    {[...excludeUserProfiles.values()].map(p => (
+                      <View key={p.id} style={styles.excludedChip}>
+                        <Avatar uri={p.avatar_url} name={p.full_name} size={24} />
+                        <Text style={styles.excludedChipName} numberOfLines={1}>{p.full_name?.split(' ')[0] ?? '?'}</Text>
+                        <TouchableOpacity onPress={() => removeExclusionUser(p.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                          <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    {circles.filter(c => excludeCircleIds.has(c.id)).map(c => (
+                      <View key={c.id} style={styles.excludedChip}>
+                        <Text style={styles.excludedChipEmoji}>{c.emoji}</Text>
+                        <Text style={styles.excludedChipName} numberOfLines={1}>{c.name}</Text>
+                        <TouchableOpacity onPress={() => removeExclusionCircle(c.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                          <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Invite pool preview */}
@@ -410,6 +588,24 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   section: { marginBottom: 22 },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  excludeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  excludeBtnActive: {},
+  excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  excludeSection: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  excludeHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 10 },
+  excludeSubLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 8 },
+  excludeCirclesRow: { marginBottom: 4 },
+  excludeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
+  excludeChipActive: { borderColor: Colors.danger, backgroundColor: Colors.dangerLight },
+  excludeChipEmoji: { fontSize: 16 },
+  excludeChipName: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  excludeChipNameActive: { color: Colors.danger },
+  excludedList: { marginTop: 12 },
+  excludedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  excludedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.dangerLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 130 },
+  excludedChipName: { fontSize: 13, fontWeight: '600', color: Colors.danger, flex: 1 },
+  excludedChipEmoji: { fontSize: 14 },
   input: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
   textArea: { minHeight: 100, paddingTop: 12 },
   quickWhenRow: { flexDirection: 'row', gap: 8 },

@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
@@ -32,7 +33,7 @@ const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 type EventsFilter = 'upcoming' | 'invited' | 'past' | 'declined';
 
-export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTab?: EventsFilter }) {
+export function ActivityCard({ activity, fromTab, onDelete }: { activity: Activity; fromTab?: EventsFilter; onDelete?: () => void }) {
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
   const past = isPast(activityDate);
@@ -56,7 +57,14 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
 
   const href = fromTab ? `/(app)/activity/${activity.id}?fromTab=${fromTab}` : `/(app)/activity/${activity.id}`;
 
-  return (
+  const handleDeletePress = () => {
+    Alert.alert('Delete event', 'This will cancel the activity for everyone. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: onDelete },
+    ]);
+  };
+
+  const cardContent = (
     <TouchableOpacity
       style={[styles.card, past && styles.cardPast, isPending && !past && styles.cardPending]}
       onPress={() => router.push(href as any)}
@@ -139,6 +147,26 @@ export function ActivityCard({ activity, fromTab }: { activity: Activity; fromTa
       </View>
     </TouchableOpacity>
   );
+
+  if (onDelete && isHost) {
+    return (
+      <Swipeable
+        renderLeftActions={() => (
+          <TouchableOpacity style={styles.deleteAction} onPress={handleDeletePress}>
+            <Ionicons name="trash-outline" size={24} color="#fff" />
+            <Text style={styles.deleteActionText}>Delete</Text>
+          </TouchableOpacity>
+        )}
+        renderRightActions={() => null}
+        friction={2}
+        leftThreshold={60}
+      >
+        {cardContent}
+      </Swipeable>
+    );
+  }
+
+  return cardContent;
 }
 
 const styles = StyleSheet.create({
@@ -188,4 +216,14 @@ const styles = StyleSheet.create({
   avatarStack: { flexDirection: 'row', height: 28, minWidth: 28, position: 'relative' },
   avatarWrapper: { position: 'absolute', borderWidth: 2, borderColor: Colors.surface, borderRadius: 14 },
   goingCount: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  deleteAction: {
+    backgroundColor: Colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    borderRadius: 18,
+    marginRight: 12,
+    alignSelf: 'stretch',
+  },
+  deleteActionText: { fontSize: 14, fontWeight: '600', color: '#fff', marginTop: 4 },
 });
