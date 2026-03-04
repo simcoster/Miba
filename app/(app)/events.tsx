@@ -115,14 +115,25 @@ export default function EventsScreen() {
       case 'upcoming': {
         const future = (s: string) => !isPast(new Date(s));
         const isHost = (a: Activity) => a.created_by === user?.id;
-        const going = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'in' && !isHost(a));
-        const hosting = allActivities.filter(a => future(a.activity_time) && isHost(a) && a.my_rsvp?.status === 'in');
-        const maybe = allActivities.filter(a => future(a.activity_time) && a.my_rsvp?.status === 'maybe');
+        const hosting = allActivities.filter(a =>
+          future(a.activity_time) && isHost(a) &&
+          (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
+        );
+        const going = allActivities.filter(a =>
+          future(a.activity_time) && a.my_rsvp?.status === 'in' && !isHost(a)
+        );
+        const maybe = allActivities.filter(a =>
+          future(a.activity_time) && a.my_rsvp?.status === 'maybe' && !isHost(a)
+        );
 
-        const result: ListItem[] = [...going];
+        const result: ListItem[] = [];
         if (hosting.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
+          result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
           result.push(...hosting);
+        }
+        if (going.length > 0) {
+          if (result.length > 0) result.push({ __sep: true, key: 'going-sep', label: 'Going' });
+          result.push(...going);
         }
         if (maybe.length > 0) {
           if (result.length > 0) result.push({ __sep: true, key: 'maybe-sep', label: 'Maybe' });
