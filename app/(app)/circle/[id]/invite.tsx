@@ -17,8 +17,10 @@ export default function InviteScreen() {
   const { user } = useAuth();
 
   const [query, setQuery] = useState('');
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [results, setResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(true);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
 
@@ -27,6 +29,17 @@ export default function InviteScreen() {
     supabase.from('circle_members').select('user_id').eq('circle_id', circleId)
       .then(({ data }) => setMemberIds((data ?? []).map((m: any) => m.user_id)));
   }, [circleId]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setLoadingAll(false);
+      return;
+    }
+    setLoadingAll(true);
+    supabase.from('profiles').select('id, full_name, avatar_url, username')
+      .neq('id', user.id).order('full_name').limit(100)
+      .then(({ data }) => { setAllUsers((data ?? []) as Profile[]); setLoadingAll(false); });
+  }, [user?.id]);
 
   const search = async (text: string) => {
     setQuery(text);
@@ -48,7 +61,6 @@ export default function InviteScreen() {
         else throw error;
       } else {
         setMemberIds(prev => [...prev, profile.id]);
-        Alert.alert('Added!', `${profile.full_name} has been added.`);
       }
     } catch (error: any) {
       Alert.alert('Error', error.message ?? 'Could not add member.');
@@ -75,13 +87,46 @@ export default function InviteScreen() {
         )}
       </View>
 
-      {query.length < 2 ? (
-        <View style={styles.hint}><Text style={styles.hintText}>Type at least 2 characters to search</Text></View>
-      ) : results.length === 0 && !searching ? (
-        <View style={styles.hint}><Text style={styles.hintText}>No users found for "{query}"</Text></View>
+      {query.length >= 2 ? (
+        results.length === 0 && !searching ? (
+          <View style={styles.hint}><Text style={styles.hintText}>No users found for "{query}"</Text></View>
+        ) : (
+          <FlatList
+            data={results}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => {
+              const isMember = memberIds.includes(item.id);
+              const isInviting = inviting === item.id;
+              return (
+                <View style={styles.row}>
+                  <Avatar uri={item.avatar_url} name={item.full_name} size={44} />
+                  <View style={styles.info}>
+                    <Text style={styles.name}>{item.full_name ?? 'Unknown'}</Text>
+                    {item.username && <Text style={styles.username}>@{item.username}</Text>}
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.addBtn, isMember && styles.addBtnDone]}
+                    onPress={() => !isMember && handleAdd(item)}
+                    disabled={isMember || isInviting}
+                  >
+                    {isInviting ? <ActivityIndicator size="small" color="#fff" />
+                      : isMember ? <Ionicons name="checkmark" size={18} color={Colors.success} />
+                      : <Ionicons name="add" size={20} color="#fff" />
+                    }
+                  </TouchableOpacity>
+                </View>
+              );
+            }}
+          />
+        )
+      ) : loadingAll ? (
+        <View style={styles.hint}><ActivityIndicator size="large" color={Colors.primary} /></View>
+      ) : allUsers.length === 0 ? (
+        <View style={styles.hint}><Text style={styles.hintText}>No users found</Text></View>
       ) : (
         <FlatList
-          data={results}
+          data={allUsers}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => {

@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   ActivityIndicator, Linking,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addHours, addMinutes } from 'date-fns';
@@ -31,6 +31,8 @@ export default function NewActivityScreen() {
   const [splashArt, setSplashArt] = useState<SplashPreset | null>(null);
   const [showSplashPicker, setShowSplashPicker] = useState(false);
   const [showDetailsInput, setShowDetailsInput] = useState(false);
+  const [isLimited, setIsLimited] = useState(false);
+  const [maxParticipants, setMaxParticipants] = useState<number>(1);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
   const [quickHighlight, setQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,15 +71,32 @@ export default function NewActivityScreen() {
   const [excludeResults, setExcludeResults] = useState<Profile[]>([]);
   const [excludeSearching, setExcludeSearching] = useState(false);
 
-  useEffect(() => {
+  const fetchCircles = useCallback(async () => {
     if (!user) return;
-    supabase
+    const { data } = await supabase
       .from('circles')
       .select('id, name, emoji, description, created_by, created_at')
       .eq('created_by', user.id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setCircles((data ?? []) as Circle[]));
+      .order('created_at', { ascending: false });
+    setCircles((data ?? []) as Circle[]);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCircles();
+  }, [fetchCircles]);
+
+  const skipFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFirstFocus.current) {
+        skipFirstFocus.current = false;
+        return;
+      }
+      if (!user) return;
+      fetchCircles();
+    }, [fetchCircles, user])
+  );
 
   // Expand or collapse a circle's members into/from the invite pool
   const toggleCircle = async (circle: Circle) => {
@@ -225,6 +244,8 @@ export default function NewActivityScreen() {
         location: location.trim() || null,
         activity_time: activityTime.toISOString(),
         splash_art: splashArt,
+        is_limited: isLimited,
+        max_participants: isLimited ? maxParticipants : null,
       });
       if (activityError) throw activityError;
 
@@ -400,6 +421,51 @@ export default function NewActivityScreen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
+          )}
+        </View>
+
+        {/* Limited event */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.limitedRow}
+            onPress={() => setIsLimited(v => !v)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isLimited ? 'checkbox' : 'square-outline'} size={22} color={isLimited ? Colors.primary : Colors.textSecondary} />
+            <Text style={[styles.limitedLabel, isLimited && styles.limitedLabelActive]}>Limited event</Text>
+          </TouchableOpacity>
+          {isLimited && (
+            <View style={styles.limitedSection}>
+              <Text style={styles.label}>Max spots for friends</Text>
+              <Text style={styles.limitedHint}>1 = just you + 1 friend</Text>
+              <View style={styles.maxInputRow}>
+                <TouchableOpacity
+                  style={[styles.maxBtn, maxParticipants <= 1 && styles.maxBtnDisabled]}
+                  onPress={() => setMaxParticipants(p => Math.max(1, p - 1))}
+                  disabled={maxParticipants <= 1}
+                >
+                  <Ionicons name="remove" size={18} color={maxParticipants <= 1 ? Colors.textSecondary : Colors.primary} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.maxInput}
+                  value={String(maxParticipants)}
+                  onChangeText={(t) => {
+                    const n = parseInt(t.replace(/\D/g, ''), 10);
+                    if (!isNaN(n)) setMaxParticipants(Math.min(500, Math.max(1, n)));
+                    else if (t === '') setMaxParticipants(1);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                />
+                <TouchableOpacity
+                  style={[styles.maxBtn, maxParticipants >= 500 && styles.maxBtnDisabled]}
+                  onPress={() => setMaxParticipants(p => Math.min(500, p + 1))}
+                  disabled={maxParticipants >= 500}
+                >
+                  <Ionicons name="add" size={18} color={maxParticipants >= 500 ? Colors.textSecondary : Colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
         </View>
 
@@ -628,6 +694,15 @@ const styles = StyleSheet.create({
   excludeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   excludeBtnActive: {},
   excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  limitedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  limitedLabel: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+  limitedLabelActive: { color: Colors.primary },
+  limitedSection: { marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  limitedHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
+  maxInputRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  maxBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  maxBtnDisabled: { opacity: 0.5 },
+  maxInput: { width: 70, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 12, paddingVertical: 10, fontSize: 18, fontWeight: '600', color: Colors.text, textAlign: 'center' },
   excludeSection: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   excludeHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 10 },
   excludeSubLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 8 },

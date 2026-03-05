@@ -1,3 +1,4 @@
+import '@/lib/mipoLocationTask'; // Register background location task early
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

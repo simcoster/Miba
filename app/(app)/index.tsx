@@ -25,6 +25,7 @@ const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 type UpdateItem =
   | { type: 'new_invite' }
+  | { type: 'limited_reopened' }
   | { type: 'new_messages' }
   | { type: 'rsvp_changes'; count: number; bucketTime: number };
 
@@ -84,6 +85,8 @@ export default function UpdatesScreen() {
           activity_time,
           status,
           created_by,
+          is_limited,
+          limited_reopened_at,
           host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
           rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
         )
@@ -220,6 +223,16 @@ export default function UpdatesScreen() {
         if (t > latestTimestamp) latestTimestamp = t;
       }
 
+      // Limited event reopened: pending + limited_reopened_at > lastSeen
+      const reopenedIsNew = activity.my_rsvp?.status === 'pending' && activity.is_limited && activity.limited_reopened_at &&
+        (lastSeen == null || lastSeen === '' || new Date(activity.limited_reopened_at) > new Date(lastSeen)) &&
+        !isPast(new Date(activity.activity_time));
+      if (reopenedIsNew) {
+        updates.push({ type: 'limited_reopened' });
+        const t = new Date(activity.limited_reopened_at!).getTime();
+        if (t > latestTimestamp) latestTimestamp = t;
+      }
+
       // New chat messages
       if (activity.has_new_messages) {
         updates.push({ type: 'new_messages' });
@@ -307,6 +320,13 @@ export default function UpdatesScreen() {
           <View style={styles.updateChip}>
             <Ionicons name="mail-open-outline" size={14} color={Colors.primary} />
             <Text style={styles.updateChipText}>New invite</Text>
+          </View>
+        );
+      case 'limited_reopened':
+        return (
+          <View style={styles.updateChip}>
+            <Ionicons name="refresh-outline" size={14} color={Colors.primary} />
+            <Text style={styles.updateChipText}>Spots available!</Text>
           </View>
         );
       case 'new_messages':

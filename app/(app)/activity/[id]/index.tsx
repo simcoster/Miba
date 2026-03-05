@@ -322,6 +322,8 @@ export default function ActivityDetailScreen() {
           activity_time: newTime,
           created_by: user.id,
           splash_art: activity.splash_art,
+          is_limited: activity.is_limited ?? false,
+          max_participants: activity.is_limited ? activity.max_participants : null,
         })
         .select('id')
         .single();
@@ -588,6 +590,12 @@ export default function ActivityDetailScreen() {
             <Text style={styles.cancelText}>This activity has been cancelled</Text>
           </View>
         )}
+        {activity.is_limited && activity.max_participants != null && (
+          <View style={styles.limitedBadge}>
+            <Ionicons name="people-outline" size={14} color={Colors.primary} />
+            <Text style={styles.limitedBadgeText}>Limited, max {activity.max_participants}</Text>
+          </View>
+        )}
         </View>
       </View>
 
@@ -694,16 +702,16 @@ export default function ActivityDetailScreen() {
         ) : null}
 
 
-        {/* RSVP section */}
-        {!past && activity.status === 'active' && !isEditing && (
+        {/* RSVP section — hidden for host when limited (host is always "in") */}
+        {!past && activity.status === 'active' && !isEditing && !(isCreator && activity.is_limited) && (
           <View style={styles.rsvpSection}>
             <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Are you joining?</Text>
                 <View style={styles.rsvpButtons}>
-                  {/* I'm in */}
+                  {/* I'm in — disabled when limited event is closed (non-host) */}
                   <TouchableOpacity
                     style={[styles.rsvpBtn, myRsvp?.status === 'in' && styles.rsvpBtnInActive]}
                     onPress={() => { handleRsvp('in'); }}
-                    disabled={rsvpLoading}
+                    disabled={rsvpLoading || (!isCreator && !!activity.limited_closed_at)}
                     activeOpacity={0.85}
                   >
                     {myRsvp?.status === 'in' && (
@@ -1160,6 +1168,8 @@ const styles = StyleSheet.create({
   titlePast: { color: Colors.textSecondary },
   cancelBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.dangerLight, borderRadius: 12, padding: 12, marginBottom: 12 },
   cancelText: { fontSize: 14, color: Colors.danger, fontWeight: '600' },
+  limitedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  limitedBadgeText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   metaCard: { backgroundColor: Colors.surface, borderRadius: 16, padding: 16, gap: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },
   suggestBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, paddingVertical: 8 },
   suggestBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },

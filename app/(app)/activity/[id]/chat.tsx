@@ -3,6 +3,8 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -15,7 +17,17 @@ import { Message } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { parseLocation } from '@/lib/locationUtils';
+import { requestLocationPermission } from '@/lib/mipoLocation';
 import Colors from '@/constants/Colors';
+
+type LocationShare = {
+  activity_id: string;
+  user_id: string;
+  lat: number;
+  lng: number;
+  updated_at: string;
+  profile?: { full_name?: string } | null;
+};
 
 function formatMessageTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -36,8 +48,13 @@ export default function ActivityChatScreen() {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [isMipoDm, setIsMipoDm] = useState(false);
+  const [locationShares, setLocationShares] = useState<LocationShare[]>([]);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [shareLocationLoading, setShareLocationLoading] = useState(false);
 
   const listRef = useRef<FlatList>(null);
+  const locationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch activity title + initial messages
   const fetchInitial = useCallback(async () => {
@@ -64,6 +81,127 @@ export default function ActivityChatScreen() {
     setLoading(true);
     fetchInitial().finally(() => { setLoading(false); markRead(); });
   }, [fetchInitial, markRead]);
+
+  // Detect Mipo DM
+  useEffect(() => {
+    if (!id) return;
+    supabase
+      .from('mipo_dm_activities')
+      .select('activity_id')
+      .eq('activity_id', id)
+      .maybeSingle()
+      .then(({ data }) => setIsMipoDm(!!data));
+  }, [id]);
+
+  // Fetch location shares and subscribe to realtime
+  const fetchLocationShares = useCallback(async () => {
+    if (!id) return;
+    const { data } = await supabase
+      .from('chat_location_shares')
+      .select('activity_id, user_id, lat, lng, updated_at')
+      .eq('activity_id', id);
+    const rows = (data ?? []) as { activity_id: string; user_id: string; lat: number; lng: number; updated_at: string }[];
+    if (rows.length === 0) {
+      setLocationShares([]);
+      return;
+    }
+    const userIds = [...new Set(rows.map(r => r.user_id))];
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', userIds);
+    const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string }) => [p.id, { full_name: p.full_name }]));
+    setLocationShares(rows.map(r => ({
+      ...r,
+      profile: profileMap.get(r.user_id) ?? null,
+    })));
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || !isMipoDm) return;
+    fetchLocationShares();
+    const channel = supabase
+      .channel(`chat-location-shares-${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_location_shares', filter: `activity_id=eq.${id}` },
+        () => fetchLocationShares()
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [id, isMipoDm, fetchLocationShares]);
+
+  // Location polling when sharing
+  useEffect(() => {
+    if (!id || !user || !sharingLocation) return;
+    const poll = async () => {
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        await supabase
+          .from('chat_location_shares')
+          .update({
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('activity_id', id)
+          .eq('user_id', user.id);
+      } catch {}
+    };
+    poll();
+    locationPollRef.current = setInterval(poll, 8000);
+    return () => {
+      if (locationPollRef.current) {
+        clearInterval(locationPollRef.current);
+        locationPollRef.current = null;
+      }
+    };
+  }, [id, user, sharingLocation]);
+
+  const handleShareLocation = useCallback(async () => {
+    if (!id || !user) return;
+    const granted = await requestLocationPermission();
+    if (!granted) {
+      Alert.alert('Location required', 'Please enable location access to share your live location.');
+      return;
+    }
+    setShareLocationLoading(true);
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { error } = await supabase.from('chat_location_shares').insert({
+        activity_id: id,
+        user_id: user.id,
+        lat: loc.coords.latitude,
+        lng: loc.coords.longitude,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      setSharingLocation(true);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message ?? 'Could not share location.');
+    } finally {
+      setShareLocationLoading(false);
+    }
+  }, [id, user]);
+
+  const handleStopLocation = useCallback(async () => {
+    if (!id || !user) return;
+    const { error } = await supabase
+      .from('chat_location_shares')
+      .delete()
+      .eq('activity_id', id)
+      .eq('user_id', user.id);
+    if (!error) setSharingLocation(false);
+  }, [id, user]);
+
+  // Sync sharingLocation with locationShares
+  useEffect(() => {
+    if (user && locationShares.some(s => s.user_id === user.id)) {
+      setSharingLocation(true);
+    } else {
+      setSharingLocation(false);
+    }
+  }, [user, locationShares]);
 
   // Scroll to bottom when messages load or a new one arrives
   useEffect(() => {
@@ -205,6 +343,30 @@ export default function ActivityChatScreen() {
           </View>
         );
       }
+      if (item.content === 'location_share_started') {
+        const name = item.profile?.full_name ?? 'Someone';
+        return (
+          <View style={styles.systemPillWrapper}>
+            <View style={styles.systemPill}>
+              <Ionicons name="location-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.systemPillText}>{name} started showing live location</Text>
+            </View>
+            <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
+          </View>
+        );
+      }
+      if (item.content === 'location_share_stopped') {
+        const name = item.profile?.full_name ?? 'Someone';
+        return (
+          <View style={styles.systemPillWrapper}>
+            <View style={styles.systemPill}>
+              <Ionicons name="location-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.systemPillText}>{name} stopped showing live location</Text>
+            </View>
+            <Text style={styles.systemPillTimestamp}>{formatMessageTime(item.created_at)}</Text>
+          </View>
+        );
+      }
       return null;
     }
 
@@ -241,6 +403,18 @@ export default function ActivityChatScreen() {
     );
   };
 
+  const showMap = isMipoDm && locationShares.length > 0 && Platform.OS !== 'web';
+  const mapRegion = locationShares.length >= 2
+    ? {
+        latitude: locationShares.reduce((s, x) => s + x.lat, 0) / locationShares.length,
+        longitude: locationShares.reduce((s, x) => s + x.lng, 0) / locationShares.length,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      }
+    : locationShares.length === 1
+      ? { latitude: locationShares[0].lat, longitude: locationShares[0].lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+      : null;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -269,6 +443,50 @@ export default function ActivityChatScreen() {
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         />
+      )}
+
+      {isMipoDm && (
+        <View style={styles.locationSection}>
+          {sharingLocation ? (
+            <TouchableOpacity style={styles.locationBtn} onPress={handleStopLocation}>
+              <Ionicons name="location" size={18} color={Colors.danger} />
+              <Text style={styles.locationBtnText}>Stop showing location</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.locationBtn}
+              onPress={handleShareLocation}
+              disabled={shareLocationLoading}
+            >
+              {shareLocationLoading ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="location-outline" size={18} color={Colors.primary} />
+                  <Text style={[styles.locationBtnText, styles.locationBtnTextPrimary]}>Share live location</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {showMap && mapRegion && (
+        <View style={styles.mapContainer}>
+          <MapView
+            key={locationShares.map(s => s.user_id).sort().join(',')}
+            style={styles.map}
+            initialRegion={mapRegion}
+          >
+            {locationShares.map(s => (
+              <Marker
+                key={s.user_id}
+                coordinate={{ latitude: s.lat, longitude: s.lng }}
+                title={s.user_id === user?.id ? 'You' : (s.profile?.full_name ?? 'Friend')}
+              />
+            ))}
+          </MapView>
+        </View>
       )}
 
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
@@ -366,4 +584,23 @@ const styles = StyleSheet.create({
   },
   systemPillText: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
   systemPillTimestamp: { fontSize: 11, color: Colors.textSecondary },
+
+  locationSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: Colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  locationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  locationBtnText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '600' },
+  locationBtnTextPrimary: { color: Colors.primary },
+  mapContainer: { height: 200, backgroundColor: Colors.borderLight },
+  map: { flex: 1, width: '100%' },
 });

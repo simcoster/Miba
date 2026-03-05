@@ -1,17 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
-  TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
+  TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions, Linking,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { Ionicons } from '@expo/vector-icons';
-import { format, addMinutes, subMinutes } from 'date-fns';
+import { format, addMinutes } from 'date-fns';
 import * as Location from 'expo-location';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { useMipo } from '@/contexts/MipoContext';
+import { useMipo, type ProximityEventWithProfile } from '@/contexts/MipoContext';
 import { Circle, Profile } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
@@ -20,20 +23,81 @@ import {
   startMipoLocationWatch,
   type LocationSubscription,
 } from '@/lib/mipoLocation';
-import { registerForPushNotifications } from '@/lib/mipoNotifications';
 import Colors from '@/constants/Colors';
-
-type ProximityEventWithProfile = {
-  id: string;
-  user_a_id: string;
-  user_b_id: string;
-  created_at: string;
-  other_profile: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> | null;
-};
 
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
 const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
+
+const ZoomableImage = ({ source, style }: { source: number; style: { width: number; height: number } }) => {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
+  const pinchGesture = useMemo(
+    () =>
+      Gesture.Pinch()
+        .onUpdate((e) => {
+          scale.value = savedScale.value * e.scale;
+        })
+        .onEnd(() => {
+          if (scale.value < 1) {
+            scale.value = withSpring(1, { damping: 15 });
+            savedScale.value = 1;
+            translateX.value = withSpring(0);
+            translateY.value = withSpring(0);
+            savedTranslateX.value = 0;
+            savedTranslateY.value = 0;
+          } else if (scale.value > 4) {
+            scale.value = withSpring(4);
+            savedScale.value = 4;
+          } else {
+            savedScale.value = scale.value;
+          }
+        }),
+    []
+  );
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .onUpdate((e) => {
+          if (scale.value > 1) {
+            translateX.value = savedTranslateX.value + e.translationX;
+            translateY.value = savedTranslateY.value + e.translationY;
+          }
+        })
+        .onEnd(() => {
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        }),
+    []
+  );
+
+  const composedGesture = useMemo(
+    () => Gesture.Simultaneous(pinchGesture, panGesture),
+    [pinchGesture, panGesture]
+  );
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <GestureDetector gesture={composedGesture}>
+      <Animated.View style={animatedStyle}>
+        <Image source={source} style={style} resizeMode="contain" />
+      </Animated.View>
+    </GestureDetector>
+  );
+};
 
 const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
   <TouchableOpacity style={styles.howItWorksBtn} onPress={onPress} activeOpacity={0.7}>
@@ -44,7 +108,6 @@ const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
 
 export default function MipoScreen() {
   const { user } = useAuth();
-  const { visibleState, setVisible, refreshVisibleState } = useMipo();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width: screenWidth } = useWindowDimensions();
@@ -68,20 +131,38 @@ export default function MipoScreen() {
   const [timerOption, setTimerOption] = useState<TimerOption>('1hour');
   const [loading, setLoading] = useState(false);
   const [locationSub, setLocationSub] = useState<LocationSubscription | null>(null);
-  const [nearbyEvents, setNearbyEvents] = useState<ProximityEventWithProfile[]>([]);
+  const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
-  useEffect(() => {
+  const fetchCircles = useCallback(async () => {
     if (!user) return;
-    supabase
+    const { data } = await supabase
       .from('circles')
       .select('id, name, emoji, description, created_by, created_at')
       .eq('created_by', user.id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => setCircles((data ?? []) as Circle[]));
+      .order('created_at', { ascending: false });
+    setCircles((data ?? []) as Circle[]);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCircles();
+  }, [fetchCircles]);
+
+  const skipFirstCirclesFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFirstCirclesFocus.current) {
+        skipFirstCirclesFocus.current = false;
+        return;
+      }
+      if (!user) return;
+      fetchCircles();
+    }, [fetchCircles, user])
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -96,40 +177,6 @@ export default function MipoScreen() {
         });
         setSelectedPool(pool);
       });
-  }, [user]);
-
-  useEffect(() => {
-    if (user) registerForPushNotifications(user.id).catch(() => {});
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    const cutoff = subMinutes(new Date(), 30).toISOString();
-    const fetchNearby = async () => {
-      const { data } = await supabase.rpc('mipo_nearby_events', {
-        p_user_id: user.id,
-        p_cutoff: cutoff,
-      });
-      const events: ProximityEventWithProfile[] = (data ?? []).map((row: any) => {
-        const otherId = row.user_a_id === user.id ? row.user_b_id : row.user_a_id;
-        return {
-          id: row.id,
-          user_a_id: row.user_a_id,
-          user_b_id: row.user_b_id,
-          created_at: row.created_at,
-          other_profile: { id: row.other_id, full_name: row.other_full_name, avatar_url: row.other_avatar_url },
-        };
-      });
-      setNearbyEvents(events);
-    };
-    fetchNearby();
-    const channel = supabase
-      .channel('mipo_nearby')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mipo_proximity_events' }, () => fetchNearby())
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'mipo_visible_sessions' }, () => fetchNearby())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'mipo_visible_sessions' }, () => fetchNearby())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   useEffect(() => {
@@ -270,10 +317,35 @@ export default function MipoScreen() {
       if (error) throw error;
 
       const sub = await startMipoLocationWatch(user.id);
-      if (sub) setLocationSub(sub);
+      if (!sub) {
+        await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
+        Alert.alert(
+          'Background location required',
+          'Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in Settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+      setLocationSub(sub);
+
+      // One immediate location poll after turning on - triggers proximity check right away
+      // (background task may not fire for several seconds)
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then((loc) =>
+          supabase.from('mipo_visible_sessions').update({
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+            updated_at: new Date().toISOString(),
+          }).eq('user_id', user.id)
+        )
+        .catch(() => {});
 
       setVisible(true, expiresAt);
       setView('active');
+      refreshNearby();
 
       if (expiresAt) {
         expiryIntervalRef.current = setInterval(() => {
@@ -287,7 +359,7 @@ export default function MipoScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, timerOption, setVisible, saveSelections]);
+  }, [user, timerOption, setVisible, saveSelections, refreshNearby]);
 
   const handleTurnOffVisible = useCallback(async () => {
     if (!user) return;
@@ -295,14 +367,58 @@ export default function MipoScreen() {
       clearInterval(expiryIntervalRef.current);
       expiryIntervalRef.current = null;
     }
-    setLocationSub(prev => { prev?.remove(); return null; });
+    const sub = locationSub;
+    setLocationSub(null);
+    if (sub) await sub.remove();
     await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
     setVisible(false, null);
     setView('selection');
     refreshVisibleState();
-  }, [user, setVisible, refreshVisibleState]);
+  }, [user, locationSub, setVisible, refreshVisibleState]);
 
   turnOffRef.current = handleTurnOffVisible;
+
+  const checkMipoUnread = useCallback(async () => {
+    if (!user || nearbyEvents.length === 0) {
+      setUnreadByEventId(new Map());
+      return;
+    }
+    const pairs = nearbyEvents.map(e => {
+      const [a, b] = e.user_a_id < e.user_b_id ? [e.user_a_id, e.user_b_id] : [e.user_b_id, e.user_a_id];
+      return { eventId: e.id, userA: a, userB: b };
+    });
+    const next = new Map<string, boolean>();
+    await Promise.all(
+      pairs.map(async ({ eventId, userA, userB }) => {
+        const { data: dm } = await supabase
+          .from('mipo_dm_activities')
+          .select('activity_id')
+          .eq('user_a_id', userA)
+          .eq('user_b_id', userB)
+          .maybeSingle();
+        const activityId = dm?.activity_id;
+        if (!activityId) return;
+        try {
+          const stored = await AsyncStorage.getItem(`miba_chat_last_read_${activityId}`);
+          const since = stored ?? '1970-01-01T00:00:00Z';
+          const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('activity_id', activityId)
+            .neq('user_id', user.id)
+            .gt('created_at', since);
+          next.set(eventId, (count ?? 0) > 0);
+        } catch {}
+      })
+    );
+    setUnreadByEventId(prev => {
+      const m = new Map(prev);
+      next.forEach((v, k) => m.set(k, v));
+      return m;
+    });
+  }, [user, nearbyEvents]);
+
+  useFocusEffect(useCallback(() => { checkMipoUnread(); }, [checkMipoUnread]));
 
   const openMipoChat = useCallback(async (e: ProximityEventWithProfile) => {
     if (!user) return;
@@ -327,7 +443,7 @@ export default function MipoScreen() {
     const { error: actErr } = await supabase.from('activities').insert({
       id: activityId,
       created_by: user.id,
-      title: `Mipo with ${otherName}`,
+      title: `Chat with ${otherName}`,
       description: 'Quick chat from Mipo',
       activity_time: now.toISOString(),
     });
@@ -376,9 +492,11 @@ export default function MipoScreen() {
                     <Text style={styles.nearbyName}>{e.other_profile?.full_name ?? 'Someone'}</Text>
                     <Text style={styles.nearbyTime}>{format(new Date(e.created_at), 'HH:mm')}</Text>
                   </View>
-                  <Ionicons name="location" size={20} color={Colors.success} />
                   <TouchableOpacity onPress={() => openMipoChat(e)} style={styles.nearbyChatBtn}>
-                    <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                    <View>
+                      <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                      {unreadByEventId.get(e.id) && <View style={styles.chatBadge} />}
+                    </View>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -472,7 +590,7 @@ export default function MipoScreen() {
                 <Ionicons name="close" size={28} color={Colors.text} />
               </TouchableOpacity>
               <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-                <Image source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} resizeMode="contain" />
+                <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} />
               </ScrollView>
             </View>
           </TouchableOpacity>
@@ -497,9 +615,11 @@ export default function MipoScreen() {
                   <Text style={styles.nearbyName}>{e.other_profile?.full_name ?? 'Someone'}</Text>
                   <Text style={styles.nearbyTime}>{format(new Date(e.created_at), 'HH:mm')}</Text>
                 </View>
-                <Ionicons name="location" size={20} color={Colors.success} />
                 <TouchableOpacity onPress={() => openMipoChat(e)} style={styles.nearbyChatBtn}>
-                  <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                  <View>
+                    <Ionicons name="chatbubble-outline" size={22} color={Colors.primary} />
+                    {unreadByEventId.get(e.id) && <View style={styles.chatBadge} />}
+                  </View>
                 </TouchableOpacity>
               </View>
             ))}
@@ -618,7 +738,7 @@ export default function MipoScreen() {
               <Ionicons name="close" size={28} color={Colors.text} />
             </TouchableOpacity>
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <Image source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} resizeMode="contain" />
+              <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} />
             </ScrollView>
           </View>
         </TouchableOpacity>
@@ -698,6 +818,12 @@ const styles = StyleSheet.create({
   nearbyTitle: { fontSize: 14, fontWeight: '700', color: Colors.success, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   nearbyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(34,197,94,0.2)' },
   nearbyChatBtn: { padding: 4 },
+  chatBadge: {
+    position: 'absolute', top: -2, right: -2,
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: Colors.danger,
+    borderWidth: 1.5, borderColor: Colors.successLight,
+  },
   nearbyInfo: { flex: 1 },
   nearbyName: { fontSize: 16, fontWeight: '600', color: Colors.text },
   nearbyTime: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },

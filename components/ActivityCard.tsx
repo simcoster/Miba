@@ -124,6 +124,12 @@ export function ActivityCard({ activity, fromTab, onDelete }: { activity: Activi
           <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
           <Text style={styles.metaText}>{dateLabel}</Text>
         </View>
+        {activity.is_limited && activity.max_participants != null && (
+          <View style={styles.metaRow}>
+            <Ionicons name="people-outline" size={14} color={Colors.primary} />
+            <Text style={[styles.metaText, { color: Colors.primary, fontWeight: '600' }]}>Limited, max {activity.max_participants}</Text>
+          </View>
+        )}
         {activity.location && (
           <LocationDisplay location={activity.location} variant="card" />
         )}

@@ -9,7 +9,11 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native (use Prebuild/CNG - EAS generates these on build)
+android/
+ios/
+
+# Native signing
 *.orig.*
 *.jks
 *.p8

@@ -1,7 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Linking } from 'react-native';
+import {
+  Linking, Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Session, User } from '@supabase/supabase-js';
+import Colors from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
+import { registerForPushNotifications } from '@/lib/mipoNotifications';
 import { isAuthCallbackUrl, processAuthCallbackUrl } from '@/lib/authCallback';
 import { Profile } from '@/lib/types';
 
@@ -28,6 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pushPopup, setPushPopup] = useState<{ title: string; message: string; isError: boolean } | null>(null);
 
   const fetchProfile = async (userId: string) => {
     console.log('[Auth] fetchProfile start', userId);
@@ -105,6 +111,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    registerForPushNotifications(user.id).then((result) => {
+      if (result.success) {
+        setPushPopup({
+          title: 'Notifications enabled',
+          message: result.token ?? '',
+          isError: false,
+        });
+      } else {
+        setPushPopup({
+          title: 'Push registration failed',
+          message: result.error ?? 'Unknown error',
+          isError: true,
+        });
+      }
+    });
+  }, [user]);
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
@@ -113,8 +138,91 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{ session, user, profile, loading, signOut, refreshProfile }}>
       {children}
+      <Modal visible={!!pushPopup} transparent animationType="fade">
+        <TouchableOpacity
+          style={popupStyles.overlay}
+          activeOpacity={1}
+          onPress={() => setPushPopup(null)}
+        >
+          <View style={popupStyles.card} onStartShouldSetResponder={() => true}>
+            <View style={popupStyles.header}>
+              <Text style={[popupStyles.title, pushPopup?.isError && popupStyles.titleError]}>
+                {pushPopup?.title}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setPushPopup(null)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={popupStyles.closeBtn}
+              >
+                <Ionicons name="close" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={popupStyles.scroll}
+              contentContainerStyle={popupStyles.scrollContent}
+              showsVerticalScrollIndicator={true}
+            >
+              <Text style={popupStyles.message} selectable>
+                {pushPopup?.message}
+              </Text>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </AuthContext.Provider>
   );
 }
+
+const popupStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    maxWidth: 400,
+    width: '100%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+    flex: 1,
+  },
+  titleError: {
+    color: Colors.danger,
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  scroll: {
+    maxHeight: 300,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  message: {
+    fontSize: 14,
+    color: Colors.text,
+    lineHeight: 20,
+  },
+});
 
 export const useAuth = () => useContext(AuthContext);

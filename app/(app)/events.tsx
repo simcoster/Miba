@@ -21,9 +21,9 @@ type SeparatorItem = { __sep: true; key: string; label: string };
 type ListItem = Activity | SeparatorItem;
 
 const TABS: Array<{ id: Filter; label: string }> = [
+  { id: 'past', label: 'Past' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'invited', label: 'Invited' },
-  { id: 'past', label: 'Past' },
   { id: 'declined', label: 'Declined' },
 ];
 
@@ -115,20 +115,30 @@ export default function EventsScreen() {
       case 'upcoming': {
         const future = (s: string) => !isPast(new Date(s));
         const isHost = (a: Activity) => a.created_by === user?.id;
+        // Limited section: open limited events (not closed), future, user marked in or maybe (not pending)
+        const limited = allActivities.filter(a =>
+          future(a.activity_time) && a.is_limited && !a.limited_closed_at &&
+          (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
+        );
+        // Non-limited events only (limited go in Limited section)
         const hosting = allActivities.filter(a =>
-          future(a.activity_time) && isHost(a) &&
+          future(a.activity_time) && !a.is_limited && isHost(a) &&
           (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
         );
         const going = allActivities.filter(a =>
-          future(a.activity_time) && a.my_rsvp?.status === 'in' && !isHost(a)
+          future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'in' && !isHost(a)
         );
         const maybe = allActivities.filter(a =>
-          future(a.activity_time) && a.my_rsvp?.status === 'maybe' && !isHost(a)
+          future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'maybe' && !isHost(a)
         );
 
         const result: ListItem[] = [];
+        if (limited.length > 0) {
+          result.push({ __sep: true, key: 'limited-sep', label: 'Limited' });
+          result.push(...limited);
+        }
         if (hosting.length > 0) {
-          result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
+          if (result.length > 0) result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
           result.push(...hosting);
         }
         if (going.length > 0) {
@@ -145,8 +155,9 @@ export default function EventsScreen() {
         return [...allActivities]
           .reverse()
           .filter(a =>
-            isPast(new Date(a.activity_time)) &&
-            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')
+            (isPast(new Date(a.activity_time)) &&
+              (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')) ||
+            (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in'))
           );
       case 'invited':
         return allActivities.filter(a =>

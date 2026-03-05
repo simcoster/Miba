@@ -15,34 +15,58 @@ Notifications.setNotificationHandler({
 /** Android channel for Mipo proximity notifications - ensures they show when app is in background */
 const MIPO_CHANNEL_ID = 'mipo-proximity';
 
+export type PushRegistrationResult = {
+  success: boolean;
+  token: string | null;
+  error: string | null;
+};
+
 /**
  * Register for push notifications and store token in profiles.push_token.
  * Call on app init or when user logs in.
  */
-export async function registerForPushNotifications(userId: string): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
+export async function registerForPushNotifications(userId: string): Promise<PushRegistrationResult> {
+  if (Platform.OS === 'web') {
+    console.log('[Push] Skipped on web');
+    return { success: false, token: null, error: 'Web platform' };
+  }
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync(MIPO_CHANNEL_ID, {
-      name: 'Mipo',
-      importance: Notifications.AndroidImportance.HIGH,
-      sound: 'default',
+  try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(MIPO_CHANNEL_ID, {
+        name: 'Mipo',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'default',
+      });
+    }
+
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let finalStatus = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      console.log('[Push] Permission denied, status:', finalStatus);
+      return { success: false, token: null, error: `Permission ${finalStatus}` };
+    }
+
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? '2085bc90-aea9-4f54-be69-f93013f3cd39',
     });
+    const token = tokenData.data;
+
+    const { error } = await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
+    if (error) {
+      console.error('[Push] Supabase update failed:', error.message);
+      return { success: false, token, error: error.message };
+    }
+
+    console.log('[Push] Registered OK, token:', token?.slice(0, 30) + '...');
+    return { success: true, token, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[Push] Registration failed:', msg);
+    return { success: false, token: null, error: msg };
   }
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus !== 'granted') return null;
-
-  const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? '2085bc90-aea9-4f54-be69-f93013f3cd39',
-  });
-  const token = tokenData.data;
-
-  await supabase.from('profiles').update({ push_token: token }).eq('id', userId);
-  return token;
 }
