@@ -1,9 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Keyboard,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+
+class MapErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError = () => ({ hasError: true });
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -52,8 +64,25 @@ export default function ActivityChatScreen() {
   const [locationShares, setLocationShares] = useState<LocationShare[]>([]);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [shareLocationLoading, setShareLocationLoading] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const listRef = useRef<FlatList>(null);
+  const scrollOffsetRef = useRef(0);
+  const showMapRef = useRef(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => {
+      setKeyboardVisible(true);
+      if (showMapRef.current) {
+        const offset = scrollOffsetRef.current + 100;
+        requestAnimationFrame(() => {
+          listRef.current?.scrollToOffset({ offset, animated: true });
+        });
+      }
+    });
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const locationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch activity title + initial messages
@@ -404,6 +433,7 @@ export default function ActivityChatScreen() {
   };
 
   const showMap = isMipoDm && locationShares.length > 0 && Platform.OS !== 'web';
+  showMapRef.current = showMap;
   const mapRegion = locationShares.length >= 2
     ? {
         latitude: locationShares.reduce((s, x) => s + x.lat, 0) / locationShares.length,
@@ -441,6 +471,8 @@ export default function ActivityChatScreen() {
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
           showsVerticalScrollIndicator={false}
+          onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         />
       )}
@@ -472,20 +504,29 @@ export default function ActivityChatScreen() {
       )}
 
       {showMap && mapRegion && (
-        <View style={styles.mapContainer}>
-          <MapView
-            key={locationShares.map(s => s.user_id).sort().join(',')}
-            style={styles.map}
-            initialRegion={mapRegion}
+        <View style={[styles.mapContainer, keyboardVisible && styles.mapContainerKeyboard]}>
+          <MapErrorBoundary
+            fallback={
+              <View style={styles.mapFallback}>
+                <Ionicons name="map-outline" size={32} color={Colors.textSecondary} />
+                <Text style={styles.mapFallbackText}>Map unavailable</Text>
+              </View>
+            }
           >
-            {locationShares.map(s => (
-              <Marker
-                key={s.user_id}
-                coordinate={{ latitude: s.lat, longitude: s.lng }}
-                title={s.user_id === user?.id ? 'You' : (s.profile?.full_name ?? 'Friend')}
-              />
-            ))}
-          </MapView>
+            <MapView
+              key={locationShares.map(s => s.user_id).sort().join(',')}
+              style={styles.map}
+              initialRegion={mapRegion}
+            >
+              {locationShares.map(s => (
+                <Marker
+                  key={s.user_id}
+                  coordinate={{ latitude: s.lat, longitude: s.lng }}
+                  title={s.user_id === user?.id ? 'You' : (s.profile?.full_name ?? 'Friend')}
+                />
+              ))}
+            </MapView>
+          </MapErrorBoundary>
         </View>
       )}
 
@@ -602,5 +643,14 @@ const styles = StyleSheet.create({
   locationBtnText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '600' },
   locationBtnTextPrimary: { color: Colors.primary },
   mapContainer: { height: 200, backgroundColor: Colors.borderLight },
+  mapContainerKeyboard: { height: 100 },
   map: { flex: 1, width: '100%' },
+  mapFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.borderLight,
+    gap: 8,
+  },
+  mapFallbackText: { fontSize: 14, color: Colors.textSecondary },
 });

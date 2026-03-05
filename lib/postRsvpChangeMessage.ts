@@ -44,7 +44,7 @@ export async function postRsvpChangeMessage(
     const prev = (existing.metadata ?? {}) as RsvpChangeMetadata;
     const merged: RsvpChangeMetadata = {
       old_status: prev.old_status,
-      new_status,
+      new_status: newStatus,
       ...(changedUserId && { changed_user_id: changedUserId }),
     };
 

@@ -13,6 +13,7 @@ const FIELD_LABELS: Record<keyof EditableFields, string> = {
   description: 'Description',
   location: 'Location',
   activity_time: 'Time',
+  splash_art: 'Cover image',
 };
 
 function formatFieldValue(field: keyof EditableFields, value: string | null | undefined): string {

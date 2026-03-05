@@ -34,7 +34,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     ...config.android,
     permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
-    googleServicesFile: './google-services.json',
+    // EAS Build: use GOOGLE_SERVICES_JSON env var (file type). Local: use ./google-services.json
+    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
   },
   updates: {
     url: `https://u.expo.dev/${config.extra?.eas?.projectId ?? '2085bc90-aea9-4f54-be69-f93013f3cd39'}`,

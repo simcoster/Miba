@@ -59,6 +59,7 @@ export default function CircleDetailScreen() {
       const profileMap = new Map((profilesData ?? []).map((p: any) => [p.id, p]));
       const members: CircleMember[] = memberRows.map(m => ({
         ...m,
+        role: m.role as 'member',
         profile: profileMap.get(m.user_id) ?? undefined,
       }));
       setMembers(members);

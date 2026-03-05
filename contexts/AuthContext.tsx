@@ -114,13 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
     registerForPushNotifications(user.id).then((result) => {
-      if (result.success) {
-        setPushPopup({
-          title: 'Notifications enabled',
-          message: result.token ?? '',
-          isError: false,
-        });
-      } else {
+      if (!result.success) {
         setPushPopup({
           title: 'Push registration failed',
           message: result.error ?? 'Unknown error',

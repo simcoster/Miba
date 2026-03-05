@@ -36,6 +36,9 @@ yarn-error.*
 # local env files
 .env
 .env*.local
+
+# Firebase / Google (use EAS env var GOOGLE_SERVICES_JSON for builds)
+google-services.json
 .env.local
 .env.development.local
 .env.test.local

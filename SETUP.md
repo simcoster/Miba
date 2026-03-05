@@ -93,7 +93,16 @@ Testers install the resulting APK/AAB directly. OAuth redirects use `miba://` �
 
 For internal-only distribution (no Play Store), use `--profile preview` instead.
 
-**Environment variables:** The app has fallbacks for Supabase URL and anon key. For production, consider setting `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in [expo.dev](https://expo.dev) → Project → Secrets.
+**Environment variables:** The app has fallbacks for Supabase URL and anon key. For production, consider setting `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in [expo.dev](https://expo.dev) → Project → Environment variables.
+
+**google-services.json (Android):** This file is in `.gitignore` and must not be committed. For local dev, keep a copy in the project root (download from [Firebase Console](https://console.firebase.google.com) → Project settings → Your apps). For EAS builds, add it as a file-type environment variable:
+
+1. Go to [expo.dev](https://expo.dev) → your project → **Environment variables**
+2. **Add variable** → Name: `GOOGLE_SERVICES_JSON`, Type: **File**, upload your `google-services.json`
+3. Assign to `preview` and `production` environments
+4. Set visibility to **Secret**
+
+If `google-services.json` was previously committed, run `git rm --cached google-services.json` and commit to stop tracking it (the file stays on disk).
 
 ---
 

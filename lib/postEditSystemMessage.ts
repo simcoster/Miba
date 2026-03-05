@@ -29,7 +29,7 @@ export async function postEditSystemMessage(
   const changedCurrent: Partial<EditableFields> = {};
 
   (Object.keys(oldValues) as (keyof EditableFields)[]).forEach((key) => {
-    if (!isSameValue(key, oldValues[key], newValues[key])) {
+    if (!isSameValue(key, oldValues[key] ?? null, newValues[key] ?? null)) {
       (changedOriginal as any)[key] = oldValues[key];
       (changedCurrent as any)[key] = newValues[key];
     }

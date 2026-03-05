@@ -62,7 +62,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
  * auth-state change, before AuthContext's async callback runs).
  */
 const _originalGetSession = supabase.auth.getSession.bind(supabase.auth);
-(supabase.auth as any).getSession = (): ReturnType<typeof supabase.auth.getSession> =>
+(supabase.auth as any).getSession = () =>
   Promise.race([
     _originalGetSession(),
     new Promise<{ data: { session: Session | null }; error: null }>(resolve =>
