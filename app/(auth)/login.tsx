@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
@@ -98,12 +98,16 @@ export default function LoginScreen() {
     >
       <View style={styles.logoArea}>
         <View style={styles.logoCircle}>
-          <Text style={styles.logoEmoji}>🤝</Text>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={{ width: 64, height: 64, borderRadius: 32 }}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.appName}>Miba</Text>
         <Text style={styles.appNameHebrew}>מי בא?</Text>
-        <Text style={styles.tagline}>Who's joining?</Text>
       </View>
+      <View style={{ height: 36 }} />
 
 
       <View style={styles.card}>

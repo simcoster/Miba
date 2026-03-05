@@ -21,10 +21,10 @@ type SeparatorItem = { __sep: true; key: string; label: string };
 type ListItem = Activity | SeparatorItem;
 
 const TABS: Array<{ id: Filter; label: string }> = [
-  { id: 'past', label: 'Past' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'invited', label: 'Invited' },
   { id: 'declined', label: 'Declined' },
+  { id: 'past', label: 'Past' },
 ];
 
 const INVITED_BLUE = '#3B82F6';

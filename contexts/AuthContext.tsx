@@ -54,7 +54,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     const init = async () => {
-      const initialUrl = await Linking.getInitialURL();
+      // Linking.getInitialURL() can hang on Android — cap at 2s
+      const initialUrl = await Promise.race([
+        Linking.getInitialURL(),
+        new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
+      ]);
       if (initialUrl && isAuthCallbackUrl(initialUrl)) {
         console.log('[Auth] Processing initial URL (OAuth callback from cold start)');
         await processAuthCallbackUrl(initialUrl);
@@ -82,6 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     init();
 
+    // Failsafe: force loading=false after 5s if init hangs (network, getSession, etc.)
+    const failsafe = setTimeout(() => {
+      if (!cancelled) {
+        console.warn('[Auth] init timeout — forcing loading=false');
+        setLoading(false);
+      }
+    }, 5000);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         console.log('[Auth] onAuthStateChange event:', _event, 'user:', session?.user?.id ?? 'none');
@@ -106,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(failsafe);
       subscription.unsubscribe();
       linkSub.remove();
     };

@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, isToday, isTomorrow, isPast, addHours, addMinutes } from 'date-fns';
+import { format, isToday, isTomorrow, isPast, addMinutes } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,7 +60,6 @@ export default function ActivityDetailScreen() {
   const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
-  const [editQuickHighlight, setEditQuickHighlight] = useState<'10min' | '1hour' | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
 
   // Menu / clone state
@@ -611,20 +610,12 @@ export default function ActivityDetailScreen() {
             <View style={styles.metaIcon}><Ionicons name="calendar" size={20} color={Colors.primary} /></View>
             {isEditing ? (
               <View style={{ flex: 1 }}>
-                <View style={styles.editQuickRow}>
-                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '10min' && styles.editQuickBtnActive]} onPress={() => { setEditTime(addMinutes(new Date(), 10)); setEditQuickHighlight('10min'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
-                    <Text style={[styles.editQuickBtnText, editQuickHighlight === '10min' && styles.editQuickBtnTextActive]}>+10 min</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editQuickBtn, editQuickHighlight === '1hour' && styles.editQuickBtnActive]} onPress={() => { setEditTime(addHours(new Date(), 1)); setEditQuickHighlight('1hour'); setTimeout(() => setEditQuickHighlight(null), 700); }}>
-                    <Text style={[styles.editQuickBtnText, editQuickHighlight === '1hour' && styles.editQuickBtnTextActive]}>+1 hour</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={[styles.editDatetimeRow, { marginTop: 8 }]}>
-                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
+                <View style={styles.editDatetimeRow}>
+                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
                     <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
                     <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }, !!editQuickHighlight && styles.editDatetimeBtnHighlight]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
+                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
                     <Ionicons name="time-outline" size={15} color={Colors.primary} />
                     <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
                   </TouchableOpacity>
@@ -1242,14 +1233,8 @@ const styles = StyleSheet.create({
   footerBtnPrimary: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   footerBtnDanger: { borderColor: Colors.danger, backgroundColor: Colors.dangerLight },
   footerBtnText: { fontSize: 15, fontWeight: '600' },
-  editQuickRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  editQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.background, borderRadius: 16, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 5 },
-  editQuickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
-  editQuickBtnText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
-  editQuickBtnTextActive: { color: Colors.primary },
   editDatetimeRow: { flexDirection: 'row', gap: 8 },
   editDatetimeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, paddingVertical: 8 },
-  editDatetimeBtnHighlight: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   editDatetimeText: { fontSize: 13, fontWeight: '600', color: Colors.text },
   editInlineInput: { flex: 1, fontSize: 15, color: Colors.text, borderBottomWidth: 1, borderBottomColor: Colors.border, paddingVertical: 4 },
   editInput: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, color: Colors.text, marginBottom: 12 },

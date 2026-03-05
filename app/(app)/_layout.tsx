@@ -24,7 +24,7 @@ function MipoTabIcon({ focused }: { focused: boolean }) {
   const { visibleState } = useMipo();
   const isActive = visibleState.isVisible;
   const color = isActive ? Colors.success : (focused ? Colors.primary : Colors.textSecondary);
-  const iconName = (isActive || focused ? 'radar' : 'radar-outline') as React.ComponentProps<typeof Ionicons>['name'];
+  const iconName = (isActive || focused ? 'location' : 'location-outline') as React.ComponentProps<typeof Ionicons>['name'];
   return (
     <View style={styles.tabIconContainer}>
       <Ionicons name={iconName} size={24} color={color} />

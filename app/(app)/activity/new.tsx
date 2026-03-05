@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
-  ActivityIndicator, Linking,
+  ActivityIndicator, Linking, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addHours, addMinutes } from 'date-fns';
+import { format, addHours } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,16 +34,14 @@ export default function NewActivityScreen() {
   const [isLimited, setIsLimited] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState<number>(1);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
-  const [quickHighlight, setQuickHighlight] = useState<'10min' | '1hour' | null>(null);
+  const [showExcludeBubble, setShowExcludeBubble] = useState(false);
+  const [showLimitedBubble, setShowLimitedBubble] = useState(false);
+  const [bubblePosition, setBubblePosition] = useState<{ x: number; y: number } | null>(null);
+  const excludeIconRef = useRef<View>(null);
+  const limitedIconRef = useRef<View>(null);
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
-
-  const setQuickTime = (key: '10min' | '1hour', date: Date) => {
-    setActivityTime(date);
-    setQuickHighlight(key);
-    setTimeout(() => setQuickHighlight(null), 700);
-  };
 
   // Circles for quick-add
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -347,35 +345,21 @@ export default function NewActivityScreen() {
         {/* Date & Time */}
         <View style={styles.section}>
           <Text style={styles.label}>When? *</Text>
-          <View style={styles.quickWhenRow}>
+          <View style={styles.datetimeRow}>
             <TouchableOpacity
-              style={[styles.quickBtn, quickHighlight === '10min' && styles.quickBtnActive]}
-              onPress={() => setQuickTime('10min', addMinutes(new Date(), 10))}
+              style={[styles.datetimeBtn, { flex: 2 }]}
+              onPress={() => { setPickerMode('date'); setShowPicker(true); }}
             >
-              <Text style={[styles.quickBtnText, quickHighlight === '10min' && styles.quickBtnTextActive]}>+10 min</Text>
+              <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+              <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.quickBtn, quickHighlight === '1hour' && styles.quickBtnActive]}
-              onPress={() => setQuickTime('1hour', addHours(new Date(), 1))}
+              style={[styles.datetimeBtn, { flex: 1 }]}
+              onPress={() => { setPickerMode('time'); setShowPicker(true); }}
             >
-              <Text style={[styles.quickBtnText, quickHighlight === '1hour' && styles.quickBtnTextActive]}>+1 hour</Text>
+              <Ionicons name="time-outline" size={18} color={Colors.primary} />
+              <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
             </TouchableOpacity>
-          </View>
-          <View style={[styles.datetimeRow, { marginTop: 10 }]}>
-              <TouchableOpacity
-                style={[styles.datetimeBtn, { flex: 2 }, !!quickHighlight && styles.datetimeBtnHighlight]}
-                onPress={() => { setPickerMode('date'); setShowPicker(true); }}
-              >
-                <Ionicons name="calendar-outline" size={18} color={quickHighlight ? Colors.primary : Colors.primary} />
-                <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.datetimeBtn, { flex: 1 }, !!quickHighlight && styles.datetimeBtnHighlight]}
-                onPress={() => { setPickerMode('time'); setShowPicker(true); }}
-              >
-                <Ionicons name="time-outline" size={18} color={Colors.primary} />
-                <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
-              </TouchableOpacity>
           </View>
         </View>
 
@@ -424,51 +408,6 @@ export default function NewActivityScreen() {
           )}
         </View>
 
-        {/* Limited event */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.limitedRow}
-            onPress={() => setIsLimited(v => !v)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name={isLimited ? 'checkbox' : 'square-outline'} size={22} color={isLimited ? Colors.primary : Colors.textSecondary} />
-            <Text style={[styles.limitedLabel, isLimited && styles.limitedLabelActive]}>Limited event</Text>
-          </TouchableOpacity>
-          {isLimited && (
-            <View style={styles.limitedSection}>
-              <Text style={styles.label}>Max spots for friends</Text>
-              <Text style={styles.limitedHint}>1 = just you + 1 friend</Text>
-              <View style={styles.maxInputRow}>
-                <TouchableOpacity
-                  style={[styles.maxBtn, maxParticipants <= 1 && styles.maxBtnDisabled]}
-                  onPress={() => setMaxParticipants(p => Math.max(1, p - 1))}
-                  disabled={maxParticipants <= 1}
-                >
-                  <Ionicons name="remove" size={18} color={maxParticipants <= 1 ? Colors.textSecondary : Colors.primary} />
-                </TouchableOpacity>
-                <TextInput
-                  style={styles.maxInput}
-                  value={String(maxParticipants)}
-                  onChangeText={(t) => {
-                    const n = parseInt(t.replace(/\D/g, ''), 10);
-                    if (!isNaN(n)) setMaxParticipants(Math.min(500, Math.max(1, n)));
-                    else if (t === '') setMaxParticipants(1);
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={3}
-                />
-                <TouchableOpacity
-                  style={[styles.maxBtn, maxParticipants >= 500 && styles.maxBtnDisabled]}
-                  onPress={() => setMaxParticipants(p => Math.min(500, p + 1))}
-                  disabled={maxParticipants >= 500}
-                >
-                  <Ionicons name="add" size={18} color={maxParticipants >= 500 ? Colors.textSecondary : Colors.primary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </View>
-
         {/* Invite via Circles */}
         <View style={styles.section}>
           <Text style={styles.label}>Invite via Circle</Text>
@@ -499,16 +438,7 @@ export default function NewActivityScreen() {
 
         {/* Individual Search */}
         <View style={styles.section}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Invite individuals</Text>
-            <TouchableOpacity
-              style={[styles.excludeBtn, showExclude && styles.excludeBtnActive]}
-              onPress={() => { setShowExclude(v => !v); setExcludeQuery(''); setExcludeResults([]); }}
-            >
-              <Ionicons name={showExclude ? 'chevron-up' : 'remove-circle-outline'} size={14} color={showExclude ? Colors.textSecondary : Colors.primary} />
-              <Text style={[styles.excludeBtnText, showExclude && { color: Colors.textSecondary }]}>Exclude</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.label}>Invite individuals</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={Colors.textSecondary} />
             <TextInput
@@ -522,6 +452,28 @@ export default function NewActivityScreen() {
                 <Ionicons name="close-circle" size={18} color={Colors.textSecondary} />
               </TouchableOpacity>
             )}
+          </View>
+          <View style={styles.excludeRow}>
+            <TouchableOpacity
+              style={[styles.excludeBtn, showExclude && styles.excludeBtnActive]}
+              onPress={() => { setShowExclude(v => !v); setExcludeQuery(''); setExcludeResults([]); }}
+            >
+              <Ionicons name={showExclude ? 'chevron-up' : 'person-remove-outline'} size={14} color={showExclude ? Colors.textSecondary : Colors.primary} />
+              <Text style={[styles.excludeBtnText, showExclude && { color: Colors.textSecondary }]}>Exclude</Text>
+            </TouchableOpacity>
+            <View ref={excludeIconRef} collapsable={false}>
+              <TouchableOpacity
+                onPress={() => {
+                  excludeIconRef.current?.measureInWindow((x, y, w) => {
+                    setBubblePosition({ x: x + w + 8, y });
+                    setShowExcludeBubble(true);
+                  });
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+              </TouchableOpacity>
+            </View>
           </View>
           {searchResults.length > 0 && (
             <View style={styles.searchResults}>
@@ -567,7 +519,6 @@ export default function NewActivityScreen() {
           )}
           {showExclude && (
             <View style={styles.excludeSection}>
-              <Text style={styles.excludeHint}>Excluded users and circles will not be invited.</Text>
               {circles.length > 0 && (
                 <View style={styles.excludeCirclesRow}>
                   <Text style={styles.excludeSubLabel}>Exclude circle</Text>
@@ -673,6 +624,65 @@ export default function NewActivityScreen() {
           </View>
         )}
 
+        {/* Limited event */}
+        <View style={styles.section}>
+          <View style={styles.limitedRow}>
+            <TouchableOpacity
+              style={styles.addCoverBtn}
+              onPress={() => setIsLimited(v => !v)}
+            >
+              <Ionicons name={isLimited ? 'people' : 'people-outline'} size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>Limited event</Text>
+            </TouchableOpacity>
+            <View ref={limitedIconRef} collapsable={false}>
+              <TouchableOpacity
+                onPress={() => {
+                  limitedIconRef.current?.measureInWindow((x, y, w) => {
+                    setBubblePosition({ x: x + w + 8, y });
+                    setShowLimitedBubble(true);
+                  });
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {isLimited && (
+            <View style={styles.limitedSection}>
+              <Text style={styles.label}>Max spots for friends</Text>
+              <Text style={styles.limitedHint}>1 = just you + 1 friend</Text>
+              <View style={styles.maxInputRow}>
+                <TouchableOpacity
+                  style={[styles.maxBtn, maxParticipants <= 1 && styles.maxBtnDisabled]}
+                  onPress={() => setMaxParticipants(p => Math.max(1, p - 1))}
+                  disabled={maxParticipants <= 1}
+                >
+                  <Ionicons name="remove" size={18} color={maxParticipants <= 1 ? Colors.textSecondary : Colors.primary} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.maxInput}
+                  value={String(maxParticipants)}
+                  onChangeText={(t) => {
+                    const n = parseInt(t.replace(/\D/g, ''), 10);
+                    if (!isNaN(n)) setMaxParticipants(Math.min(500, Math.max(1, n)));
+                    else if (t === '') setMaxParticipants(1);
+                  }}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                />
+                <TouchableOpacity
+                  style={[styles.maxBtn, maxParticipants >= 500 && styles.maxBtnDisabled]}
+                  onPress={() => setMaxParticipants(p => Math.min(500, p + 1))}
+                  disabled={maxParticipants >= 500}
+                >
+                  <Ionicons name="add" size={18} color={maxParticipants >= 500 ? Colors.textSecondary : Colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+
         <Button
           label="Post Activity 🚀"
           onPress={handleCreate}
@@ -680,6 +690,46 @@ export default function NewActivityScreen() {
           disabled={title.trim().length < 2}
         />
       </ScrollView>
+
+      {/* Tooltip bubbles - overlay closes on any tap */}
+      <Modal visible={showExcludeBubble || showLimitedBubble} transparent animationType="fade">
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => { setShowExcludeBubble(false); setShowLimitedBubble(false); }}
+        />
+        {bubblePosition && showExcludeBubble && (
+          <Pressable
+            style={[
+              styles.bubble,
+              styles.bubbleRight,
+              {
+                left: bubblePosition.x,
+                top: bubblePosition.y,
+                maxWidth: Dimensions.get('window').width - bubblePosition.x - 24,
+              },
+            ]}
+            onPress={() => setShowExcludeBubble(false)}
+          >
+            <Text style={styles.bubbleText}>Excluded people won't be invited.</Text>
+          </Pressable>
+        )}
+        {bubblePosition && showLimitedBubble && (
+          <Pressable
+            style={[
+              styles.bubble,
+              styles.bubbleRight,
+              {
+                left: bubblePosition.x,
+                top: bubblePosition.y,
+                maxWidth: Dimensions.get('window').width - bubblePosition.x - 24,
+              },
+            ]}
+            onPress={() => setShowLimitedBubble(false)}
+          >
+            <Text style={styles.bubbleText}>Cap how many friends can join.</Text>
+          </Pressable>
+        )}
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -695,8 +745,6 @@ const styles = StyleSheet.create({
   excludeBtnActive: {},
   excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   limitedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  limitedLabel: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
-  limitedLabelActive: { color: Colors.primary },
   limitedSection: { marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   limitedHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
   maxInputRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -704,7 +752,8 @@ const styles = StyleSheet.create({
   maxBtnDisabled: { opacity: 0.5 },
   maxInput: { width: 70, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 12, paddingVertical: 10, fontSize: 18, fontWeight: '600', color: Colors.text, textAlign: 'center' },
   excludeSection: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
-  excludeHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 10 },
+  excludeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  bubbleRight: { position: 'absolute' as const, minWidth: 160, maxWidth: 280 },
   excludeSubLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 8 },
   excludeCirclesRow: { marginBottom: 4 },
   excludeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
@@ -719,14 +768,8 @@ const styles = StyleSheet.create({
   excludedChipEmoji: { fontSize: 14 },
   input: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
   textArea: { minHeight: 100, paddingTop: 12 },
-  quickWhenRow: { flexDirection: 'row', gap: 8 },
-  quickBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8 },
-  quickBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
-  quickBtnText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
-  quickBtnTextActive: { color: Colors.primary },
-  datetimeRow: { flexDirection: 'row', gap: 10 },
+  datetimeRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   datetimeBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 12 },
-  datetimeBtnHighlight: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   datetimeText: { fontSize: 15, fontWeight: '600', color: Colors.text },
   emptyCircles: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', padding: 14 },
   emptyCirclesText: { fontSize: 15, color: Colors.primary, fontWeight: '500' },
@@ -762,4 +805,6 @@ const styles = StyleSheet.create({
   inviteChipName: { fontSize: 13, fontWeight: '600', color: Colors.primaryDark, flex: 1 },
   inviteEmailBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6, backgroundColor: Colors.accentLight, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', paddingHorizontal: 14, paddingVertical: 12 },
   inviteEmailText: { flex: 1, fontSize: 14, color: Colors.primaryDark },
+  bubble: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 },
+  bubbleText: { fontSize: 14, color: Colors.text },
 });

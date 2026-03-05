@@ -26,6 +26,12 @@ function RootLayoutNav() {
     }
   }, [session, loading, segments]);
 
+  // Failsafe: hide splash after 8s if auth init hangs (e.g. no network, Supabase slow)
+  useEffect(() => {
+    const t = setTimeout(() => SplashScreen.hideAsync(), 8000);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />

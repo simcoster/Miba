@@ -61,6 +61,7 @@ export default function ActivityChatScreen() {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [isMipoDm, setIsMipoDm] = useState(false);
+  const [otherUserName, setOtherUserName] = useState<string | null>(null);
   const [locationShares, setLocationShares] = useState<LocationShare[]>([]);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [shareLocationLoading, setShareLocationLoading] = useState(false);
@@ -111,16 +112,26 @@ export default function ActivityChatScreen() {
     fetchInitial().finally(() => { setLoading(false); markRead(); });
   }, [fetchInitial, markRead]);
 
-  // Detect Mipo DM
+  // Detect Mipo DM and fetch other user's name for header
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
     supabase
       .from('mipo_dm_activities')
-      .select('activity_id')
+      .select('user_a_id, user_b_id')
       .eq('activity_id', id)
       .maybeSingle()
-      .then(({ data }) => setIsMipoDm(!!data));
-  }, [id]);
+      .then(async ({ data }) => {
+        if (!data) {
+          setIsMipoDm(false);
+          setOtherUserName(null);
+          return;
+        }
+        setIsMipoDm(true);
+        const otherId = data.user_a_id === user.id ? data.user_b_id : data.user_a_id;
+        const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', otherId).single();
+        setOtherUserName(profile?.full_name ?? 'Someone');
+      });
+  }, [id, user]);
 
   // Fetch location shares and subscribe to realtime
   const fetchLocationShares = useCallback(async () => {
@@ -451,7 +462,7 @@ export default function ActivityChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      <ScreenHeader title={activityTitle || 'Chat'} subtitle="Group chat" showBack />
+      <ScreenHeader title={isMipoDm ? `Chat with ${otherUserName ?? 'Someone'}` : (activityTitle || 'Chat')} subtitle={isMipoDm ? undefined : 'Group chat'} showBack />
 
       {loading ? (
         <View style={styles.center}>
