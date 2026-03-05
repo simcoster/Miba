@@ -26,6 +26,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
@@ -467,6 +468,28 @@ export default function ActivityDetailScreen() {
     setShowSuggestionModal(true);
   };
 
+  const handleAddToCalendar = async () => {
+    if (!activity) return;
+    if (Platform.OS === 'web') {
+      Alert.alert('Not available', 'Adding to calendar is only supported on iOS and Android.');
+      return;
+    }
+    try {
+      const startDate = new Date(activity.activity_time);
+      const endDate = addMinutes(startDate, 60); // 1 hour default
+      const locationStr = parseLocation(activity.location)?.address ?? activity.location ?? undefined;
+      await Calendar.createEventInCalendarAsync({
+        title: activity.title,
+        startDate,
+        endDate,
+        location: locationStr,
+        notes: activity.description ?? undefined,
+      });
+    } catch (e: any) {
+      Alert.alert('Could not add to calendar', e.message ?? 'Please try again.');
+    }
+  };
+
   // Sync note field when rsvp first loads
   useEffect(() => {
     const note = activity?.my_rsvp?.note ?? '';
@@ -650,6 +673,12 @@ export default function ActivityDetailScreen() {
             <TouchableOpacity style={styles.suggestBtn} onPress={openSuggestionModal}>
               <Ionicons name="create-outline" size={16} color={Colors.primary} />
               <Text style={styles.suggestBtnText}>Suggest different time or location</Text>
+            </TouchableOpacity>
+          )}
+          {!past && activity.status === 'active' && !isEditing && Platform.OS !== 'web' && (
+            <TouchableOpacity style={styles.suggestBtn} onPress={handleAddToCalendar}>
+              <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
+              <Text style={styles.suggestBtnText}>Add to calendar</Text>
             </TouchableOpacity>
           )}
         </View>

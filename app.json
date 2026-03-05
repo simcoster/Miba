@@ -33,6 +33,12 @@
       "expo-router",
       "expo-font",
       [
+        "expo-calendar",
+        {
+          "calendarPermission": "Miba needs calendar access to add events to your calendar."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/icon.png",
