@@ -8,6 +8,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     ...(config.plugins ?? []),
     './plugins/withGoogleMapsApiKey.js',
+    './plugins/withAndroidReleaseSigning.js',
     '@react-native-firebase/app',
     '@react-native-firebase/crashlytics',
     [
