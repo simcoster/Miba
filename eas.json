@@ -17,6 +17,15 @@
         "buildType": "apk"
       }
     },
+    "internal": {
+      "distribution": "store",
+      "channel": "internal",
+      "environment": "production",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "environment": "production"

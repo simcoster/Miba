@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,6 +6,9 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { MipoProvider, useMipo } from '@/contexts/MipoContext';
+import { ContactImportModal } from '@/components/ContactImportModal';
+import { hasOfferedImport } from '@/lib/contactImport';
+import { useAuth } from '@/contexts/AuthContext';
 
 function TabIcon({ name, focused, label }: {
   name: React.ComponentProps<typeof Ionicons>['name'];
@@ -53,10 +56,32 @@ function NotificationHandler() {
   return null;
 }
 
+function ContactImportGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [showModal, setShowModal] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    hasOfferedImport().then((offered) => {
+      setChecked(true);
+      if (!offered) setShowModal(true);
+    });
+  }, [user]);
+
+  return (
+    <>
+      {children}
+      {checked && <ContactImportModal visible={showModal} onDismiss={() => setShowModal(false)} />}
+    </>
+  );
+}
+
 export default function AppLayout() {
   const insets = useSafeAreaInsets();
   return (
     <MipoProvider>
+    <ContactImportGate>
     <NotificationHandler />
     <Tabs
       backBehavior="history"
@@ -108,6 +133,7 @@ export default function AppLayout() {
       <Tabs.Screen name="activity/[id]/chat"             options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>
+    </ContactImportGate>
     </MipoProvider>
   );
 }

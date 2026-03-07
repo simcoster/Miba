@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, FlatList,
   TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Profile } from '@/lib/types';
+import { ensureInAllFriends } from '@/lib/allFriends';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
@@ -24,11 +25,26 @@ export default function InviteScreen() {
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchMemberIds = useCallback(() => {
     if (!circleId) return;
     supabase.from('circle_members').select('user_id').eq('circle_id', circleId)
       .then(({ data }) => setMemberIds((data ?? []).map((m: any) => m.user_id)));
   }, [circleId]);
+
+  useEffect(() => {
+    fetchMemberIds();
+  }, [fetchMemberIds]);
+
+  const skipFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (skipFirstFocus.current) {
+        skipFirstFocus.current = false;
+        return;
+      }
+      fetchMemberIds();
+    }, [fetchMemberIds])
+  );
 
   useEffect(() => {
     if (!user?.id) {
@@ -36,7 +52,7 @@ export default function InviteScreen() {
       return;
     }
     setLoadingAll(true);
-    supabase.from('profiles').select('id, full_name, avatar_url, username')
+    supabase.from('profiles').select('id, full_name, avatar_url, username, email, phone')
       .neq('id', user.id).order('full_name').limit(100)
       .then(({ data }) => { setAllUsers((data ?? []) as Profile[]); setLoadingAll(false); });
   }, [user?.id]);
@@ -45,14 +61,17 @@ export default function InviteScreen() {
     setQuery(text);
     if (text.trim().length < 2) { setResults([]); return; }
     setSearching(true);
-    const { data } = await supabase.from('profiles').select('id, full_name, avatar_url, username')
-      .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`).neq('id', user!.id).limit(20);
+    const q = text.trim();
+    const { data } = await supabase.from('profiles').select('id, full_name, avatar_url, username, email, phone')
+      .or(`full_name.ilike.%${q}%,username.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
+      .neq('id', user!.id)
+      .limit(20);
     setResults((data ?? []) as Profile[]);
     setSearching(false);
   };
 
   const handleAdd = async (profile: Profile) => {
-    if (!circleId) return;
+    if (!circleId || !user) return;
     try {
       setInviting(profile.id);
       const { error } = await supabase.from('circle_members').insert({ circle_id: circleId, user_id: profile.id });
@@ -61,6 +80,7 @@ export default function InviteScreen() {
         else throw error;
       } else {
         setMemberIds(prev => [...prev, profile.id]);
+        await ensureInAllFriends(user.id, profile.id, circleId);
       }
     } catch (error: any) {
       Alert.alert('Error', error.message ?? 'Could not add member.');
@@ -76,7 +96,7 @@ export default function InviteScreen() {
         <Ionicons name="search" size={18} color={Colors.textSecondary} />
         <TextInput
           style={styles.searchInput} value={query} onChangeText={search}
-          placeholder="Search by name or username…" placeholderTextColor={Colors.textSecondary}
+          placeholder="Search by name, username, email or phone…" placeholderTextColor={Colors.textSecondary}
           autoFocus autoCapitalize="none" autoCorrect={false}
         />
         {searching && <ActivityIndicator size="small" color={Colors.primary} />}
@@ -103,7 +123,11 @@ export default function InviteScreen() {
                   <Avatar uri={item.avatar_url} name={item.full_name} size={44} />
                   <View style={styles.info}>
                     <Text style={styles.name}>{item.full_name ?? 'Unknown'}</Text>
-                    {item.username && <Text style={styles.username}>@{item.username}</Text>}
+                    <View style={styles.metaRow}>
+                      {item.username && <Text style={styles.username}>@{item.username}</Text>}
+                      {item.email && <Text style={styles.meta} numberOfLines={1}>{item.email}</Text>}
+                      {item.phone && !item.email && <Text style={styles.meta} numberOfLines={1}>{item.phone}</Text>}
+                    </View>
                   </View>
                   <TouchableOpacity
                     style={[styles.addBtn, isMember && styles.addBtnDone]}
@@ -133,11 +157,15 @@ export default function InviteScreen() {
             const isMember = memberIds.includes(item.id);
             const isInviting = inviting === item.id;
             return (
-              <View style={styles.row}>
+                <View style={styles.row}>
                 <Avatar uri={item.avatar_url} name={item.full_name} size={44} />
                 <View style={styles.info}>
                   <Text style={styles.name}>{item.full_name ?? 'Unknown'}</Text>
-                  {item.username && <Text style={styles.username}>@{item.username}</Text>}
+                  <View style={styles.metaRow}>
+                    {item.username && <Text style={styles.username}>@{item.username}</Text>}
+                    {item.email && <Text style={styles.meta} numberOfLines={1}>{item.email}</Text>}
+                    {item.phone && !item.email && <Text style={styles.meta} numberOfLines={1}>{item.phone}</Text>}
+                  </View>
                 </View>
                 <TouchableOpacity
                   style={[styles.addBtn, isMember && styles.addBtnDone]}
@@ -172,7 +200,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   info: { flex: 1 },
   name: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   username: { fontSize: 13, color: Colors.textSecondary },
+  meta: { fontSize: 12, color: Colors.textSecondary, maxWidth: 160 },
   addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   addBtnDone: { backgroundColor: Colors.successLight },
 });

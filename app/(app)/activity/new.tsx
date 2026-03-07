@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, ScrollView,
+  View, Text, TextInput, StyleSheet,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   ActivityIndicator, Linking, Modal, Pressable, Dimensions,
+  Image, useWindowDimensions,
 } from 'react-native';
+import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -21,6 +24,8 @@ import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
+const LIMITED_EVENT_COMIC = require('@/assets/images/limited-event-comic.jpg');
+
 export default function NewActivityScreen() {
   const { user, profile } = useAuth();
   const router = useRouter();
@@ -35,10 +40,15 @@ export default function NewActivityScreen() {
   const [maxParticipants, setMaxParticipants] = useState<number>(1);
   const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
   const [showExcludeBubble, setShowExcludeBubble] = useState(false);
-  const [showLimitedBubble, setShowLimitedBubble] = useState(false);
+  const [showLimitedComic, setShowLimitedComic] = useState(false);
+  const [comicScale, setComicScale] = useState(1);
   const [bubblePosition, setBubblePosition] = useState<{ x: number; y: number } | null>(null);
   const excludeIconRef = useRef<View>(null);
-  const limitedIconRef = useRef<View>(null);
+  const { width: screenWidth } = useWindowDimensions();
+  const comicSource = Image.resolveAssetSource(LIMITED_EVENT_COMIC);
+  const comicMaxWidth = Math.round(screenWidth - 80);
+  const comicAspectRatio = comicSource?.height && comicSource?.width ? comicSource.height / comicSource.width : 1.4;
+  const comicHeight = Math.round(comicMaxWidth * comicAspectRatio);
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
@@ -634,19 +644,10 @@ export default function NewActivityScreen() {
               <Ionicons name={isLimited ? 'people' : 'people-outline'} size={16} color={Colors.primary} />
               <Text style={styles.addCoverBtnText}>Limited event</Text>
             </TouchableOpacity>
-            <View ref={limitedIconRef} collapsable={false}>
-              <TouchableOpacity
-                onPress={() => {
-                  limitedIconRef.current?.measureInWindow((x, y, w) => {
-                    setBubblePosition({ x: x + w + 8, y });
-                    setShowLimitedBubble(true);
-                  });
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.howItWorksBtn} onPress={() => { setComicScale(1); setShowLimitedComic(true); }} activeOpacity={0.7}>
+              <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
+              <Text style={styles.howItWorksCaption}>how it works</Text>
+            </TouchableOpacity>
           </View>
           {isLimited && (
             <View style={styles.limitedSection}>
@@ -691,13 +692,10 @@ export default function NewActivityScreen() {
         />
       </ScrollView>
 
-      {/* Tooltip bubbles - overlay closes on any tap */}
-      <Modal visible={showExcludeBubble || showLimitedBubble} transparent animationType="fade">
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={() => { setShowExcludeBubble(false); setShowLimitedBubble(false); }}
-        />
-        {bubblePosition && showExcludeBubble && (
+      {/* Exclude tooltip bubble */}
+      <Modal visible={showExcludeBubble} transparent animationType="fade">
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowExcludeBubble(false)} />
+        {bubblePosition && (
           <Pressable
             style={[
               styles.bubble,
@@ -713,22 +711,23 @@ export default function NewActivityScreen() {
             <Text style={styles.bubbleText}>Excluded people won't be invited.</Text>
           </Pressable>
         )}
-        {bubblePosition && showLimitedBubble && (
-          <Pressable
-            style={[
-              styles.bubble,
-              styles.bubbleRight,
-              {
-                left: bubblePosition.x,
-                top: bubblePosition.y,
-                maxWidth: Dimensions.get('window').width - bubblePosition.x - 24,
-              },
-            ]}
-            onPress={() => setShowLimitedBubble(false)}
-          >
-            <Text style={styles.bubbleText}>Cap how many friends can join.</Text>
-          </Pressable>
-        )}
+      </Modal>
+
+      {/* Limited event comic modal — GestureHandlerRootView needed for gestures inside Modal on Android */}
+      <Modal visible={showLimitedComic} transparent animationType="fade">
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View style={styles.comicModalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowLimitedComic(false)} />
+            <View style={[styles.comicModalContent, { width: Math.min(400, screenWidth - 40) }]}>
+              <TouchableOpacity style={styles.comicModalClose} onPress={() => setShowLimitedComic(false)}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+              <ScrollView style={styles.comicModalScroll} contentContainerStyle={styles.comicModalScrollContent} showsVerticalScrollIndicator={false} scrollEnabled={comicScale <= 1}>
+                <ZoomableImage source={LIMITED_EVENT_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} onScaleChange={setComicScale} />
+              </ScrollView>
+            </View>
+          </View>
+        </GestureHandlerRootView>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -745,6 +744,40 @@ const styles = StyleSheet.create({
   excludeBtnActive: {},
   excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   limitedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  howItWorksBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  howItWorksCaption: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
+  comicModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    position: 'relative' as const,
+  },
+  comicModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    maxWidth: 400,
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+  comicModalClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    padding: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+  },
+  comicModalScroll: { maxHeight: '100%' },
+  comicModalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   limitedSection: { marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   limitedHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
   maxInputRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

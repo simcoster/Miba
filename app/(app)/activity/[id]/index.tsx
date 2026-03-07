@@ -259,7 +259,8 @@ export default function ActivityDetailScreen() {
       .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`)
       .neq('id', user!.id)
       .limit(20);
-    setAddResults(((data ?? []) as Profile[]).filter(p => !alreadyInvited.has(p.id)));
+    const list = ((data ?? []) as Profile[]).filter(p => !alreadyInvited.has(p.id));
+    setAddResults(list);
     setAddSearching(false);
   };
 

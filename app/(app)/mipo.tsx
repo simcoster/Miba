@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, ScrollView,
+  View, Text, TextInput, StyleSheet, Pressable,
   TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
@@ -28,76 +28,6 @@ import Colors from '@/constants/Colors';
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
 const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
-
-const ZoomableImage = ({ source, style }: { source: number; style: { width: number; height: number } }) => {
-  const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const savedTranslateX = useSharedValue(0);
-  const savedTranslateY = useSharedValue(0);
-
-  const pinchGesture = useMemo(
-    () =>
-      Gesture.Pinch()
-        .onUpdate((e) => {
-          scale.value = savedScale.value * e.scale;
-        })
-        .onEnd(() => {
-          if (scale.value < 1) {
-            scale.value = withSpring(1, { damping: 15 });
-            savedScale.value = 1;
-            translateX.value = withSpring(0);
-            translateY.value = withSpring(0);
-            savedTranslateX.value = 0;
-            savedTranslateY.value = 0;
-          } else if (scale.value > 4) {
-            scale.value = withSpring(4);
-            savedScale.value = 4;
-          } else {
-            savedScale.value = scale.value;
-          }
-        }),
-    []
-  );
-
-  const panGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .onUpdate((e) => {
-          if (scale.value > 1) {
-            translateX.value = savedTranslateX.value + e.translationX;
-            translateY.value = savedTranslateY.value + e.translationY;
-          }
-        })
-        .onEnd(() => {
-          savedTranslateX.value = translateX.value;
-          savedTranslateY.value = translateY.value;
-        }),
-    []
-  );
-
-  const composedGesture = useMemo(
-    () => Gesture.Simultaneous(pinchGesture, panGesture),
-    [pinchGesture, panGesture]
-  );
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value },
-    ],
-  }));
-
-  return (
-    <GestureDetector gesture={composedGesture}>
-      <Animated.View style={animatedStyle}>
-        <Image source={source} style={style} resizeMode="contain" />
-      </Animated.View>
-    </GestureDetector>
-  );
-};
 
 const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
   <TouchableOpacity style={styles.howItWorksBtn} onPress={onPress} activeOpacity={0.7}>
@@ -133,6 +63,7 @@ export default function MipoScreen() {
   const [locationSub, setLocationSub] = useState<LocationSubscription | null>(null);
   const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [comicScale, setComicScale] = useState(1);
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -246,7 +177,8 @@ export default function MipoScreen() {
       .or(`full_name.ilike.%${text.trim()}%,username.ilike.%${text.trim()}%`)
       .neq('id', user!.id)
       .limit(20);
-    setSearchResults((data ?? []) as Profile[]);
+    const list = (data ?? []) as Profile[];
+    setSearchResults(list);
     setSearching(false);
   }, [user]);
 
@@ -420,6 +352,8 @@ export default function MipoScreen() {
 
   useFocusEffect(useCallback(() => { checkMipoUnread(); }, [checkMipoUnread]));
 
+  const filteredNearbyEvents = nearbyEvents;
+
   const openMipoChat = useCallback(async (e: ProximityEventWithProfile) => {
     if (!user) return;
     const otherId = e.user_a_id === user.id ? e.user_b_id : e.user_a_id;
@@ -480,12 +414,12 @@ export default function MipoScreen() {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
           <Text style={styles.title}>You're visible</Text>
-          <HowItWorksButton onPress={() => setShowHowItWorks(true)} />
+          <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
           <Text style={styles.expiresLabel}>{expiresLabel}</Text>
-          {nearbyEvents.length > 0 && (
+          {filteredNearbyEvents.length > 0 && (
             <View style={styles.nearbySection}>
               <Text style={styles.nearbyTitle}>Nearby now</Text>
-              {nearbyEvents.map(e => (
+              {filteredNearbyEvents.map(e => (
                 <View key={e.id} style={styles.nearbyRow}>
                   <Avatar uri={e.other_profile?.avatar_url} name={e.other_profile?.full_name} size={40} />
                   <View style={styles.nearbyInfo}>
@@ -584,16 +518,19 @@ export default function MipoScreen() {
           </View>
         </ScrollView>
         <Modal visible={showHowItWorks} transparent animationType="fade">
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowHowItWorks(false)}>
-            <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]} onStartShouldSetResponder={() => true}>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
-                <Ionicons name="close" size={28} color={Colors.text} />
-              </TouchableOpacity>
-              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-                <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} />
-              </ScrollView>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <View style={styles.modalOverlay}>
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowHowItWorks(false)} />
+              <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]}>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
+                  <Ionicons name="close" size={28} color={Colors.text} />
+                </TouchableOpacity>
+                <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false} scrollEnabled={comicScale <= 1}>
+                  <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} onScaleChange={setComicScale} />
+                </ScrollView>
+              </View>
             </View>
-          </TouchableOpacity>
+          </GestureHandlerRootView>
         </Modal>
       </View>
     );
@@ -603,12 +540,12 @@ export default function MipoScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Mipo</Text>
-        <HowItWorksButton onPress={() => setShowHowItWorks(true)} />
+        <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
 
-        {nearbyEvents.length > 0 && visibleState.isVisible && (
+        {filteredNearbyEvents.length > 0 && visibleState.isVisible && (
           <View style={styles.nearbySection}>
             <Text style={styles.nearbyTitle}>Nearby now</Text>
-            {nearbyEvents.map(e => (
+            {filteredNearbyEvents.map(e => (
               <View key={e.id} style={styles.nearbyRow}>
                 <Avatar uri={e.other_profile?.avatar_url} name={e.other_profile?.full_name} size={40} />
                 <View style={styles.nearbyInfo}>
@@ -732,16 +669,19 @@ export default function MipoScreen() {
         </View>
       </ScrollView>
       <Modal visible={showHowItWorks} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowHowItWorks(false)}>
-          <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]} onStartShouldSetResponder={() => true}>
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
-              <Ionicons name="close" size={28} color={Colors.text} />
-            </TouchableOpacity>
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
-              <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} />
-            </ScrollView>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <View style={styles.modalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowHowItWorks(false)} />
+            <View style={[styles.modalContent, { width: Math.min(400, screenWidth - 40) }]}>
+              <TouchableOpacity style={styles.modalClose} onPress={() => setShowHowItWorks(false)}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false} scrollEnabled={comicScale <= 1}>
+                <ZoomableImage source={MIPO_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} onScaleChange={setComicScale} />
+              </ScrollView>
+            </View>
           </View>
-        </TouchableOpacity>
+        </GestureHandlerRootView>
       </Modal>
     </View>
   );

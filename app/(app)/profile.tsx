@@ -19,6 +19,7 @@ export default function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [username, setUsername] = useState(profile?.username ?? '');
+  const [phone, setPhone] = useState(profile?.phone ?? '');
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -33,6 +34,7 @@ export default function ProfileScreen() {
       const { error } = await supabase.from('profiles').update({
         full_name: fullName.trim() || null,
         username: trimmedUsername || null,
+        phone: phone.trim() || null,
       }).eq('id', user.id);
 
       if (error) {
@@ -72,7 +74,7 @@ export default function ProfileScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Profile info</Text>
             <TouchableOpacity
-              onPress={() => editing ? (setFullName(profile?.full_name ?? ''), setUsername(profile?.username ?? ''), setEditing(false)) : setEditing(true)}
+              onPress={() => editing ? (setFullName(profile?.full_name ?? ''), setUsername(profile?.username ?? ''), setPhone(profile?.phone ?? ''), setEditing(false)) : setEditing(true)}
               style={styles.editButton}
             >
               {!editing && <Ionicons name="pencil-outline" size={16} color={Colors.primary} />}
@@ -88,11 +90,18 @@ export default function ProfileScreen() {
                 : <Text style={styles.fieldValue}>{profile?.full_name ?? '—'}</Text>
               }
             </View>
-            <View style={[styles.fieldRow, styles.fieldRowLast]}>
+            <View style={styles.fieldRow}>
               <Text style={styles.fieldLabel}>Username</Text>
               {editing
                 ? <View style={styles.usernameRow}><Text style={styles.atSign}>@</Text><TextInput style={styles.fieldInput} value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false} maxLength={30} /></View>
                 : <Text style={styles.fieldValue}>{profile?.username ? `@${profile.username}` : '—'}</Text>
+              }
+            </View>
+            <View style={[styles.fieldRow, styles.fieldRowLast]}>
+              <Text style={styles.fieldLabel}>Phone</Text>
+              {editing
+                ? <TextInput style={styles.fieldInput} value={phone} onChangeText={setPhone} placeholder="Optional, for discoverability" placeholderTextColor={Colors.textSecondary} keyboardType="phone-pad" />
+                : <Text style={styles.fieldValue}>{profile?.phone ?? '—'}</Text>
               }
             </View>
           </View>

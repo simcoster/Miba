@@ -32,6 +32,12 @@ export default function CircleDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Remove from All Friends flow
+  const [removeTarget, setRemoveTarget] = useState<{ memberId: string; userId: string; name: string } | null>(null);
+  const [removeStep, setRemoveStep] = useState<1 | 2>(1);
+  const [upcomingEventCount, setUpcomingEventCount] = useState(0);
+  const [removeLoading, setRemoveLoading] = useState(false);
+
   // Edit state
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -94,14 +100,17 @@ export default function CircleDetailScreen() {
     setRefreshing(false);
   }, [fetchAll]);
 
-  const handleDelete = () => Alert.alert('Delete Circle', `Permanently delete "${circle?.name}"?`, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: async () => {
-      const { error } = await supabase.from('circles').delete().eq('id', id);
-      if (!error) router.replace('/(app)/circles');
-      else Alert.alert('Error', 'Could not delete circle.');
-    }},
-  ]);
+  const handleDelete = () => {
+    if (circle?.is_all_friends) return;
+    Alert.alert('Delete Circle', `Permanently delete "${circle?.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        const { error } = await supabase.from('circles').delete().eq('id', id);
+        if (!error) router.replace('/(app)/circles');
+        else Alert.alert('Error', 'Could not delete circle.');
+      }},
+    ]);
+  };
 
   const handleBack = useCallback(() => {
     const tab = typeof fromTab === 'string' ? fromTab : undefined;
@@ -161,8 +170,33 @@ export default function CircleDetailScreen() {
     }
   };
 
-  const handleRemoveMember = (memberId: string, userId: string, name: string) => {
-    if (userId === user?.id) return; // Can't remove yourself from here (use "Leave" or delete)
+  const handleRemoveMember = (memberId: string, targetUserId: string, name: string) => {
+    if (targetUserId === user?.id) return;
+    if (circle?.is_all_friends) {
+      setRemoveTarget({ memberId, userId: targetUserId, name });
+      setRemoveStep(1);
+      (async () => {
+        const now = new Date().toISOString();
+        const { data: activities } = await supabase
+          .from('activities')
+          .select('id')
+          .eq('created_by', user!.id)
+          .eq('status', 'active')
+          .gt('activity_time', now);
+        const activityIds = (activities ?? []).map((a: { id: string }) => a.id);
+        if (activityIds.length > 0) {
+          const { count } = await supabase
+            .from('rsvps')
+            .select('*', { count: 'exact', head: true })
+            .in('activity_id', activityIds)
+            .eq('user_id', targetUserId);
+          setUpcomingEventCount(count ?? 0);
+        } else {
+          setUpcomingEventCount(0);
+        }
+      })();
+      return;
+    }
     Alert.alert('Remove Member', `Remove ${name} from this circle?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => {
@@ -171,6 +205,69 @@ export default function CircleDetailScreen() {
         else Alert.alert('Error', 'Could not remove member.');
       }},
     ]);
+  };
+
+  const handleRemoveFromAllFriendsConfirm = async () => {
+    if (!removeTarget || !user) return;
+    setRemoveLoading(true);
+    try {
+      const { data: myCircles } = await supabase
+        .from('circles')
+        .select('id')
+        .eq('created_by', user.id);
+      const circleIds = (myCircles ?? []).map((c: { id: string }) => c.id);
+      if (circleIds.length > 0) {
+        const { error } = await supabase
+          .from('circle_members')
+          .delete()
+          .eq('user_id', removeTarget.userId)
+          .in('circle_id', circleIds);
+        if (error) throw error;
+      }
+      setMembers(prev => prev.filter(m => m.user_id !== removeTarget.userId));
+      if (upcomingEventCount > 0) {
+        setRemoveStep(2);
+      } else {
+        setRemoveTarget(null);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not remove member.');
+      setRemoveTarget(null);
+    } finally {
+      setRemoveLoading(false);
+    }
+  };
+
+  const handleUninviteFromEvents = async () => {
+    if (!removeTarget || !user) return;
+    setRemoveLoading(true);
+    try {
+      const now = new Date().toISOString();
+      const { data: activities } = await supabase
+        .from('activities')
+        .select('id')
+        .eq('created_by', user.id)
+        .eq('status', 'active')
+        .gt('activity_time', now);
+      const activityIds = (activities ?? []).map((a: { id: string }) => a.id);
+      if (activityIds.length > 0) {
+        await supabase
+          .from('rsvps')
+          .delete()
+          .in('activity_id', activityIds)
+          .eq('user_id', removeTarget.userId);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not uninvite from events.');
+    } finally {
+      setRemoveLoading(false);
+      setRemoveTarget(null);
+    }
+  };
+
+  const handleRemoveModalCancel = () => {
+    setRemoveTarget(null);
+    setRemoveStep(1);
   };
 
   if (loading || !circle) {
@@ -192,7 +289,7 @@ export default function CircleDetailScreen() {
         })()}
         showBack
         onBack={isEditing ? () => setIsEditing(false) : handleBack}
-        rightActions={isOwner && !isEditing ? [
+        rightActions={isOwner && !isEditing && !circle.is_all_friends ? [
           { icon: 'ellipsis-vertical', onPress: () => setShowMenu(true) },
         ] : undefined}
       />
@@ -297,19 +394,68 @@ export default function CircleDetailScreen() {
         )}
       </ScrollView>
 
-      {/* ⋮ dropdown menu */}
-      <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
-        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
-          <View style={[styles.menuCard, { top: insets.top + 56 }]}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); startEditing(); }}>
-              <Ionicons name="create-outline" size={18} color={Colors.text} />
-              <Text style={styles.menuItemText}>Edit</Text>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleDelete(); }}>
-              <Ionicons name="trash-outline" size={18} color={Colors.danger} />
-              <Text style={[styles.menuItemText, { color: Colors.danger }]}>Delete</Text>
-            </TouchableOpacity>
+      {/* ⋮ dropdown menu — hidden for All Friends */}
+      {!circle.is_all_friends && (
+        <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
+          <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
+            <View style={[styles.menuCard, { top: insets.top + 56 }]}>
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); startEditing(); }}>
+                <Ionicons name="create-outline" size={18} color={Colors.text} />
+                <Text style={styles.menuItemText}>Edit</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleDelete(); }}>
+                <Ionicons name="trash-outline" size={18} color={Colors.danger} />
+                <Text style={[styles.menuItemText, { color: Colors.danger }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
+      {/* Remove from All Friends confirmation modal */}
+      <Modal visible={!!removeTarget} transparent animationType="fade" onRequestClose={handleRemoveModalCancel}>
+        <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={handleRemoveModalCancel}>
+          <View style={styles.removeModalCard} onStartShouldSetResponder={() => true}>
+            {removeStep === 1 ? (
+              <>
+                <Text style={styles.removeModalTitle}>Remove from All Friends?</Text>
+                <Text style={styles.removeModalBody}>
+                  This will remove {removeTarget?.name} from All Friends and from every other circle. They will no longer appear in your invite lists. You can add them back manually later.
+                </Text>
+                <View style={styles.removeModalButtons}>
+                  <TouchableOpacity style={styles.removeModalBtnCancel} onPress={handleRemoveModalCancel}>
+                    <Text style={styles.removeModalBtnCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.removeModalBtnRemove, removeLoading && styles.removeModalBtnDisabled]}
+                    onPress={handleRemoveFromAllFriendsConfirm}
+                    disabled={removeLoading}
+                  >
+                    {removeLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.removeModalBtnRemoveText}>Remove</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.removeModalTitle}>Uninvite from events?</Text>
+                <Text style={styles.removeModalBody}>
+                  {removeTarget?.name} is invited to {upcomingEventCount} upcoming {upcomingEventCount === 1 ? 'event' : 'events'}. Uninvite them from all? (They will not be notified.)
+                </Text>
+                <View style={styles.removeModalButtons}>
+                  <TouchableOpacity style={styles.removeModalBtnCancel} onPress={handleRemoveModalCancel}>
+                    <Text style={styles.removeModalBtnCancelText}>Skip</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.removeModalBtnRemove, removeLoading && styles.removeModalBtnDisabled]}
+                    onPress={handleUninviteFromEvents}
+                    disabled={removeLoading}
+                  >
+                    {removeLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.removeModalBtnRemoveText}>Uninvite from all</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -333,7 +479,7 @@ const styles = StyleSheet.create({
   saveBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: Colors.borderLight },
+  descCard: { backgroundColor: 'transparent', paddingVertical: 4, marginBottom: 16 },
   descText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
   membersSection: { marginBottom: 24 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
@@ -357,4 +503,20 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
   menuItemText: { fontSize: 15, fontWeight: '500', color: Colors.text },
   menuDivider: { height: 1, backgroundColor: Colors.borderLight },
+  removeModalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    marginHorizontal: 24,
+    padding: 20,
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  removeModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  removeModalBody: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 20 },
+  removeModalButtons: { flexDirection: 'row', gap: 12, justifyContent: 'flex-end' },
+  removeModalBtnCancel: { paddingVertical: 12, paddingHorizontal: 20 },
+  removeModalBtnCancelText: { fontSize: 16, fontWeight: '600', color: Colors.textSecondary },
+  removeModalBtnRemove: { backgroundColor: Colors.danger, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 20, minWidth: 100, alignItems: 'center' },
+  removeModalBtnRemoveText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  removeModalBtnDisabled: { opacity: 0.7 },
 });

@@ -3,6 +3,8 @@ export type Profile = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  email?: string | null;
+  phone?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -14,6 +16,7 @@ export type Circle = {
   emoji: string;
   created_by: string | null;
   created_at: string;
+  is_all_friends?: boolean;
   member_count?: number;
   is_owner?: boolean;
 };
@@ -129,4 +132,23 @@ export type CircleInvite = {
   created_at: string;
   expires_at: string;
   inviter?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+};
+
+export type ContactImport = {
+  id: string;
+  user_id: string;
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+  created_at: string;
+};
+
+export type FriendJoinedUpdate = {
+  id: string;
+  recipient_id: string;
+  new_user_id: string;
+  contact_import_id: string | null;
+  created_at: string;
+  new_user?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  contact_name?: string | null;
 };

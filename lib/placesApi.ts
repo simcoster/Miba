@@ -14,12 +14,6 @@ const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 const AUTocomplete_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const PLACE_DETAILS_URL = 'https://places.googleapis.com/v1/places';
 
-// Log API config on load (helps debug .env loading)
-if (__DEV__) {
-  const configured = !!API_KEY.trim();
-  console.log('[Places] API configured:', configured, configured ? `(key length: ${API_KEY.length})` : '(add EXPO_PUBLIC_GOOGLE_PLACES_API_KEY to .env — not .env.txt)');
-}
-
 export interface PlacePrediction {
   placeId: string;
   place: string; // resource name

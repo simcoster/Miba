@@ -2,7 +2,7 @@
   "expo": {
     "name": "Miba",
     "slug": "miba",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "miba",
@@ -22,7 +22,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFF8ED"
       },
-      "package": "com.miba.app"
+      "package": "com.miba.app",
+      "versionCode": 4
     },
     "web": {
       "bundler": "metro",
@@ -36,6 +37,12 @@
         "expo-calendar",
         {
           "calendarPermission": "Miba needs calendar access to add events to your calendar."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Miba uses your contacts to find friends who join the app."
         }
       ],
       [

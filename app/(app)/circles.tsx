@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Circle } from '@/lib/types';
+import { ensureAllFriendsCircle } from '@/lib/allFriends';
 import { CircleCard } from '@/components/CircleCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
@@ -28,9 +29,11 @@ export default function CirclesScreen() {
     console.log('[Circles] fetchCircles start, user:', user.id);
     setError(null);
 
+    await ensureAllFriendsCircle(user.id);
+
     const { data, error: fetchError } = await supabase
       .from('circles')
-      .select('id, name, description, emoji, created_by, created_at')
+      .select('id, name, description, emoji, created_by, created_at, is_all_friends')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
 
@@ -41,9 +44,13 @@ export default function CirclesScreen() {
     }
     console.log('[Circles] query ok, count:', data?.length);
 
-    setCircles(
-      (data ?? []).map((c: any) => ({ ...c, is_owner: true }))
-    );
+    const sorted = (data ?? []).map((c: any) => ({ ...c, is_owner: true }));
+    sorted.sort((a: Circle, b: Circle) => {
+      if (a.is_all_friends && !b.is_all_friends) return -1;
+      if (!a.is_all_friends && b.is_all_friends) return 1;
+      return 0;
+    });
+    setCircles(sorted);
   }, [user]);
 
   // Initial load + re-fetch when auth state changes (user becomes non-null after login)

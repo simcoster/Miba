@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity } from '@/lib/types';
+import { Activity, FriendJoinedUpdate } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { markUpdatesAsSeen } from '@/lib/markUpdatesSeen';
 import { EmptyState } from '@/components/EmptyState';
@@ -35,12 +35,16 @@ type EventUpdate = {
   latestTimestamp: number;
 };
 
+type UpdateEntry =
+  | { kind: 'event'; data: EventUpdate }
+  | { kind: 'friend_joined'; data: FriendJoinedUpdate };
+
 export default function UpdatesScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [eventUpdates, setEventUpdates] = useState<EventUpdate[]>([]);
+  const [updates, setUpdates] = useState<UpdateEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -269,7 +273,54 @@ export default function UpdatesScreen() {
       }
     }
     grouped.sort((a, b) => b.latestTimestamp - a.latestTimestamp);
-    setEventUpdates(grouped);
+
+    const { data: friendJoinedData } = await supabase
+      .from('friend_joined_updates')
+      .select(`
+        id,
+        new_user_id,
+        contact_import_id,
+        created_at,
+        new_user:profiles!new_user_id(id, full_name, avatar_url),
+        contact_import:contact_imports!contact_import_id(name)
+      `)
+      .eq('recipient_id', user.id)
+      .order('created_at', { ascending: false });
+
+    const friendJoinedSeenKeys = (friendJoinedData ?? []).map((f: any) => `miba_friend_joined_seen_${f.id}`);
+    const friendJoinedSeenPairs = friendJoinedSeenKeys.length > 0
+      ? await AsyncStorage.multiGet(friendJoinedSeenKeys)
+      : [];
+    const friendJoinedSeenSet = new Set(
+      friendJoinedSeenPairs.filter(([, v]) => v != null).map(([k]) => k.replace('miba_friend_joined_seen_', ''))
+    );
+
+    const friendJoinedEntries: UpdateEntry[] = (friendJoinedData ?? [])
+      .filter((f: any) => !friendJoinedSeenSet.has(f.id))
+      .map((f: any) => ({
+        kind: 'friend_joined' as const,
+        data: {
+          id: f.id,
+          recipient_id: user.id,
+          new_user_id: f.new_user_id,
+          contact_import_id: f.contact_import_id,
+          created_at: f.created_at,
+          new_user: Array.isArray(f.new_user) ? f.new_user[0] : f.new_user,
+          contact_name: (() => {
+            const ci = f.contact_import;
+            return (Array.isArray(ci) ? ci[0] : ci)?.name ?? null;
+          })(),
+        } as FriendJoinedUpdate,
+      }));
+
+    const eventEntries: UpdateEntry[] = grouped.map(g => ({ kind: 'event', data: g }));
+    const allEntries = [...eventEntries, ...friendJoinedEntries];
+    allEntries.sort((a, b) => {
+      const ta = a.kind === 'event' ? a.data.latestTimestamp : new Date(a.data.created_at).getTime();
+      const tb = b.kind === 'event' ? b.data.latestTimestamp : new Date(b.data.created_at).getTime();
+      return tb - ta;
+    });
+    setUpdates(allEntries);
   }, [user]);
 
   useEffect(() => {
@@ -291,19 +342,36 @@ export default function UpdatesScreen() {
     setRefreshing(false);
   }, [fetchUpdates]);
 
-  const handleDismiss = useCallback(async (item: EventUpdate) => {
-    await markUpdatesAsSeen(item.activity.id);
-    setEventUpdates(prev => prev.filter(e => e.activity.id !== item.activity.id));
+  const handleDismiss = useCallback(async (entry: UpdateEntry) => {
+    if (entry.kind === 'event') {
+      await markUpdatesAsSeen(entry.data.activity.id);
+    } else {
+      await AsyncStorage.setItem(`miba_friend_joined_seen_${entry.data.id}`, new Date().toISOString());
+    }
+    setUpdates(prev => prev.filter(e => {
+      if (e.kind === 'event' && entry.kind === 'event') return e.data.activity.id !== entry.data.activity.id;
+      if (e.kind === 'friend_joined' && entry.kind === 'friend_joined') return e.data.id !== entry.data.id;
+      return true;
+    }));
   }, []);
 
   const handleSeenAll = useCallback(async () => {
-    await Promise.all(eventUpdates.map(item => markUpdatesAsSeen(item.activity.id)));
-    setEventUpdates([]);
-  }, [eventUpdates]);
+    await Promise.all(updates.map(entry => {
+      if (entry.kind === 'event') return markUpdatesAsSeen(entry.data.activity.id);
+      return AsyncStorage.setItem(`miba_friend_joined_seen_${entry.data.id}`, new Date().toISOString());
+    }));
+    setUpdates([]);
+  }, [updates]);
 
-  const handlePress = useCallback(async (item: EventUpdate) => {
-    await markUpdatesAsSeen(item.activity.id);
-    router.push(`/(app)/activity/${item.activity.id}?fromTab=updates`);
+  const handlePress = useCallback(async (entry: UpdateEntry) => {
+    if (entry.kind === 'event') {
+      await markUpdatesAsSeen(entry.data.activity.id);
+      router.push(`/(app)/activity/${entry.data.activity.id}?fromTab=updates`);
+    } else {
+      await AsyncStorage.setItem(`miba_friend_joined_seen_${entry.data.id}`, new Date().toISOString());
+      setUpdates(prev => prev.filter(e => !(e.kind === 'friend_joined' && e.data.id === entry.data.id)));
+      router.push('/(app)/circles');
+    }
   }, [router]);
 
   const formatDate = (dateStr: string) => {
@@ -368,7 +436,7 @@ export default function UpdatesScreen() {
             action={<Button label="Retry" onPress={onRefresh} />}
           />
         </ScrollView>
-      ) : eventUpdates.length === 0 ? (
+      ) : updates.length === 0 ? (
         <ScrollView
           contentContainerStyle={styles.emptyContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
@@ -376,16 +444,16 @@ export default function UpdatesScreen() {
           <EmptyState
             emoji="✨"
             title="You're all caught up"
-            subtitle="New invites, messages, and RSVP changes will appear here."
+            subtitle="New invites, messages, RSVP changes, and friends joining will appear here."
             action={<Button label="Browse events" onPress={() => router.push('/events')} />}
           />
         </ScrollView>
       ) : (
         <FlatList
-          data={eventUpdates}
-          keyExtractor={item => item.activity.id}
+          data={updates}
+          keyExtractor={item => item.kind === 'event' ? item.data.activity.id : item.data.id}
           ListHeaderComponent={
-            eventUpdates.length > 0 ? (
+            updates.length > 0 ? (
               <TouchableOpacity style={styles.seenAllBar} onPress={handleSeenAll}>
                 <Ionicons name="checkmark-done-outline" size={20} color="#fff" />
                 <Text style={styles.seenAllBarText}>Seen all</Text>
@@ -393,6 +461,54 @@ export default function UpdatesScreen() {
             ) : null
           }
           renderItem={({ item }) => (
+            item.kind === 'friend_joined' ? (
+              <View style={styles.swipeableWrap}>
+                <Swipeable
+                  renderLeftActions={() => (
+                    <TouchableOpacity style={styles.dismissAction} onPress={() => handleDismiss(item)}>
+                      <Ionicons name="checkmark-circle" size={28} color="#fff" />
+                      <Text style={styles.dismissActionText}>Dismiss</Text>
+                    </TouchableOpacity>
+                  )}
+                  renderRightActions={() => (
+                    <TouchableOpacity style={styles.dismissAction} onPress={() => handleDismiss(item)}>
+                      <Ionicons name="checkmark-circle" size={28} color="#fff" />
+                      <Text style={styles.dismissActionText}>Dismiss</Text>
+                    </TouchableOpacity>
+                  )}
+                  onSwipeableOpen={() => handleDismiss(item)}
+                  friction={2}
+                  leftThreshold={60}
+                  rightThreshold={60}
+                >
+                  <TouchableOpacity style={styles.card} onPress={() => handlePress(item)} activeOpacity={0.85}>
+                    <View style={styles.cardContent}>
+                      <View style={styles.cardHeader}>
+                        <View style={styles.friendJoinedRow}>
+                          <Avatar uri={item.data.new_user?.avatar_url} name={item.data.new_user?.full_name} size={48} />
+                          <View style={styles.friendJoinedInfo}>
+                            <Text style={styles.cardTitle}>
+                              {item.data.contact_name || item.data.new_user?.full_name || 'Someone'} joined Miba!
+                            </Text>
+                            <View style={styles.updateChip}>
+                              <Ionicons name="person-add-outline" size={14} color={Colors.primary} />
+                              <Text style={styles.updateChipText}>Add to circles</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.dismissButton}
+                          onPress={(e) => { e.stopPropagation(); handleDismiss(item); }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="checkmark-circle-outline" size={24} color={Colors.primary} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </Swipeable>
+              </View>
+            ) : (
             <View style={styles.swipeableWrap}>
               <Swipeable
                 renderLeftActions={() => (
@@ -425,15 +541,15 @@ export default function UpdatesScreen() {
                 onPress={() => handlePress(item)}
                 activeOpacity={0.85}
               >
-                <View style={[styles.cardContent, item.activity.splash_art && styles.cardContentWithSplash]}>
-                <View style={[styles.cardHeaderWrapper, item.activity.splash_art && styles.cardHeaderWithSplash]}>
-                  {item.activity.splash_art && (
+                <View style={[styles.cardContent, item.data.activity.splash_art && styles.cardContentWithSplash]}>
+                <View style={[styles.cardHeaderWrapper, item.data.activity.splash_art && styles.cardHeaderWithSplash]}>
+                  {item.data.activity.splash_art && (
                     <View style={styles.cardSplashBackground}>
-                      <SplashArt preset={item.activity.splash_art} height={90} opacity={0.2} />
+                      <SplashArt preset={item.data.activity.splash_art} height={90} opacity={0.2} />
                     </View>
                   )}
-                <View style={[styles.cardHeader, item.activity.splash_art && styles.cardHeaderOverlay]}>
-                  <Text style={[styles.cardTitle, isHebrew(item.activity.title) && styles.titleRtl]} numberOfLines={2}>{item.activity.title}</Text>
+                <View style={[styles.cardHeader, item.data.activity.splash_art && styles.cardHeaderOverlay]}>
+                  <Text style={[styles.cardTitle, isHebrew(item.data.activity.title) && styles.titleRtl]} numberOfLines={2}>{item.data.activity.title}</Text>
                   <TouchableOpacity
                     style={styles.dismissButton}
                     onPress={(e) => { e.stopPropagation(); handleDismiss(item); }}
@@ -442,7 +558,7 @@ export default function UpdatesScreen() {
                     <Ionicons name="checkmark-circle-outline" size={24} color={Colors.primary} />
                   </TouchableOpacity>
                   <View style={styles.avatarStack}>
-                    {item.activity.rsvps
+                    {item.data.activity.rsvps
                       ?.filter(r => r.status === 'in')
                       .slice(0, 3)
                       .map((rsvp, i) => (
@@ -455,10 +571,10 @@ export default function UpdatesScreen() {
                 </View>
                 <View style={styles.meta}>
                   <Ionicons name="time-outline" size={13} color={Colors.textSecondary} />
-                  <Text style={styles.metaText}>{formatDate(item.activity.activity_time)}</Text>
+                  <Text style={styles.metaText}>{formatDate(item.data.activity.activity_time)}</Text>
                 </View>
                 <View style={styles.updatesRow}>
-                  {item.updates.map((u, i) => (
+                  {item.data.updates.map((u, i) => (
                     <View key={i}>{renderUpdateLabel(u)}</View>
                   ))}
                 </View>
@@ -466,6 +582,7 @@ export default function UpdatesScreen() {
               </TouchableOpacity>
             </Swipeable>
             </View>
+          )
           )}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
@@ -519,6 +636,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12,
   },
   updateChipText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+  friendJoinedRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  friendJoinedInfo: { flex: 1 },
   swipeableWrap: { marginBottom: 12 },
   dismissAction: {
     backgroundColor: Colors.primary,
