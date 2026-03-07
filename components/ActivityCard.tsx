@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Swipeable } from 'react-native-gesture-handler';
+import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
@@ -28,12 +28,29 @@ const RSVP_CONFIG: Record<RsvpStatus, RsvpConfig> = {
   pending: { iconName: 'mail-open-outline', iconColor: INVITED_BLUE, bg: INVITED_BLUE_LIGHT, label: 'Invited', textColor: INVITED_BLUE },
 };
 const HOSTING_CONFIG: RsvpConfig = { iconName: 'star', iconColor: Colors.primary, bg: Colors.accentLight, label: 'Hosting', textColor: Colors.primary };
+const HIDDEN_CONFIG: RsvpConfig = { iconName: 'eye-off-outline', iconColor: Colors.textSecondary, bg: Colors.borderLight, label: 'Hidden', textColor: Colors.textSecondary };
 
 const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 type EventsFilter = 'upcoming' | 'invited' | 'past' | 'declined';
 
-export function ActivityCard({ activity, fromTab, onDelete }: { activity: Activity; fromTab?: EventsFilter; onDelete?: () => void }) {
+const HIDE_ACTION_BG = '#6B7280';
+
+export function ActivityCard({
+  activity,
+  fromTab,
+  onDelete,
+  isHidden,
+  onHide,
+  onUnhide,
+}: {
+  activity: Activity;
+  fromTab?: EventsFilter;
+  onDelete?: () => void;
+  isHidden?: boolean;
+  onHide?: () => void;
+  onUnhide?: () => void;
+}) {
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
   const past = isPast(activityDate);
@@ -83,6 +100,14 @@ export function ActivityCard({ activity, fromTab, onDelete }: { activity: Activi
           {activity.status === 'cancelled' && (
             <View style={styles.cancelledBadge}>
               <Text style={styles.cancelledBadgeText}>Cancelled</Text>
+            </View>
+          )}
+          {isHidden && (
+            <View style={[styles.rsvpBadge, { backgroundColor: HIDDEN_CONFIG.bg }]}>
+              <Ionicons name={HIDDEN_CONFIG.iconName} size={13} color={HIDDEN_CONFIG.iconColor} />
+              <Text style={[styles.rsvpBadgeText, { color: HIDDEN_CONFIG.textColor }]}>
+                {HIDDEN_CONFIG.label}
+              </Text>
             </View>
           )}
           {activity.is_new && !(isHost && myRsvp?.status === 'in') && (
@@ -154,21 +179,63 @@ export function ActivityCard({ activity, fromTab, onDelete }: { activity: Activi
     </TouchableOpacity>
   );
 
-  if (onDelete && isHost) {
+  const hasHideUnhide = onHide || onUnhide;
+  const hasDelete = onDelete && isHost;
+  const needsSwipeable = hasDelete || hasHideUnhide;
+  const swipeableRef = useRef<SwipeableMethods>(null);
+  const triggeredBySwipeRef = useRef(false);
+
+  if (needsSwipeable) {
     return (
-      <Swipeable
-        renderLeftActions={() => (
-          <TouchableOpacity style={styles.deleteAction} onPress={handleDeletePress}>
-            <Ionicons name="trash-outline" size={24} color="#fff" />
-            <Text style={styles.deleteActionText}>Delete</Text>
-          </TouchableOpacity>
-        )}
-        renderRightActions={() => null}
+      <ReanimatedSwipeable
+        ref={swipeableRef}
+        onSwipeableClose={() => { triggeredBySwipeRef.current = false; }}
+        renderLeftActions={
+          hasDelete
+            ? () => (
+                <TouchableOpacity style={styles.deleteAction} onPress={handleDeletePress}>
+                  <Ionicons name="trash-outline" size={24} color="#fff" />
+                  <Text style={styles.deleteActionText}>Delete</Text>
+                </TouchableOpacity>
+              )
+            : undefined
+        }
+        renderRightActions={
+          hasHideUnhide
+            ? (_, __, swipeableMethods) => (
+                <TouchableOpacity
+                  style={styles.hideAction}
+                  onPress={() => {
+                    if (!triggeredBySwipeRef.current) {
+                      (isHidden ? onUnhide : onHide)?.();
+                    }
+                    swipeableMethods?.reset();
+                  }}
+                >
+                  <Ionicons
+                    name={isHidden ? 'eye-outline' : 'eye-off-outline'}
+                    size={24}
+                    color="#fff"
+                  />
+                  <Text style={styles.hideActionText}>{isHidden ? 'Unhide' : 'Hide'}</Text>
+                </TouchableOpacity>
+              )
+            : undefined
+        }
         friction={2}
         leftThreshold={60}
+        rightThreshold={60}
+        onSwipeableOpen={hasHideUnhide ? (direction) => {
+          if (direction !== SwipeDirection.RIGHT) return;
+          triggeredBySwipeRef.current = true;
+          (isHidden ? onUnhide : onHide)?.();
+          swipeableRef.current?.reset();
+        } : undefined}
       >
-        {cardContent}
-      </Swipeable>
+        <View style={styles.swipeableContent}>
+          {cardContent}
+        </View>
+      </ReanimatedSwipeable>
     );
   }
 
@@ -222,6 +289,11 @@ const styles = StyleSheet.create({
   avatarStack: { flexDirection: 'row', height: 28, minWidth: 28, position: 'relative' },
   avatarWrapper: { position: 'absolute', borderWidth: 2, borderColor: Colors.surface, borderRadius: 14 },
   goingCount: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  swipeableContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
   deleteAction: {
     backgroundColor: Colors.danger,
     justifyContent: 'center',
@@ -232,4 +304,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   deleteActionText: { fontSize: 14, fontWeight: '600', color: '#fff', marginTop: 4 },
+  hideAction: {
+    backgroundColor: HIDE_ACTION_BG,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    borderRadius: 18,
+    marginLeft: 12,
+    alignSelf: 'stretch',
+  },
+  hideActionText: { fontSize: 14, fontWeight: '600', color: '#fff', marginTop: 4 },
 });

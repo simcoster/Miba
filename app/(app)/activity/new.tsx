@@ -24,7 +24,7 @@ import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
-const LIMITED_EVENT_COMIC = require('@/assets/images/limited-event-comic.jpg');
+const LIMITED_EVENT_COMIC = require('@/assets/images/limited-event-comic.png');
 
 export default function NewActivityScreen() {
   const { user, profile } = useAuth();
@@ -644,9 +644,11 @@ export default function NewActivityScreen() {
               <Ionicons name={isLimited ? 'people' : 'people-outline'} size={16} color={Colors.primary} />
               <Text style={styles.addCoverBtnText}>Limited event</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.howItWorksBtn} onPress={() => { setComicScale(1); setShowLimitedComic(true); }} activeOpacity={0.7}>
-              <Ionicons name="help-circle-outline" size={20} color={Colors.primary} />
-              <Text style={styles.howItWorksCaption}>how it works</Text>
+            <TouchableOpacity
+              onPress={() => { setComicScale(1); setShowLimitedComic(true); }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
             </TouchableOpacity>
           </View>
           {isLimited && (
@@ -744,14 +746,6 @@ const styles = StyleSheet.create({
   excludeBtnActive: {},
   excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   limitedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  howItWorksBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-  },
-  howItWorksCaption: { fontSize: 14, color: Colors.primary, fontWeight: '600' },
   comicModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

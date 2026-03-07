@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Activity } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
+import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
 import { ActivityCard } from '@/components/ActivityCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
@@ -48,6 +49,8 @@ export default function EventsScreen() {
   const [filter, setFilter] = useState<Filter>('upcoming');
   const [error, setError] = useState<string | null>(null);
   const [invitedCount, setInvitedCount] = useState(0);
+  const [showHidden, setShowHidden] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   const fetchActivities = useCallback(async () => {
     if (!user) return;
@@ -94,6 +97,15 @@ export default function EventsScreen() {
     fetchActivities().finally(() => setLoading(false));
   }, [fetchActivities]);
 
+  const loadHiddenIds = useCallback(async () => {
+    const ids = await getHiddenActivityIds();
+    setHiddenIds(ids);
+  }, []);
+
+  useEffect(() => {
+    loadHiddenIds();
+  }, [loadHiddenIds]);
+
   const skipFirstFocus = useRef(true);
   useFocusEffect(
     useCallback(() => {
@@ -101,7 +113,8 @@ export default function EventsScreen() {
       if (skipFirstFocus.current) { skipFirstFocus.current = false; return; }
       if (!user) return;
       fetchActivities();
-    }, [fetchActivities, user, tab])
+      loadHiddenIds();
+    }, [fetchActivities, loadHiddenIds, user, tab])
   );
 
   const onRefresh = useCallback(async () => {
@@ -110,25 +123,29 @@ export default function EventsScreen() {
     setRefreshing(false);
   }, [fetchActivities]);
 
-  const getFilteredList = (): ListItem[] => {
+  const activitiesToShow = showHidden
+    ? allActivities
+    : allActivities.filter(a => !hiddenIds.has(a.id));
+
+  const getFilteredList = (activities: Activity[]): ListItem[] => {
     switch (filter) {
       case 'upcoming': {
         const future = (s: string) => !isPast(new Date(s));
         const isHost = (a: Activity) => a.created_by === user?.id;
         // Limited section: open limited events (not closed), future, user marked in or maybe (not pending)
-        const limited = allActivities.filter(a =>
+        const limited = activities.filter(a =>
           future(a.activity_time) && a.is_limited && !a.limited_closed_at &&
           (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
         );
         // Non-limited events only (limited go in Limited section)
-        const hosting = allActivities.filter(a =>
+        const hosting = activities.filter(a =>
           future(a.activity_time) && !a.is_limited && isHost(a) &&
           (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
         );
-        const going = allActivities.filter(a =>
+        const going = activities.filter(a =>
           future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'in' && !isHost(a)
         );
-        const maybe = allActivities.filter(a =>
+        const maybe = activities.filter(a =>
           future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'maybe' && !isHost(a)
         );
 
@@ -152,7 +169,7 @@ export default function EventsScreen() {
         return result;
       }
       case 'past':
-        return [...allActivities]
+        return [...activities]
           .reverse()
           .filter(a =>
             (isPast(new Date(a.activity_time)) &&
@@ -160,15 +177,15 @@ export default function EventsScreen() {
             (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in'))
           );
       case 'invited':
-        return allActivities.filter(a =>
+        return activities.filter(a =>
           a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time))
         );
       case 'declined':
-        return [...allActivities].reverse().filter(a => a.my_rsvp?.status === 'out');
+        return [...activities].reverse().filter(a => a.my_rsvp?.status === 'out');
     }
   };
 
-  const listData = getFilteredList();
+  const listData = getFilteredList(activitiesToShow);
 
   const hour = new Date().getHours();
   const firstName = profile?.full_name?.split(' ')[0] ?? '';
@@ -207,6 +224,7 @@ export default function EventsScreen() {
         </View>
       </View>
 
+      <View style={styles.contentArea}>
       {loading ? (
         <View style={styles.center}><Text style={styles.loadingText}>Loading…</Text></View>
       ) : error ? (
@@ -251,10 +269,23 @@ export default function EventsScreen() {
             }
             const isHost = item.created_by === user?.id;
             const canDelete = isHost && (filter === 'upcoming' || filter === 'past');
+            const itemHidden = hiddenIds.has(item.id);
+            const handleHideUnhide = async () => {
+              const nowHidden = await toggleHidden(item.id);
+              setHiddenIds(prev => {
+                const next = new Set(prev);
+                if (nowHidden) next.add(item.id);
+                else next.delete(item.id);
+                return next;
+              });
+            };
             return (
               <ActivityCard
                 activity={item}
                 fromTab={filter}
+                isHidden={itemHidden}
+                onHide={handleHideUnhide}
+                onUnhide={handleHideUnhide}
                 onDelete={canDelete ? async () => {
                   const { error } = await supabase.from('activities').update({ status: 'cancelled' }).eq('id', item.id);
                   if (!error) fetchActivities();
@@ -268,6 +299,23 @@ export default function EventsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      </View>
+
+      <View style={styles.showHiddenBar}>
+        <TouchableOpacity
+          style={[styles.showHiddenBtn, showHidden && styles.showHiddenBtnActive]}
+          onPress={() => setShowHidden(prev => !prev)}
+        >
+          <Ionicons
+            name="checkmark-done-outline"
+            size={18}
+            color={showHidden ? '#fff' : Colors.textSecondary}
+          />
+          <Text style={[styles.showHiddenText, showHidden && styles.showHiddenTextActive]}>
+            Show hidden
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -301,10 +349,29 @@ const styles = StyleSheet.create({
   },
   badgeOnActive: { backgroundColor: 'rgba(255,255,255,0.35)' },
   badgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  contentArea: { flex: 1 },
+  showHiddenBar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  showHiddenBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: Colors.borderLight,
+  },
+  showHiddenBtnActive: { backgroundColor: Colors.primary },
+  showHiddenText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  showHiddenTextActive: { color: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   emptyContainer: { flexGrow: 1 },
-  list: { paddingHorizontal: 20, paddingBottom: 100 },
+  list: { paddingHorizontal: 20, paddingBottom: 160 },
   sectionSep: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     marginTop: 4, marginBottom: 12,
