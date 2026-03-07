@@ -2,13 +2,20 @@ const { withAndroidManifest } = require('@expo/config-plugins');
 
 /**
  * Adds com.google.android.geo.API_KEY to AndroidManifest for react-native-maps.
- * Set EXPO_PUBLIC_GOOGLE_PLACES_API_KEY in .env (used for both Places autocomplete and Maps).
+ * EAS Build: add GOOGLE_MAPS_API_KEY (or EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) to EAS env vars.
  */
 function withGoogleMapsApiKey(config) {
   return withAndroidManifest(config, async (config) => {
-    const apiKey = config.extra?.googleMapsApiKey || process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
+    const apiKey =
+      config.extra?.googleMapsApiKey ||
+      config.android?.config?.googleMaps?.apiKey ||
+      process.env.GOOGLE_MAPS_API_KEY ||
+      process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
+      '';
     if (!apiKey.trim()) {
-      console.warn('[withGoogleMapsApiKey] No API key found. Set EXPO_PUBLIC_GOOGLE_PLACES_API_KEY');
+      console.warn(
+        '[withGoogleMapsApiKey] No API key found. Add GOOGLE_MAPS_API_KEY to EAS env vars (same value as EXPO_PUBLIC_GOOGLE_PLACES_API_KEY). Maps will crash on Android without it.'
+      );
       return config;
     }
 

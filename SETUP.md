@@ -95,6 +95,8 @@ For internal-only distribution (no Play Store), use `--profile preview` instead.
 
 **Environment variables:** The app has fallbacks for Supabase URL and anon key. For production, consider setting `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in [expo.dev](https://expo.dev) → Project → Environment variables.
 
+**Google Maps API key (Android):** The Maps SDK (chat location pins) needs the key in the manifest at build time. Add `GOOGLE_MAPS_API_KEY` to EAS env vars with the same value as `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`, assigned to development, preview, and production. Without it, the map will crash on Android.
+
 **google-services.json (Android):** This file is in `.gitignore` and must not be committed. For local dev, keep a copy in the project root (download from [Firebase Console](https://console.firebase.google.com) → Project settings → Your apps). For EAS builds, add it as a file-type environment variable:
 
 1. Go to [expo.dev](https://expo.dev) → your project → **Environment variables**
