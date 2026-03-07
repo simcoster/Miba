@@ -11,7 +11,8 @@
     "db:new": "supabase migration new",
     "build:preview": "eas build --profile preview --platform android",
     "build:preview:fix": "eas build --profile preview --platform android -m \"Firebase push registration fix\"",
-    "fix": "eas update --branch preview --message \"JS fix\""
+    "fix": "eas update --branch preview --message \"JS fix\"",
+    "build:cancel": "node scripts/cancel-build.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -34,10 +34,17 @@ export async function registerForPushNotifications(userId: string): Promise<Push
 
   try {
     if (Platform.OS === 'android') {
+      // Delete existing channel so we can recreate with custom sound.
+      // Android channels are immutable; old channel may have been created with default sound.
+      try {
+        await Notifications.deleteNotificationChannelAsync(MIPO_CHANNEL_ID);
+      } catch {
+        // Channel may not exist yet
+      }
       await Notifications.setNotificationChannelAsync(MIPO_CHANNEL_ID, {
         name: 'Mipo',
         importance: Notifications.AndroidImportance.HIGH,
-        sound: 'default',
+        sound: 'match_playful.mp3',
       });
       await Notifications.setNotificationChannelAsync(ACTIVITY_UPDATES_CHANNEL_ID, {
         name: 'Events & Messages',

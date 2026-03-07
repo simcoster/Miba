@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { subMinutes } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -96,7 +97,12 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
         lastNotifiedEventId.current = newest.id;
         const otherName = newest.other_profile?.full_name ?? 'A friend';
         Notifications.scheduleNotificationAsync({
-          content: { title: 'Friend nearby!', body: `${otherName} is nearby`, sound: 'default' },
+          content: {
+            title: 'Friend nearby!',
+            body: `${otherName} is nearby`,
+            sound: 'match_playful.mp3',
+            ...(Platform.OS === 'android' && { channelId: 'mipo-proximity' }),
+          },
           trigger: null,
         }).catch(() => {});
       }
