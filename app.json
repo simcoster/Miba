@@ -2,7 +2,7 @@
   "expo": {
     "name": "Miba",
     "slug": "miba",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "miba",
@@ -22,8 +22,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#FFF8ED"
       },
-      "package": "com.miba.app",
-      "versionCode": 4
+      "package": "com.miba.app"
     },
     "web": {
       "bundler": "metro",
