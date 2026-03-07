@@ -920,7 +920,7 @@ export default function ActivityDetailScreen() {
                       )}
                       {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                       <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>
-                      {status === 'in' && <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>}
+                      {status === 'in' && <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>You're in!</Text></View>}
                       {status === 'maybe' && <View style={styles.statusBadgeMaybe}><Text style={styles.statusTextMaybe}>Maybe</Text></View>}
                       {status === 'out' && <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>Can't go</Text></View>}
                       {status === 'pending' && <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>Invited</Text></View>}
@@ -943,7 +943,7 @@ export default function ActivityDetailScreen() {
                       <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
                       {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
-                      <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>Going</Text></View>
+                      <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>You're in!</Text></View>
                     </TouchableOpacity>
                     {canRemove && (
                       <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

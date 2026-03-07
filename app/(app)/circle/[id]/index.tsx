@@ -11,9 +11,8 @@ import { Circle, CircleMember } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { EmojiPickerButton } from '@/components/EmojiPickerButton';
 import Colors from '@/constants/Colors';
-
-const EMOJIS = ['👥','🏋️','🎲','🎮','🎵','🏖️','🍕','☕','🎭','🎬','📚','🚴','⚽','🏄','🧗','🎯','🌿','🎸','🏕️','🤿','🎪','🎡','🌮','🍻'];
 
 export default function CircleDetailScreen() {
   const localParams = useLocalSearchParams<{ id: string; fromTab?: string }>();
@@ -41,7 +40,6 @@ export default function CircleDetailScreen() {
   // Edit state
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editDesc, setEditDesc] = useState('');
   const [editEmoji, setEditEmoji] = useState('👥');
   const [saveLoading, setSaveLoading] = useState(false);
 
@@ -143,7 +141,6 @@ export default function CircleDetailScreen() {
   const startEditing = () => {
     if (!circle) return;
     setEditName(circle.name);
-    setEditDesc(circle.description ?? '');
     setEditEmoji(circle.emoji);
     setIsEditing(true);
   };
@@ -156,12 +153,12 @@ export default function CircleDetailScreen() {
         .from('circles')
         .update({
           name: editName.trim(),
-          description: editDesc.trim() || null,
+          description: null,
           emoji: editEmoji,
         })
         .eq('id', id);
       if (error) throw error;
-      setCircle(prev => prev ? { ...prev, name: editName.trim(), description: editDesc.trim() || null, emoji: editEmoji } : null);
+      setCircle(prev => prev ? { ...prev, name: editName.trim(), description: null, emoji: editEmoji } : null);
       setIsEditing(false);
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Could not save changes.');
@@ -300,23 +297,9 @@ export default function CircleDetailScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {isEditing ? (
-          <>
-            <View style={styles.editSection}>
-              <Text style={styles.editLabel}>Pick an emoji</Text>
-              <View style={styles.emojiGrid}>
-                {EMOJIS.map(e => (
-                  <TouchableOpacity
-                    key={e}
-                    style={[styles.emojiOption, editEmoji === e && styles.emojiOptionSelected]}
-                    onPress={() => setEditEmoji(e)}
-                  >
-                    <Text style={styles.emojiText}>{e}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-            <View style={styles.editSection}>
-              <Text style={styles.editLabel}>Circle name *</Text>
+          <View style={styles.editSection}>
+            <Text style={styles.editLabel}>Circle name *</Text>
+            <View style={styles.editNameRow}>
               <TextInput
                 style={styles.editInput}
                 value={editName}
@@ -326,25 +309,8 @@ export default function CircleDetailScreen() {
                 maxLength={50}
                 autoFocus
               />
+              <EmojiPickerButton emoji={editEmoji} onEmojiSelect={setEditEmoji} size={48} />
             </View>
-            <View style={styles.editSection}>
-              <Text style={styles.editLabel}>Description (optional)</Text>
-              <TextInput
-                style={[styles.editInput, styles.editTextArea]}
-                value={editDesc}
-                onChangeText={setEditDesc}
-                placeholder="What's this circle for?"
-                placeholderTextColor={Colors.textSecondary}
-                maxLength={200}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-          </>
-        ) : circle.description ? (
-          <View style={styles.descCard}>
-            <Text style={styles.descText}>{circle.description}</Text>
           </View>
         ) : null}
 
@@ -470,17 +436,11 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   editSection: { marginBottom: 24 },
   editLabel: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  editInput: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
-  editTextArea: { minHeight: 80, paddingTop: 12 },
-  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  emojiOption: { width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.borderLight, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
-  emojiOptionSelected: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
-  emojiText: { fontSize: 24 },
+  editNameRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  editInput: { flex: 1, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
   saveBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  descCard: { backgroundColor: 'transparent', paddingVertical: 4, marginBottom: 16 },
-  descText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
   membersSection: { marginBottom: 24 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },

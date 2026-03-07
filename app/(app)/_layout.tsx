@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { MipoProvider, useMipo } from '@/contexts/MipoContext';
+import { useUpdatesCount } from '@/contexts/UpdatesCountContext';
 import { ContactImportModal } from '@/components/ContactImportModal';
 import { hasOfferedImport } from '@/lib/contactImport';
 import { useAuth } from '@/contexts/AuthContext';
@@ -19,6 +20,23 @@ function TabIcon({ name, focused, label }: {
     <View style={styles.tabIconContainer}>
       <Ionicons name={name} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
       <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>{label}</Text>
+    </View>
+  );
+}
+
+function UpdatesTabIcon({ focused }: { focused: boolean }) {
+  const { count } = useUpdatesCount();
+  return (
+    <View style={styles.tabIconContainer}>
+      <View style={styles.badgeIconWrapper}>
+        <Ionicons name={focused ? 'notifications' : 'notifications-outline'} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
+        {count > 0 && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
+          </View>
+        )}
+      </View>
+      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>Updates</Text>
     </View>
   );
 }
@@ -40,9 +58,15 @@ function NotificationHandler() {
   const router = useRouter();
   useEffect(() => {
     const handleResponse = (response: Notifications.NotificationResponse) => {
-      const data = response.notification.request.content.data as { type?: string };
+      const data = response.notification.request.content.data as { type?: string; activityId?: string };
       if (data?.type === 'mipo_proximity') {
         router.push('/(app)/mipo');
+      } else if (data?.activityId && ['chat', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled'].includes(data.type ?? '')) {
+        if (data.type === 'chat') {
+          router.push(`/(app)/activity/${data.activityId}/chat`);
+        } else {
+          router.push(`/(app)/activity/${data.activityId}`);
+        }
       }
     };
     const sub = Notifications.addNotificationResponseReceivedListener(handleResponse);
@@ -91,7 +115,7 @@ export default function AppLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'notifications' : 'notifications-outline'} focused={focused} label="Updates" />
+            <UpdatesTabIcon focused={focused} />
           ),
         }}
       />
@@ -144,7 +168,21 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   tabIconContainer: { alignItems: 'center', justifyContent: 'center', gap: 2, minWidth: 60 },
+  badgeIconWrapper: { position: 'relative' as const },
   tabLabel: { fontSize: 10, color: Colors.textSecondary, fontWeight: '500' },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   tabLabelActive: { color: Colors.primary, fontWeight: '600' },
   tabLabelMipoActive: { color: Colors.success },
 });

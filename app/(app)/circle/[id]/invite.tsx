@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, FlatList,
-  TouchableOpacity, Alert, ActivityIndicator,
+  TouchableOpacity, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Profile } from '@/lib/types';
+import { Circle, Profile } from '@/lib/types';
 import { ensureInAllFriends } from '@/lib/allFriends';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -24,6 +24,51 @@ export default function InviteScreen() {
   const [loadingAll, setLoadingAll] = useState(true);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [addingFromCircle, setAddingFromCircle] = useState<string | null>(null);
+
+  const fetchCircles = useCallback(async () => {
+    if (!user || !circleId) return;
+    const { data } = await supabase
+      .from('circles')
+      .select('id, name, emoji, created_by, created_at')
+      .eq('created_by', user.id)
+      .neq('is_all_friends', true)
+      .neq('id', circleId)
+      .order('created_at', { ascending: false });
+    setCircles((data ?? []) as Circle[]);
+  }, [user, circleId]);
+
+  useEffect(() => {
+    fetchCircles();
+  }, [fetchCircles]);
+
+  const addFromCircle = async (circle: Circle) => {
+    if (!circleId || !user) return;
+    setAddingFromCircle(circle.id);
+    try {
+      const { data, error } = await supabase
+        .from('circle_members')
+        .select('user_id')
+        .eq('circle_id', circle.id)
+        .neq('user_id', user.id);
+      if (error) throw error;
+      const userIds = (data ?? []).map((m: { user_id: string }) => m.user_id).filter((uid: string) => !memberIds.includes(uid));
+      if (userIds.length === 0) return;
+      const { error: insertErr } = await supabase
+        .from('circle_members')
+        .insert(userIds.map((user_id: string) => ({ circle_id: circleId, user_id })));
+      if (insertErr) throw insertErr;
+      setMemberIds(prev => [...new Set([...prev, ...userIds])]);
+      for (const uid of userIds) {
+        await ensureInAllFriends(user.id, uid, circleId);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not add members from circle.');
+    } finally {
+      setAddingFromCircle(null);
+    }
+  };
 
   const fetchMemberIds = useCallback(() => {
     if (!circleId) return;
@@ -92,6 +137,33 @@ export default function InviteScreen() {
   return (
     <View style={styles.container}>
       <ScreenHeader title="Add Members" showBack />
+      {circles.length > 0 && (
+        <View style={styles.circlesSection}>
+          <Text style={styles.circlesLabel}>Add from circle</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {circles.map(c => {
+              const adding = addingFromCircle === c.id;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.circleChip}
+                  onPress={() => !adding && addFromCircle(c)}
+                  disabled={adding}
+                >
+                  {adding ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
+                    <>
+                      <Text style={styles.circleChipEmoji}>{c.emoji}</Text>
+                      <Text style={styles.circleChipName} numberOfLines={1}>{c.name}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={Colors.textSecondary} />
         <TextInput
@@ -188,6 +260,15 @@ export default function InviteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  circlesSection: { marginHorizontal: 20, marginTop: 16, marginBottom: 8 },
+  circlesLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8 },
+  circleChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1.5, borderColor: Colors.border, marginRight: 8,
+  },
+  circleChipEmoji: { fontSize: 16 },
+  circleChipName: { fontSize: 14, fontWeight: '600', color: Colors.text, maxWidth: 100 },
   searchBox: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
     borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border,

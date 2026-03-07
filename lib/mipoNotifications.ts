@@ -12,8 +12,9 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/** Android channel for Mipo proximity notifications - ensures they show when app is in background */
+/** Android channels - ensure notifications show when app is in background */
 const MIPO_CHANNEL_ID = 'mipo-proximity';
+const ACTIVITY_UPDATES_CHANNEL_ID = 'activity-updates';
 
 export type PushRegistrationResult = {
   success: boolean;
@@ -35,6 +36,11 @@ export async function registerForPushNotifications(userId: string): Promise<Push
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(MIPO_CHANNEL_ID, {
         name: 'Mipo',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'default',
+      });
+      await Notifications.setNotificationChannelAsync(ACTIVITY_UPDATES_CHANNEL_ID, {
+        name: 'Events & Messages',
         importance: Notifications.AndroidImportance.HIGH,
         sound: 'default',
       });

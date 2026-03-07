@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { Avatar } from '@/components/Avatar';
 import Colors from '@/constants/Colors';
 import { parseLocation } from '@/lib/locationUtils';
+import { markUpdatesAsSeen } from '@/lib/markUpdatesSeen';
 import type { RsvpStatus } from '@/lib/types';
 import type { RsvpChangeMetadata } from '@/lib/postRsvpChangeMessage';
 import type { EditSuggestionMetadata } from '@/lib/types';
@@ -129,9 +130,9 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
         const changedUserId = meta?.changed_user_id;
         let text: string;
         if (changedUserId && changedUserId !== msg.user_id) {
-          text = `changed someone's status to ${newLabel}`;
+          text = `changed someone's status to '${newLabel}'`;
         } else {
-          text = `changed their status '${oldLabel} → ${newLabel}'`;
+          text = `changed their status to '${newLabel}'`;
         }
         items.push({
           id: msg.id,
@@ -148,8 +149,19 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
 
     const stored = await AsyncStorage.getItem(DISMISSED_KEY(activityId));
     const dismissed = new Set<string>(stored ? JSON.parse(stored) : []);
+
+    // Also hide updates marked as seen on the main updates feed
+    const lastSeenMain = await AsyncStorage.getItem(`miba_activity_last_seen_${activityId}`);
+    const lastSeenTs = lastSeenMain ? new Date(lastSeenMain).getTime() : 0;
+
+    const filtered = items.filter((i) => {
+      if (dismissed.has(i.id)) return false;
+      if (lastSeenTs > 0 && new Date(i.createdAt).getTime() <= lastSeenTs) return false;
+      return true;
+    });
+
     setDismissedIds(dismissed);
-    setUpdates(items.filter((i) => !dismissed.has(i.id)));
+    setUpdates(filtered);
     setLoading(false);
   }, [activityId, hostId]);
 
@@ -160,6 +172,7 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
       setDismissedIds(next);
       setUpdates((prev) => prev.filter((u) => u.id !== item.id));
       await AsyncStorage.setItem(DISMISSED_KEY(activityId), JSON.stringify([...next]));
+      await markUpdatesAsSeen(activityId);
     },
     [activityId, dismissedIds]
   );
@@ -170,6 +183,7 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
     setDismissedIds(allIds);
     setUpdates([]);
     await AsyncStorage.setItem(DISMISSED_KEY(activityId), JSON.stringify([...allIds]));
+    await markUpdatesAsSeen(activityId);
   }, [activityId, dismissedIds, updates]);
 
   useEffect(() => {

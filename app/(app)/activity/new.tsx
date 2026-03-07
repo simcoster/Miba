@@ -83,7 +83,7 @@ export default function NewActivityScreen() {
     if (!user) return;
     const { data } = await supabase
       .from('circles')
-      .select('id, name, emoji, description, created_by, created_at')
+      .select('id, name, emoji, created_by, created_at')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
     setCircles((data ?? []) as Circle[]);

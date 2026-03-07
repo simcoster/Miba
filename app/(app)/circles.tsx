@@ -33,7 +33,7 @@ export default function CirclesScreen() {
 
     const { data, error: fetchError } = await supabase
       .from('circles')
-      .select('id, name, description, emoji, created_by, created_at, is_all_friends')
+      .select('id, name, emoji, created_by, created_at, is_all_friends')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
 

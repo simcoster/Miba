@@ -58,13 +58,10 @@ export function ActivityCard({
   const myRsvp = activity.my_rsvp;
   const isPending = myRsvp?.status === 'pending';
   const isHost = activity.created_by === myRsvp?.user_id;
-  // Host: show both "Hosting" and RSVP status (Going, Maybe, etc.); non-host: just RSVP status
+  // Host: show both "Hosting" and RSVP status (You're in!, Maybe, etc.); non-host: just RSVP status
   const hostingConfig = isHost ? HOSTING_CONFIG : null;
   const rsvpStatus = myRsvp?.status;
-  const baseRsvpConfig = rsvpStatus ? RSVP_CONFIG[rsvpStatus as RsvpStatus] : null;
-  const rsvpConfig = baseRsvpConfig
-    ? (isHost && rsvpStatus === 'in' ? { ...baseRsvpConfig, label: 'Going' } : baseRsvpConfig)
-    : null;
+  const rsvpConfig = rsvpStatus ? RSVP_CONFIG[rsvpStatus as RsvpStatus] : null;
 
   const dateLabel = isToday(activityDate)
     ? `Today · ${format(activityDate, 'h:mm a')}`
@@ -172,7 +169,7 @@ export function ActivityCard({
             ))}
         </View>
         <Text style={styles.goingCount}>
-          {goingCount > 0 ? `${goingCount} ${goingCount === 1 ? 'person' : 'people'} going` : 'Be the first to join!'}
+          {goingCount > 0 ? `${goingCount} ${goingCount === 1 ? 'person' : 'people'} in` : 'Be the first to join!'}
         </Text>
       </View>
       </View>

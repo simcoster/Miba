@@ -19,9 +19,6 @@ export function CircleCard({ circle }: { circle: Circle }) {
       </View>
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>{circle.name}</Text>
-        {circle.description && (
-          <Text style={styles.description} numberOfLines={1}>{circle.description}</Text>
-        )}
       </View>
       <Ionicons name="chevron-forward" size={20} color={Colors.border} />
     </TouchableOpacity>
@@ -41,9 +38,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',
   },
   emoji: { fontSize: 28 },
-  info: { flex: 1, gap: 2 },
+  info: { flex: 1 },
   name: { fontSize: 17, fontWeight: '700', color: Colors.text },
-  description: { fontSize: 13, color: Colors.textSecondary },
-  meta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  metaText: { fontSize: 12, color: Colors.textSecondary },
 });

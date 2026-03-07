@@ -159,7 +159,7 @@ export default function EventsScreen() {
           result.push(...hosting);
         }
         if (going.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'going-sep', label: 'Going' });
+          if (result.length > 0) result.push({ __sep: true, key: 'going-sep', label: "You're in" });
           result.push(...going);
         }
         if (maybe.length > 0) {
@@ -307,9 +307,9 @@ export default function EventsScreen() {
           onPress={() => setShowHidden(prev => !prev)}
         >
           <Ionicons
-            name="checkmark-done-outline"
+            name={showHidden ? 'eye-outline' : 'eye-off-outline'}
             size={18}
-            color={showHidden ? '#fff' : Colors.textSecondary}
+            color={showHidden ? '#2563EB' : Colors.textSecondary}
           />
           <Text style={[styles.showHiddenText, showHidden && styles.showHiddenTextActive]}>
             Show hidden
@@ -365,9 +365,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
     backgroundColor: Colors.borderLight,
   },
-  showHiddenBtnActive: { backgroundColor: Colors.primary },
+  showHiddenBtnActive: { backgroundColor: '#E0EFFE' },
   showHiddenText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
-  showHiddenTextActive: { color: '#fff' },
+  showHiddenTextActive: { color: '#2563EB' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   emptyContainer: { flexGrow: 1 },

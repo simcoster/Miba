@@ -7,11 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isToday, isTomorrow, isPast } from 'date-fns';
-import { supabase } from '@/lib/supabase';
+import { format, isToday, isTomorrow } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity, FriendJoinedUpdate } from '@/lib/types';
-import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
+import { useUpdatesCount } from '@/contexts/UpdatesCountContext';
+import { fetchUpdates, type UpdateEntry, type UpdateItem } from '@/lib/fetchUpdates';
 import { markUpdatesAsSeen } from '@/lib/markUpdatesSeen';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
@@ -19,28 +18,11 @@ import { Avatar } from '@/components/Avatar';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
-const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-const RSVP_CHANGES_CUTOFF_DAYS = 7;
 const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
-
-type UpdateItem =
-  | { type: 'new_invite' }
-  | { type: 'limited_reopened' }
-  | { type: 'new_messages' }
-  | { type: 'rsvp_changes'; count: number; bucketTime: number };
-
-type EventUpdate = {
-  activity: Activity;
-  updates: UpdateItem[];
-  latestTimestamp: number;
-};
-
-type UpdateEntry =
-  | { kind: 'event'; data: EventUpdate }
-  | { kind: 'friend_joined'; data: FriendJoinedUpdate };
 
 export default function UpdatesScreen() {
   const { user } = useAuth();
+  const { refresh } = useUpdatesCount();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -49,298 +31,37 @@ export default function UpdatesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUpdates = useCallback(async () => {
+  const loadUpdates = useCallback(async () => {
     if (!user) return;
     setError(null);
-
-    // Fetch activities (creator or invitee) — same as Events tab
-    const { data: activitiesData, error: fetchError } = await supabase
-      .from('activities')
-      .select(`
-        *,
-        host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
-        rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
-      `)
-      .eq('status', 'active')
-      .order('activity_time', { ascending: true });
-
-    if (fetchError) {
-      console.error('[Updates] error:', fetchError);
-      setError(fetchError.message);
-      return;
+    try {
+      const allEntries = await fetchUpdates(user.id);
+      setUpdates(allEntries);
+      await refresh();
+    } catch (e) {
+      console.error('[Updates] error:', e);
+      setError(e instanceof Error ? e.message : 'Failed to load updates');
     }
-
-    // Also fetch pending invites directly from rsvps — ensures we never miss an invite
-    const { data: pendingInvitesData } = await supabase
-      .from('rsvps')
-      .select(`
-        id,
-        activity_id,
-        user_id,
-        status,
-        created_at,
-        updated_at,
-        profile:profiles(id, full_name, avatar_url),
-        activity:activities(
-          id,
-          title,
-          description,
-          location,
-          activity_time,
-          status,
-          created_by,
-          is_limited,
-          limited_reopened_at,
-          host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
-          rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))
-        )
-      `)
-      .eq('user_id', user.id)
-      .eq('status', 'pending');
-
-    // Merge any activities from pending invites that might not be in the main query
-    const existingIds = new Set((activitiesData ?? []).map((a: any) => a.id));
-    const missingInviteActivities = (pendingInvitesData ?? [])
-      .filter((r: any) => r.activity && !existingIds.has(r.activity.id))
-      .map((r: any) => {
-        const act = r.activity;
-        const myRsvp = act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r;
-        return {
-          ...act,
-          my_rsvp: myRsvp,
-          going_count: act.rsvps?.filter((rv: any) => rv.status === 'in').length ?? 0,
-        };
-      });
-
-    const allActivitiesData = [
-      ...(activitiesData ?? []),
-      ...missingInviteActivities,
-    ];
-
-    const raw = allActivitiesData.map((a: any) => {
-      const myRsvp = a.rsvps?.find((r: any) => r.user_id === user.id) ?? null;
-      return {
-        ...a,
-        my_rsvp: myRsvp,
-        going_count: a.rsvps?.filter((r: any) => r.status === 'in').length ?? 0,
-      };
-    }) as Activity[];
-
-    const enriched = await enrichWithSeenStatus(raw, user.id);
-
-    // Collect all activity IDs we need (enriched + any from pending invites that might not be in enriched)
-    const pendingActivityIds = (pendingInvitesData ?? [])
-      .map((r: any) => {
-        const act = Array.isArray(r.activity) ? r.activity[0] : r.activity;
-        return act?.id;
-      })
-      .filter(Boolean) as string[];
-    const activityIds = [...new Set([...enriched.map(a => a.id), ...pendingActivityIds])];
-    const rsvpSeenKeys = activityIds.map(id => `miba_rsvp_changes_seen_${id}`);
-    const activitySeenKeys = activityIds.map(id => `miba_activity_last_seen_${id}`);
-    const [rsvpSeenPairs, activitySeenPairs] = await Promise.all([
-      AsyncStorage.multiGet(rsvpSeenKeys),
-      AsyncStorage.multiGet(activitySeenKeys),
-    ]);
-    const rsvpSeenMap: Record<string, string | null> = {};
-    rsvpSeenPairs.forEach(([key, value]) => {
-      const actId = key.replace('miba_rsvp_changes_seen_', '');
-      rsvpSeenMap[actId] = value;
-    });
-    const activityLastSeenMap: Record<string, string | null> = {};
-    activitySeenPairs.forEach(([key, value]) => {
-      const actId = key.replace('miba_activity_last_seen_', '');
-      activityLastSeenMap[actId] = value;
-    });
-
-    // Fetch RSVP changes: rsvps where updated_at > created_at, user_id != me, recent
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - RSVP_CHANGES_CUTOFF_DAYS);
-    const cutoffIso = cutoff.toISOString();
-
-    const { data: rsvpChanges } = await supabase
-      .from('rsvps')
-      .select('activity_id, updated_at, created_at')
-      .in('activity_id', activityIds)
-      .neq('user_id', user.id)
-      .gt('updated_at', cutoffIso);
-
-    // Group RSVP changes by activity and 30-min bucket (only if updated_at > lastSeen)
-    const rsvpByActivity: Record<string, Record<number, number>> = {};
-    (rsvpChanges ?? []).forEach((r: { activity_id: string; updated_at: string; created_at: string }) => {
-      const updated = new Date(r.updated_at).getTime();
-      const created = new Date(r.created_at).getTime();
-      if (updated <= created) return; // no actual change
-      const lastSeen = rsvpSeenMap[r.activity_id];
-      if (lastSeen && updated <= new Date(lastSeen).getTime()) return; // already seen
-      const bucket = Math.floor(updated / THIRTY_MINUTES_MS) * THIRTY_MINUTES_MS;
-      if (!rsvpByActivity[r.activity_id]) rsvpByActivity[r.activity_id] = {};
-      rsvpByActivity[r.activity_id][bucket] = (rsvpByActivity[r.activity_id][bucket] ?? 0) + 1;
-    });
-
-    const grouped: EventUpdate[] = [];
-    const groupedIds = new Set<string>();
-
-    // Process pending invites FIRST — ensures new invites always show (primary source)
-    const pendingFromRsvps = (pendingInvitesData ?? []).filter((r: any) => r.activity);
-    for (const r of pendingFromRsvps) {
-      const act = Array.isArray(r.activity) ? r.activity[0] : r.activity;
-      if (!act || groupedIds.has(act.id)) continue;
-      if (isPast(new Date(act.activity_time))) continue; // skip past events
-      const lastSeen = activityLastSeenMap[act.id];
-      const inviteCreatedAt = (r as any).created_at;
-      const inviteIsNew = lastSeen == null || lastSeen === '' || (inviteCreatedAt && new Date(inviteCreatedAt) > new Date(lastSeen));
-      if (!inviteIsNew) continue;
-      const activity = enriched.find((a: Activity) => a.id === act.id);
-      const actToUse = (activity ?? {
-        ...act,
-        my_rsvp: act.rsvps?.find((rv: any) => rv.user_id === user.id) ?? r,
-        going_count: act.rsvps?.filter((rv: any) => rv.status === 'in').length ?? 0,
-      }) as Activity;
-      const rawRsvp = r as { id: string; activity_id: string; created_at: string; updated_at: string; profile?: unknown };
-      const myRsvp: Activity['my_rsvp'] = actToUse.my_rsvp ?? {
-        id: rawRsvp.id,
-        activity_id: rawRsvp.activity_id,
-        user_id: user.id,
-        status: 'pending',
-        created_at: rawRsvp.created_at,
-        updated_at: rawRsvp.updated_at ?? rawRsvp.created_at,
-        profile: Array.isArray(rawRsvp.profile) ? rawRsvp.profile[0] : rawRsvp.profile,
-      } as Activity['my_rsvp'];
-      const finalAct: Activity = { ...actToUse, my_rsvp: myRsvp };
-      const t = finalAct.my_rsvp?.created_at ? new Date(finalAct.my_rsvp.created_at).getTime() : Date.now();
-      grouped.push({ activity: finalAct, updates: [{ type: 'new_invite' }], latestTimestamp: t });
-      groupedIds.add(act.id);
-    }
-
-    // Then process enriched activities for other updates (merge new_invite with other update types)
-    for (const activity of enriched) {
-      const updates: UpdateItem[] = [];
-      let latestTimestamp = 0;
-
-      // New invite: pending + (never seen OR invite arrived after last view)
-      const lastSeen = activityLastSeenMap[activity.id];
-      const inviteIsNew = lastSeen == null || lastSeen === '' || (activity.my_rsvp?.created_at && new Date(activity.my_rsvp.created_at) > new Date(lastSeen));
-      if (activity.my_rsvp?.status === 'pending' && inviteIsNew && !isPast(new Date(activity.activity_time))) {
-        updates.push({ type: 'new_invite' });
-        const t = new Date(activity.my_rsvp.created_at).getTime();
-        if (t > latestTimestamp) latestTimestamp = t;
-      }
-
-      // Limited event reopened: pending + limited_reopened_at > lastSeen
-      const reopenedIsNew = activity.my_rsvp?.status === 'pending' && activity.is_limited && activity.limited_reopened_at &&
-        (lastSeen == null || lastSeen === '' || new Date(activity.limited_reopened_at) > new Date(lastSeen)) &&
-        !isPast(new Date(activity.activity_time));
-      if (reopenedIsNew) {
-        updates.push({ type: 'limited_reopened' });
-        const t = new Date(activity.limited_reopened_at!).getTime();
-        if (t > latestTimestamp) latestTimestamp = t;
-      }
-
-      // New chat messages
-      if (activity.has_new_messages) {
-        updates.push({ type: 'new_messages' });
-        const msgTime = activity.latest_message_at ? new Date(activity.latest_message_at).getTime() : Date.now();
-        latestTimestamp = Math.max(latestTimestamp, msgTime);
-      }
-
-      // RSVP changes (aggregated by 30 min)
-      const buckets = rsvpByActivity[activity.id];
-      if (buckets) {
-        for (const [bucketStr, count] of Object.entries(buckets)) {
-          const bucketTime = parseInt(bucketStr, 10);
-          updates.push({ type: 'rsvp_changes', count, bucketTime });
-          if (bucketTime > latestTimestamp) latestTimestamp = bucketTime;
-        }
-      }
-
-      if (updates.length > 0) {
-        const existing = grouped.find(g => g.activity.id === activity.id);
-        if (existing) {
-          // Merge other updates into existing entry; use enriched activity (has full data)
-          existing.activity = activity;
-          const existingTypes = new Set(existing.updates.map(u => u.type));
-          for (const u of updates) {
-            if (!existingTypes.has(u.type)) {
-              existing.updates.push(u);
-              existingTypes.add(u.type);
-            }
-          }
-          existing.latestTimestamp = Math.max(existing.latestTimestamp, latestTimestamp);
-        } else {
-          grouped.push({ activity, updates, latestTimestamp });
-        }
-      }
-    }
-    grouped.sort((a, b) => b.latestTimestamp - a.latestTimestamp);
-
-    const { data: friendJoinedData } = await supabase
-      .from('friend_joined_updates')
-      .select(`
-        id,
-        new_user_id,
-        contact_import_id,
-        created_at,
-        new_user:profiles!new_user_id(id, full_name, avatar_url),
-        contact_import:contact_imports!contact_import_id(name)
-      `)
-      .eq('recipient_id', user.id)
-      .order('created_at', { ascending: false });
-
-    const friendJoinedSeenKeys = (friendJoinedData ?? []).map((f: any) => `miba_friend_joined_seen_${f.id}`);
-    const friendJoinedSeenPairs = friendJoinedSeenKeys.length > 0
-      ? await AsyncStorage.multiGet(friendJoinedSeenKeys)
-      : [];
-    const friendJoinedSeenSet = new Set(
-      friendJoinedSeenPairs.filter(([, v]) => v != null).map(([k]) => k.replace('miba_friend_joined_seen_', ''))
-    );
-
-    const friendJoinedEntries: UpdateEntry[] = (friendJoinedData ?? [])
-      .filter((f: any) => !friendJoinedSeenSet.has(f.id))
-      .map((f: any) => ({
-        kind: 'friend_joined' as const,
-        data: {
-          id: f.id,
-          recipient_id: user.id,
-          new_user_id: f.new_user_id,
-          contact_import_id: f.contact_import_id,
-          created_at: f.created_at,
-          new_user: Array.isArray(f.new_user) ? f.new_user[0] : f.new_user,
-          contact_name: (() => {
-            const ci = f.contact_import;
-            return (Array.isArray(ci) ? ci[0] : ci)?.name ?? null;
-          })(),
-        } as FriendJoinedUpdate,
-      }));
-
-    const eventEntries: UpdateEntry[] = grouped.map(g => ({ kind: 'event', data: g }));
-    const allEntries = [...eventEntries, ...friendJoinedEntries];
-    allEntries.sort((a, b) => {
-      const ta = a.kind === 'event' ? a.data.latestTimestamp : new Date(a.data.created_at).getTime();
-      const tb = b.kind === 'event' ? b.data.latestTimestamp : new Date(b.data.created_at).getTime();
-      return tb - ta;
-    });
-    setUpdates(allEntries);
-  }, [user]);
+  }, [user, refresh]);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    fetchUpdates().finally(() => setLoading(false));
-  }, [fetchUpdates]);
+    loadUpdates().finally(() => setLoading(false));
+  }, [loadUpdates]);
 
   useFocusEffect(
     useCallback(() => {
       if (!user) return;
-      fetchUpdates();
-    }, [fetchUpdates, user])
+      loadUpdates();
+    }, [loadUpdates, user])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchUpdates();
+    await loadUpdates();
     setRefreshing(false);
-  }, [fetchUpdates]);
+  }, [loadUpdates]);
 
   const handleDismiss = useCallback(async (entry: UpdateEntry) => {
     if (entry.kind === 'event') {
@@ -353,7 +74,8 @@ export default function UpdatesScreen() {
       if (e.kind === 'friend_joined' && entry.kind === 'friend_joined') return e.data.id !== entry.data.id;
       return true;
     }));
-  }, []);
+    await refresh();
+  }, [refresh]);
 
   const handleSeenAll = useCallback(async () => {
     await Promise.all(updates.map(entry => {
@@ -361,18 +83,21 @@ export default function UpdatesScreen() {
       return AsyncStorage.setItem(`miba_friend_joined_seen_${entry.data.id}`, new Date().toISOString());
     }));
     setUpdates([]);
-  }, [updates]);
+    await refresh();
+  }, [updates, refresh]);
 
   const handlePress = useCallback(async (entry: UpdateEntry) => {
     if (entry.kind === 'event') {
       await markUpdatesAsSeen(entry.data.activity.id);
+      await refresh();
       router.push(`/(app)/activity/${entry.data.activity.id}?fromTab=updates`);
     } else {
       await AsyncStorage.setItem(`miba_friend_joined_seen_${entry.data.id}`, new Date().toISOString());
       setUpdates(prev => prev.filter(e => !(e.kind === 'friend_joined' && e.data.id === entry.data.id)));
+      await refresh();
       router.push('/(app)/circles');
     }
-  }, [router]);
+  }, [router, refresh]);
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);

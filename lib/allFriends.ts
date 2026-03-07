@@ -22,7 +22,7 @@ export async function ensureAllFriendsCircle(userId: string): Promise<string | n
     .insert({
       name: ALL_FRIENDS_NAME,
       emoji: ALL_FRIENDS_EMOJI,
-      description: 'Everyone you\'ve added to any circle',
+      description: null,
       is_all_friends: true,
       created_by: userId,
     })

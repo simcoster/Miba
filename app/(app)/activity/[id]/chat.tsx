@@ -371,8 +371,8 @@ export default function ActivityChatScreen() {
         const newLabel = meta?.new_status ? STATUS_LABELS[meta.new_status] ?? meta.new_status : '?';
         const name = item.profile?.full_name ?? 'Someone';
         const text = meta?.changed_user_id && meta.changed_user_id !== item.user_id
-          ? `Host changed someone's status to ${newLabel}`
-          : `${name} changed their status '${oldLabel} → ${newLabel}'`;
+          ? `Host changed someone's status to '${newLabel}'`
+          : `${name} changed their status to '${newLabel}'`;
         return (
           <View style={styles.systemPillWrapper}>
             <View style={styles.systemPill}>

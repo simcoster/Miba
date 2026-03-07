@@ -12,7 +12,6 @@ export type Profile = {
 export type Circle = {
   id: string;
   name: string;
-  description: string | null;
   emoji: string;
   created_by: string | null;
   created_at: string;
