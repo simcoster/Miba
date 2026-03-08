@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable,
-  TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions, Linking,
+  TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
+  Platform, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -19,7 +20,8 @@ import { Circle, Profile } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import {
-  requestLocationPermission,
+  checkMipoVisibleModePermissions,
+  requestBackgroundLocationPermission,
   startMipoLocationWatch,
   type LocationSubscription,
 } from '@/lib/mipoLocation';
@@ -28,6 +30,7 @@ import Colors from '@/constants/Colors';
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
 const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
+const MIPO_PERMISSIONS_HOWTO = require('@/assets/images/Mipo-permissions-howto.jpeg');
 
 const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
   <TouchableOpacity style={styles.howItWorksBtn} onPress={onPress} activeOpacity={0.7}>
@@ -64,6 +67,7 @@ export default function MipoScreen() {
   const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [comicScale, setComicScale] = useState(1);
+  const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string; missingBackground?: boolean }>({ visible: false, title: '', message: '' });
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -210,9 +214,19 @@ export default function MipoScreen() {
   const handleTurnOnVisible = useCallback(async () => {
     await saveSelections();
     if (!user) return;
-    const granted = await requestLocationPermission();
-    if (!granted) {
-      Alert.alert('Location required', 'Mipo needs location access to notify you when friends are nearby. Please enable it in Settings.');
+    const permResult = await checkMipoVisibleModePermissions();
+    if (!permResult.ok) {
+      const title = permResult.missingPrecise
+        ? 'Precise location required'
+        : permResult.missingBackground
+          ? 'Background location required'
+          : 'Location required';
+      setPermissionErrorModal({
+        visible: true,
+        title,
+        message: permResult.message ?? 'Mipo needs location permissions to work. Please enable them in Settings.',
+        missingBackground: permResult.missingBackground,
+      });
       return;
     }
     setLoading(true);
@@ -251,14 +265,12 @@ export default function MipoScreen() {
       const sub = await startMipoLocationWatch(user.id);
       if (!sub) {
         await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
-        Alert.alert(
-          'Background location required',
-          'Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in Settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ]
-        );
+        setPermissionErrorModal({
+          visible: true,
+          title: 'Background location required',
+          message: 'Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in Settings.',
+          missingBackground: true,
+        });
         return;
       }
       setLocationSub(sub);
@@ -309,6 +321,19 @@ export default function MipoScreen() {
   }, [user, locationSub, setVisible, refreshVisibleState]);
 
   turnOffRef.current = handleTurnOffVisible;
+
+  // Re-request background permission when showing the "allow all the time" error modal
+  useEffect(() => {
+    if (permissionErrorModal.visible && permissionErrorModal.missingBackground) {
+      if (Platform.OS === 'android') {
+        // On Android, requestBackgroundPermissionsAsync often doesn't open settings reliably.
+        // Linking.openSettings() opens the app's settings page where the user can set "Allow all the time".
+        Linking.openSettings();
+      } else {
+        requestBackgroundLocationPermission();
+      }
+    }
+  }, [permissionErrorModal.visible, permissionErrorModal.missingBackground]);
 
   const checkMipoUnread = useCallback(async () => {
     if (!user || nearbyEvents.length === 0) {
@@ -407,15 +432,14 @@ export default function MipoScreen() {
   const selectedList = [...selectedPool.values()];
 
   if (view === 'active') {
-    const expiresLabel = visibleState.expiresAt
-      ? `Visible until ${format(visibleState.expiresAt, 'HH:mm')}`
-      : 'No time limit — turn off when done';
+    const visibleUntilLabel = visibleState.expiresAt
+      ? `You're visible until ${format(visibleState.expiresAt, 'HH:mm')}`
+      : 'You\'re visible — no time limit';
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          <Text style={styles.title}>You're visible</Text>
+        <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: 20 }]} showsVerticalScrollIndicator={false}>
+          <Text style={styles.title}>Mipo</Text>
           <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
-          <Text style={styles.expiresLabel}>{expiresLabel}</Text>
           {filteredNearbyEvents.length > 0 && (
             <View style={styles.nearbySection}>
               <Text style={styles.nearbyTitle}>Nearby now</Text>
@@ -439,6 +463,7 @@ export default function MipoScreen() {
 
           <View style={styles.section}>
             <Text style={styles.label}>Who can see you (edit anytime)</Text>
+            <Text style={styles.sublabel}>Select via circle</Text>
             {circles.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {circles.map(c => {
@@ -457,6 +482,7 @@ export default function MipoScreen() {
                 })}
               </ScrollView>
             )}
+            <Text style={styles.sublabel}>Select by name</Text>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={18} color={Colors.textSecondary} />
               <TextInput
@@ -498,7 +524,9 @@ export default function MipoScreen() {
               </View>
             )}
             {selectedList.length > 0 && (
-              <View style={styles.invitePool}>
+              <>
+                <Text style={styles.sublabel}>Selected</Text>
+                <View style={styles.invitePool}>
                 {selectedList.map(p => (
                   <View key={p.id} style={styles.inviteChip}>
                     <Avatar uri={p.avatar_url} name={p.full_name} size={28} />
@@ -509,14 +537,17 @@ export default function MipoScreen() {
                   </View>
                 ))}
               </View>
+              </>
             )}
           </View>
-
-          <View style={styles.buttonWithRadar}>
+        </ScrollView>
+        <View style={[styles.mipoFooter, { paddingBottom: insets.bottom + 8 }]}>
+          <Text style={styles.youreVisibleLabel}>{visibleUntilLabel}</Text>
+          <View style={[styles.buttonWithRadar, { marginTop: 12 }]}>
             <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" fullWidth={false} style={styles.buttonWithRadarBtn} />
             <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
           </View>
-        </ScrollView>
+        </View>
         <Modal visible={showHowItWorks} transparent animationType="fade">
           <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.modalOverlay}>
@@ -532,13 +563,28 @@ export default function MipoScreen() {
             </View>
           </GestureHandlerRootView>
         </Modal>
+        <Modal visible={permissionErrorModal.visible} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setPermissionErrorModal(p => ({ ...p, visible: false }))} />
+            <View style={[styles.modalContent, styles.permissionModalContent, { width: Math.min(400, screenWidth - 40) }]}>
+              <TouchableOpacity style={styles.modalClose} onPress={() => setPermissionErrorModal(p => ({ ...p, visible: false }))}>
+                <Ionicons name="close" size={28} color={Colors.text} />
+              </TouchableOpacity>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
+                <Image source={MIPO_PERMISSIONS_HOWTO} style={styles.permissionHowtoImage} resizeMode="contain" />
+                <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
+                <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: 20 }]} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Mipo</Text>
         <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
 
@@ -563,10 +609,28 @@ export default function MipoScreen() {
           </View>
         )}
 
-        {circles.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.label}>Select via Circle</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.timerSection}>
+          <Text style={styles.label}>How long?</Text>
+          <View style={styles.timerRow}>
+            {(['10min', '1hour', 'unlimited'] as const).map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.timerChip, timerOption === opt && styles.timerChipActive]}
+                onPress={() => setTimerOption(opt)}
+              >
+                <Text style={[styles.timerChipText, timerOption === opt && styles.timerChipTextActive]}>
+                  {opt === '10min' ? '10 mins' : opt === '1hour' ? '1 hour' : 'No limit'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>Who can see you (edit anytime)</Text>
+          <Text style={styles.sublabel}>Select via circle</Text>
+          {circles.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               {circles.map(c => {
                 const expanded = expandedCircleIds.has(c.id);
                 return (
@@ -582,11 +646,8 @@ export default function MipoScreen() {
                 );
               })}
             </ScrollView>
-          </View>
-        )}
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Search individuals</Text>
+          )}
+          <Text style={styles.sublabel}>Select by name</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={Colors.textSecondary} />
             <TextInput
@@ -627,12 +688,10 @@ export default function MipoScreen() {
               })}
             </View>
           )}
-        </View>
-
-        {selectedList.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.label}>Selected ({selectedList.length})</Text>
-            <View style={styles.invitePool}>
+          {selectedList.length > 0 && (
+            <>
+              <Text style={styles.sublabel}>Selected</Text>
+              <View style={styles.invitePool}>
               {selectedList.map(p => (
                 <View key={p.id} style={styles.inviteChip}>
                   <Avatar uri={p.avatar_url} name={p.full_name} size={28} />
@@ -643,31 +702,16 @@ export default function MipoScreen() {
                 </View>
               ))}
             </View>
-          </View>
-        )}
-
-        <View style={styles.timerSection}>
-          <Text style={styles.label}>How long?</Text>
-          <View style={styles.timerRow}>
-            {(['10min', '1hour', 'unlimited'] as const).map(opt => (
-              <TouchableOpacity
-                key={opt}
-                style={[styles.timerChip, timerOption === opt && styles.timerChipActive]}
-                onPress={() => setTimerOption(opt)}
-              >
-                <Text style={[styles.timerChipText, timerOption === opt && styles.timerChipTextActive]}>
-                  {opt === '10min' ? '10 mins' : opt === '1hour' ? '1 hour' : 'No limit'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.buttonWithRadar}>
-          <Button label="Turn on visible mode" onPress={handleTurnOnVisible} loading={loading} fullWidth={false} style={styles.buttonWithRadarBtn} />
-          <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
+            </>
+          )}
         </View>
       </ScrollView>
+      <View style={[styles.mipoFooter, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={[styles.buttonWithRadar, { marginTop: 0 }]}>
+          <Button label="Turn on visible mode" onPress={handleTurnOnVisible} loading={loading} disabled={selectedList.length === 0} fullWidth={false} style={styles.buttonWithRadarBtn} />
+          <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
+        </View>
+      </View>
       <Modal visible={showHowItWorks} transparent animationType="fade">
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={styles.modalOverlay}>
@@ -682,6 +726,21 @@ export default function MipoScreen() {
             </View>
           </View>
         </GestureHandlerRootView>
+      </Modal>
+      <Modal visible={permissionErrorModal.visible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPermissionErrorModal(p => ({ ...p, visible: false }))} />
+          <View style={[styles.modalContent, styles.permissionModalContent, { width: Math.min(400, screenWidth - 40) }]}>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setPermissionErrorModal(p => ({ ...p, visible: false }))}>
+              <Ionicons name="close" size={28} color={Colors.text} />
+            </TouchableOpacity>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
+              <Image source={MIPO_PERMISSIONS_HOWTO} style={styles.permissionHowtoImage} resizeMode="contain" />
+              <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
+              <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -725,10 +784,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderRadius: 20,
   },
+  permissionModalContent: { maxHeight: '85%' },
+  permissionModalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
+  permissionHowtoImage: { width: '100%', height: 220, marginBottom: 16 },
+  permissionModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' },
+  permissionModalMessage: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
   modalScroll: { maxHeight: '100%' },
   modalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
-  expiresLabel: { fontSize: 14, color: Colors.success, fontWeight: '600', marginBottom: 16 },
+  youreVisibleLabel: { fontSize: 18, color: Colors.success, fontWeight: '600', marginBottom: 12 },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sublabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, marginTop: 10 },
   section: { marginBottom: 22 },
   timerSection: { marginBottom: 20 },
   timerRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
@@ -736,6 +801,13 @@ const styles = StyleSheet.create({
   timerChipActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   timerChipText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   timerChipTextActive: { color: Colors.primary },
+  mipoFooter: {
+    backgroundColor: Colors.background,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
   buttonWithRadar: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20 },
   buttonWithRadarBtn: { flex: 1 },
   radarGifSmall: { width: 50, height: 50 },

@@ -279,24 +279,25 @@ export default function CircleDetailScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader
-        title={isEditing ? 'Edit Circle' : `${circle.emoji} ${circle.name}`}
-        subtitle={isEditing ? undefined : (() => {
+        title={`${circle.emoji} ${circle.name}`}
+        subtitle={(() => {
           const others = members.filter(m => m.user_id !== user?.id);
           return `${others.length} ${others.length === 1 ? 'member' : 'members'}`;
         })()}
         showBack
         onBack={isEditing ? () => setIsEditing(false) : handleBack}
-        rightActions={isOwner && !isEditing && !circle.is_all_friends ? [
+        onTitlePress={isOwner && !circle.is_all_friends && !isEditing ? startEditing : undefined}
+        rightActions={isOwner && !circle.is_all_friends ? [
           { icon: 'ellipsis-vertical', onPress: () => setShowMenu(true) },
         ] : undefined}
       />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={!isEditing ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} /> : undefined}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {isEditing ? (
+        {isEditing && (
           <View style={styles.editSection}>
             <Text style={styles.editLabel}>Circle name *</Text>
             <View style={styles.editNameRow}>
@@ -311,8 +312,19 @@ export default function CircleDetailScreen() {
               />
               <EmojiPickerButton emoji={editEmoji} onEmojiSelect={setEditEmoji} size={48} />
             </View>
+            <TouchableOpacity
+              style={[styles.saveBtn, (saveLoading || editName.trim().length < 2) && styles.saveBtnDisabled]}
+              onPress={handleSaveEdit}
+              disabled={saveLoading || editName.trim().length < 2}
+            >
+              {saveLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save changes</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        ) : null}
+        )}
 
         <View style={styles.membersSection}>
           <View style={styles.sectionRow}>
@@ -345,19 +357,6 @@ export default function CircleDetailScreen() {
           )}
         </View>
 
-        {isEditing && (
-          <TouchableOpacity
-            style={[styles.saveBtn, (saveLoading || editName.trim().length < 2) && styles.saveBtnDisabled]}
-            onPress={handleSaveEdit}
-            disabled={saveLoading || editName.trim().length < 2}
-          >
-            {saveLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.saveBtnText}>Save changes</Text>
-            )}
-          </TouchableOpacity>
-        )}
       </ScrollView>
 
       {/* ⋮ dropdown menu — hidden for All Friends */}
@@ -365,11 +364,6 @@ export default function CircleDetailScreen() {
         <Modal visible={showMenu} transparent animationType="fade" onRequestClose={() => setShowMenu(false)}>
           <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
             <View style={[styles.menuCard, { top: insets.top + 56 }]}>
-              <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); startEditing(); }}>
-                <Ionicons name="create-outline" size={18} color={Colors.text} />
-                <Text style={styles.menuItemText}>Edit</Text>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
               <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleDelete(); }}>
                 <Ionicons name="trash-outline" size={18} color={Colors.danger} />
                 <Text style={[styles.menuItemText, { color: Colors.danger }]}>Delete</Text>
@@ -462,7 +456,6 @@ const styles = StyleSheet.create({
   },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
   menuItemText: { fontSize: 15, fontWeight: '500', color: Colors.text },
-  menuDivider: { height: 1, backgroundColor: Colors.borderLight },
   removeModalCard: {
     backgroundColor: Colors.surface,
     borderRadius: 18,

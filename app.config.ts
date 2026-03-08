@@ -48,7 +48,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     ...config.android,
-    permissions: ['ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION'],
+    permissions: ['ACCESS_FINE_LOCATION'],
     // EAS Build: use GOOGLE_SERVICES_JSON env var (file type). Local: use ./google-services.json
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
     // Maps SDK needs key in manifest at build time. Use GOOGLE_MAPS_API_KEY or EXPO_PUBLIC_GOOGLE_PLACES_API_KEY in EAS.

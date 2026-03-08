@@ -1,4 +1,5 @@
 import '@/lib/mipoLocationTask'; // Register background location task early
+import { checkForStoreUpdate } from '@/lib/versionCheck';
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -30,6 +31,12 @@ function RootLayoutNav() {
   // Failsafe: hide splash after 8s if auth init hangs (e.g. no network, Supabase slow)
   useEffect(() => {
     const t = setTimeout(() => SplashScreen.hideAsync(), 8000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Check for store update (Supabase: latest_version, store URLs) — runs after a short delay
+  useEffect(() => {
+    const t = setTimeout(() => checkForStoreUpdate(), 3000);
     return () => clearTimeout(t);
   }, []);
 

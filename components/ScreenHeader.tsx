@@ -18,13 +18,15 @@ type ScreenHeaderProps = {
   showBack?: boolean;
   /** Override the back button behaviour. Defaults to router.back(). */
   onBack?: () => void;
+  /** When provided, the title becomes tappable and calls this on press. */
+  onTitlePress?: () => void;
   /** Single right action (legacy). Use rightActions for multiple. */
   rightAction?: RightAction;
   /** Multiple right actions rendered left-to-right. Takes precedence over rightAction. */
   rightActions?: RightAction[];
 };
 
-export function ScreenHeader({ title, subtitle, showBack = false, onBack, rightAction, rightActions }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitlePress, rightAction, rightActions }: ScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -39,8 +41,17 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, rightA
           </TouchableOpacity>
         )}
         <View style={styles.titleContainer}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          {subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
+          {onTitlePress ? (
+            <TouchableOpacity onPress={onTitlePress} activeOpacity={0.7} style={styles.titleTouchable}>
+              <Text style={styles.title} numberOfLines={1}>{title}</Text>
+              {subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={styles.title} numberOfLines={1}>{title}</Text>
+              {subtitle && <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>}
+            </>
+          )}
         </View>
         {actions.length > 0 ? (
           <View style={styles.rightActions}>
@@ -74,6 +85,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
   backButton: { width: 40, height: 40, alignItems: 'flex-start', justifyContent: 'center', marginRight: 4 },
   titleContainer: { flex: 1 },
+  titleTouchable: { alignSelf: 'flex-start' },
   title: { fontSize: 22, fontWeight: '700', color: Colors.text },
   subtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 1 },
   rightActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
