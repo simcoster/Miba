@@ -9,6 +9,8 @@
     "web": "expo start --web",
     "db:migrate": "supabase db push",
     "db:new": "supabase migration new",
+    "build:internal": "node scripts/bump-version.js && eas build --profile internal --platform android",
+    "build:internal:ios": "eas build --profile internal --platform ios",
     "build:preview": "eas build --profile preview --platform android",
     "build:preview:fix": "eas build --profile preview --platform android -m \"Firebase push registration fix\"",
     "fix": "eas update --branch preview --message \"JS fix\"",

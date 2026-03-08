@@ -132,9 +132,16 @@ export default function LoginScreen() {
           )}
         </TouchableOpacity>
 
-        <Text style={styles.disclaimer}>
-          By continuing you agree to Miba's Terms of Service and Privacy Policy.
-        </Text>
+        <TouchableOpacity
+          onPress={() => WebBrowser.openBrowserAsync('https://simcoster.github.io/Miba/privacy-policy.html')}
+          activeOpacity={0.7}
+          style={styles.disclaimerTouchable}
+        >
+          <Text style={styles.disclaimer}>
+            By continuing you agree to Miba's{' '}
+            <Text style={styles.disclaimerLink}>Terms of Service and Privacy Policy</Text>.
+          </Text>
+        </TouchableOpacity>
       </View>
     </LinearGradient>
   );
@@ -184,5 +191,7 @@ const styles = StyleSheet.create({
   },
   googleIconText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   googleButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
-  disclaimer: { marginTop: 16, fontSize: 11, color: Colors.textSecondary, textAlign: 'center', lineHeight: 16 },
+  disclaimerTouchable: { marginTop: 16 },
+  disclaimer: { fontSize: 11, color: Colors.textSecondary, textAlign: 'center', lineHeight: 16 },
+  disclaimerLink: { textDecorationLine: 'underline', color: Colors.primary, fontWeight: '500' },
 });
