@@ -297,6 +297,12 @@ export default function CircleDetailScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {circle.is_all_friends && (
+          <Text style={styles.allFriendsExplanation}>
+            Everyone added to any circle will be here too.
+          </Text>
+        )}
+
         {isEditing && (
           <View style={styles.editSection}>
             <Text style={styles.editLabel}>Circle name *</Text>
@@ -428,6 +434,10 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   content: { padding: 20, paddingBottom: 40 },
+  allFriendsExplanation: {
+    fontSize: 15, color: Colors.textSecondary, lineHeight: 22,
+    marginBottom: 20, paddingHorizontal: 4,
+  },
   editSection: { marginBottom: 24 },
   editLabel: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   editNameRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

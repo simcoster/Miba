@@ -30,6 +30,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-build-properties',
       {
+        android: {
+          compileSdkVersion: 35,
+          targetSdkVersion: 35,
+          buildToolsVersion: '35.0.0',
+        },
         ios: {
           useFrameworks: 'static',
           buildReactNativeFromSource: true,

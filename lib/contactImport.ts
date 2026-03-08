@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Contacts from 'expo-contacts';
 import { supabase } from '@/lib/supabase';
+import { addUsersToAllFriends } from '@/lib/allFriends';
 
 const CONTACT_IMPORT_OFFERED_KEY = 'miba_contact_import_offered';
 
@@ -67,5 +68,52 @@ export async function importContacts(userId: string): Promise<{ count: number; e
     return { count: 0, error: error.message };
   }
 
+  // Add all contacts who are on Miba to the All Friends circle
+  await addContactsOnMibaToAllFriends(userId, rows);
+
   return { count: rows.length };
+}
+
+function normalizePhoneForMatch(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+/**
+ * Finds imported contacts that exist on Miba (profiles) and adds them to All Friends.
+ */
+async function addContactsOnMibaToAllFriends(
+  userId: string,
+  importedRows: { email: string | null; phone: string | null }[]
+): Promise<void> {
+  const emails = new Set(
+    importedRows
+      .map((r) => r.email?.trim().toLowerCase())
+      .filter((e): e is string => Boolean(e))
+  );
+  const phones = new Set(
+    importedRows
+      .map((r) => r.phone && normalizePhoneForMatch(r.phone))
+      .filter((p): p is string => p != null && p.length >= 10)
+  );
+  if (emails.size === 0 && phones.size === 0) return;
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, email, phone')
+    .neq('id', userId)
+    .or('email.not.is.null,phone.not.is.null')
+    .limit(2000);
+
+  const matchingIds = new Set<string>();
+  for (const p of profiles ?? []) {
+    if (p.email && emails.has(p.email.trim().toLowerCase())) {
+      matchingIds.add(p.id);
+    } else if (p.phone && phones.has(normalizePhoneForMatch(p.phone))) {
+      matchingIds.add(p.id);
+    }
+  }
+
+  if (matchingIds.size > 0) {
+    await addUsersToAllFriends(userId, Array.from(matchingIds));
+  }
 }

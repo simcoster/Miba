@@ -81,9 +81,13 @@ export default function CirclesScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Circles</Text>
           <Text style={styles.headerSubtitle}>Your curated friend groups</Text>
+          <Text style={styles.headerHint}>Only you can see who's on a circle.</Text>
+          <Text style={styles.headerExamples}>
+            Examples: PlayStation buddies 🎮, dog walkers 🐕
+          </Text>
         </View>
         <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/circle/new?fromTab=circles')}>
           <Ionicons name="add" size={28} color={Colors.primary} />
@@ -133,11 +137,14 @@ export default function CirclesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12,
   },
+  headerText: { flex: 1 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: Colors.text },
   headerSubtitle: { fontSize: 14, color: Colors.textSecondary, marginTop: 2 },
+  headerHint: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
+  headerExamples: { fontSize: 13, color: Colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
   newButton: {
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',
