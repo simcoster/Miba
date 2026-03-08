@@ -1,30 +1,36 @@
+import * as Application from 'expo-application';
 import * as Linking from 'expo-linking';
 import { Alert, Platform } from 'react-native';
-import VersionCheck from 'react-native-version-check-expo';
 import { supabase } from './supabase';
 
 /**
- * Uses react-native-version-check (store API) for version comparison.
- * Fetches store URLs from Supabase (so they can be updated without a new build).
- * Fails silently if either check fails.
+ * Checks Supabase app_config for min_build_number and store URLs.
+ * Shows update alert if app build number is below min_build_number.
+ * Expo/EAS manages build numbers (autoIncrement); update min_build_number when you release.
+ * Fails silently on error.
  */
 export async function checkForStoreUpdate(): Promise<void> {
   try {
-    const result = await VersionCheck.needUpdate({ ignoreErrors: true });
-    if (!result?.isNeeded) return;
-
-    // Fetch store URLs from Supabase (override provider URLs for TestFlight/internal)
     const { data: rows } = await supabase
       .from('app_config')
       .select('key, value')
-      .in('key', ['store_url_ios', 'store_url_android']);
+      .in('key', ['min_build_number', 'store_url_ios', 'store_url_android']);
 
     const config = Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]));
+    const minBuildStr = config.min_build_number;
+    if (!minBuildStr) return;
+
+    const minBuild = parseInt(minBuildStr, 10);
+    if (isNaN(minBuild)) return;
+
+    const currentBuildStr = Application.nativeBuildVersion ?? '0';
+    const currentBuild = parseInt(currentBuildStr, 10) || 0;
+    if (currentBuild >= minBuild) return;
+
     const storeUrl =
       Platform.OS === 'ios'
-        ? (config.store_url_ios ?? (await VersionCheck.getStoreUrl()))
-        : (config.store_url_android ?? (await VersionCheck.getStoreUrl()));
-
+        ? config.store_url_ios
+        : config.store_url_android;
     if (!storeUrl) return;
 
     Alert.alert(
@@ -36,6 +42,6 @@ export async function checkForStoreUpdate(): Promise<void> {
       ]
     );
   } catch {
-    // Silently ignore — store API may fail (TestFlight, internal testing, etc.)
+    // Silently ignore — network/config may be unavailable
   }
 }
