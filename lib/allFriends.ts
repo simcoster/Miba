@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
 const ALL_FRIENDS_NAME = 'All Friends';
-const ALL_FRIENDS_EMOJI = '👥';
+const ALL_FRIENDS_EMOJI = '👯';
 
 /**
  * Ensures the current user has an All Friends circle. Creates it if missing.
@@ -34,6 +34,26 @@ export async function ensureAllFriendsCircle(userId: string): Promise<string | n
     return null;
   }
   return created?.id ?? null;
+}
+
+/**
+ * Adds multiple users to the owner's All Friends circle.
+ * Used after contact import to add all contacts who are on Miba.
+ */
+export async function addUsersToAllFriends(
+  ownerId: string,
+  userIds: string[]
+): Promise<void> {
+  const ids = userIds.filter((id) => id !== ownerId);
+  if (ids.length === 0) return;
+
+  const allFriendsId = await ensureAllFriendsCircle(ownerId);
+  if (!allFriendsId) return;
+
+  await supabase.from('circle_members').upsert(
+    ids.map((user_id) => ({ circle_id: allFriendsId, user_id })),
+    { onConflict: 'circle_id,user_id', ignoreDuplicates: true }
+  );
 }
 
 /**
