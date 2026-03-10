@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView, Alert,
+  BackHandler, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
@@ -105,6 +106,16 @@ export default function EventsScreen() {
   useEffect(() => {
     loadHiddenIds();
   }, [loadHiddenIds]);
+
+  // Android back button: exit app when on events tab (root screen)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      BackHandler.exitApp();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   const skipFirstFocus = useRef(true);
   useFocusEffect(

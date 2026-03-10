@@ -22,8 +22,8 @@ export type MipoVisibleModePermissionResult = {
 
 /**
  * Check if user has all permissions required for Mipo visible mode:
- * - Precise location (Android: fine, iOS: full if available)
- * - Background / "all the time" permission
+ * - Android: Foreground + precise location only (foreground service handles background tracking)
+ * - iOS: Background / "all the time" permission (required for background location)
  * Returns a result object with ok and optional details about what's missing.
  */
 export async function checkMipoVisibleModePermissions(): Promise<MipoVisibleModePermissionResult> {
@@ -45,27 +45,27 @@ export async function checkMipoVisibleModePermissions(): Promise<MipoVisibleMode
         message: 'Mipo needs precise location to detect when you and a friend are nearby. Please enable "Precise" location for Miba in Settings > Apps > Miba > Permissions.',
       };
     }
-  } else if (Platform.OS === 'ios') {
-    const iosAccuracy = (fg as { ios?: { accuracy?: string } }).ios?.accuracy;
-    if (iosAccuracy === 'reduced') {
-      return {
-        ok: false,
-        missingPrecise: true,
-        message: 'Mipo needs precise location to detect when you and a friend are nearby. Please enable "Precise Location" for Miba in Settings > Privacy > Location Services > Miba.',
-      };
-    }
+    // Android: foreground + precise is enough. Foreground service handles background tracking.
+    return { ok: true };
+  }
+
+  // iOS: need background permission for background location updates
+  const iosAccuracy = (fg as { ios?: { accuracy?: string } }).ios?.accuracy;
+  if (iosAccuracy === 'reduced') {
+    return {
+      ok: false,
+      missingPrecise: true,
+      message: 'Mipo needs precise location to detect when you and a friend are nearby. Please enable "Precise Location" for Miba in Settings > Privacy > Location Services > Miba.',
+    };
   }
 
   const bg = await getBackgroundPermissionsAsync();
   const bgGranted = bg.status === 'granted' || (await requestBackgroundLocationPermission());
   if (!bgGranted) {
-    const settingsPath = Platform.OS === 'ios'
-      ? 'Settings > Privacy > Location Services > Miba'
-      : 'Settings > Apps > Miba > Permissions';
     return {
       ok: false,
       missingBackground: true,
-      message: `Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in ${settingsPath}.`,
+      message: 'Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in Settings > Privacy > Location Services > Miba.',
     };
   }
 
@@ -98,8 +98,9 @@ export async function hasLocationPermission(): Promise<boolean> {
 }
 
 /**
- * Start background location updates and sync to mipo_visible_sessions.
- * Works when app is in foreground AND background.
+ * Start location updates and sync to mipo_visible_sessions.
+ * - Android: Uses a foreground service (persistent notification) - no background permission needed.
+ * - iOS: Uses background location - requires "Allow all the time" permission.
  * Caller must ensure user is authenticated and has an active session row.
  */
 export async function startMipoLocationWatch(
@@ -112,12 +113,13 @@ export async function startMipoLocationWatch(
     return null;
   }
 
-  // Require background location - "Allow all the time" on Android
-  const { status: bgStatus } = await getBackgroundPermissionsAsync();
-  const backgroundGranted = bgStatus === 'granted' || (await requestBackgroundLocationPermission());
-  if (!backgroundGranted) {
-    onError?.(new Error('Background location permission denied. Mipo needs "Allow all the time" (or "Allow while using app" + background) to notify you when friends are nearby. Please enable it in Settings.'));
-    return null;
+  if (Platform.OS === 'ios') {
+    const { status: bgStatus } = await getBackgroundPermissionsAsync();
+    const backgroundGranted = bgStatus === 'granted' || (await requestBackgroundLocationPermission());
+    if (!backgroundGranted) {
+      onError?.(new Error('Background location permission denied. Mipo needs "Allow all the time" to notify you when friends are nearby. Please enable it in Settings.'));
+      return null;
+    }
   }
 
   await setMipoActiveUserId(userId);
@@ -126,6 +128,13 @@ export async function startMipoLocationWatch(
     distanceInterval: 10,
     timeInterval: 5000,
     showsBackgroundLocationIndicator: true,
+    ...(Platform.OS === 'android' && {
+      foregroundService: {
+        notificationTitle: 'Mipo visible mode',
+        notificationBody: 'Miba is tracking your location to notify you when friends are nearby.',
+        notificationColor: '#F97316',
+      },
+    }),
   });
 
   return {

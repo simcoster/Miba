@@ -18,7 +18,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       'expo-location',
       {
         isIosBackgroundLocationEnabled: true,
-        isAndroidBackgroundLocationEnabled: true,
+        isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: true,
       },
     ],
     [

@@ -29,6 +29,18 @@ import Colors from '@/constants/Colors';
 
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
+type DistanceOption = '500m' | '3km' | '10km' | 'custom';
+
+const DISTANCE_PRESETS: { value: DistanceOption; meters: number; label: string }[] = [
+  { value: '500m', meters: 500, label: '500m (5 min walk)' },
+  { value: '3km', meters: 3000, label: '3km (same neighborhood)' },
+  { value: '10km', meters: 10000, label: '10km (same city)' },
+  { value: 'custom', meters: 0, label: 'Custom' },
+];
+
+const CUSTOM_DISTANCE_MIN = 100;
+const CUSTOM_DISTANCE_MAX = 50000;
+
 const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
 const MIPO_PERMISSIONS_HOWTO = require('@/assets/images/Mipo-permissions-howto.jpeg');
 
@@ -62,6 +74,8 @@ export default function MipoScreen() {
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
   const [timerOption, setTimerOption] = useState<TimerOption>('1hour');
+  const [distanceOption, setDistanceOption] = useState<DistanceOption>('500m');
+  const [customDistanceM, setCustomDistanceM] = useState<string>('2000');
   const [loading, setLoading] = useState(false);
   const [locationSub, setLocationSub] = useState<LocationSubscription | null>(null);
   const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby } = useMipo();
@@ -71,6 +85,16 @@ export default function MipoScreen() {
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  const getProximityDistanceM = useCallback((): number => {
+    if (distanceOption === 'custom') {
+      const n = parseInt(customDistanceM, 10);
+      if (isNaN(n)) return 500;
+      return Math.max(CUSTOM_DISTANCE_MIN, Math.min(CUSTOM_DISTANCE_MAX, n));
+    }
+    const preset = DISTANCE_PRESETS.find(p => p.value === distanceOption);
+    return preset?.meters ?? 500;
+  }, [distanceOption, customDistanceM]);
 
   const fetchCircles = useCallback(async () => {
     if (!user) return;
@@ -121,6 +145,29 @@ export default function MipoScreen() {
       setView('selection');
     }
   }, [visibleState.isVisible]);
+
+  // Load proximity_distance_m from session when in active view (e.g. returning to screen)
+  useEffect(() => {
+    if (!user || !visibleState.isVisible) return;
+    supabase
+      .from('mipo_visible_sessions')
+      .select('proximity_distance_m')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data?.proximity_distance_m) {
+          const m = data.proximity_distance_m as number;
+          const preset = DISTANCE_PRESETS.find(p => p.meters === m);
+          if (preset) {
+            setDistanceOption(preset.value);
+          } else {
+            setDistanceOption('custom');
+            setCustomDistanceM(String(m));
+          }
+        }
+      });
+  }, [user, visibleState.isVisible]);
+
 
   const toggleCircle = useCallback(async (circle: Circle) => {
     if (!user) return;
@@ -249,11 +296,13 @@ export default function MipoScreen() {
         : timerOption === '1hour' ? addMinutes(now, 60)
         : null;
 
+      const proximityDistanceM = getProximityDistanceM();
       const { error } = await supabase.from('mipo_visible_sessions').upsert(
         {
           user_id: user.id,
           lat: coords.latitude,
           lng: coords.longitude,
+          proximity_distance_m: proximityDistanceM,
           started_at: now.toISOString(),
           expires_at: expiresAt?.toISOString() ?? null,
           updated_at: now.toISOString(),
@@ -267,9 +316,11 @@ export default function MipoScreen() {
         await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
         setPermissionErrorModal({
           visible: true,
-          title: 'Background location required',
-          message: 'Mipo needs "Allow all the time" location access to notify you when friends are nearby while the app is in the background. Please enable it in Settings.',
-          missingBackground: true,
+          title: 'Location required',
+          message: Platform.OS === 'ios'
+            ? 'Mipo needs "Allow all the time" location access to notify you when friends are nearby. Please enable it in Settings > Privacy > Location Services > Miba.'
+            : 'Could not start location tracking. Please check that location permissions are enabled in Settings.',
+          missingBackground: Platform.OS === 'ios',
         });
         return;
       }
@@ -303,7 +354,7 @@ export default function MipoScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user, timerOption, setVisible, saveSelections, refreshNearby]);
+  }, [user, timerOption, getProximityDistanceM, setVisible, saveSelections, refreshNearby]);
 
   const handleTurnOffVisible = useCallback(async () => {
     if (!user) return;
@@ -321,6 +372,15 @@ export default function MipoScreen() {
   }, [user, locationSub, setVisible, refreshVisibleState]);
 
   turnOffRef.current = handleTurnOffVisible;
+
+  const updateSessionDistance = useCallback((meters: number) => {
+    if (!user || !visibleState.isVisible) return;
+    supabase
+      .from('mipo_visible_sessions')
+      .update({ proximity_distance_m: meters, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .then(() => {});
+  }, [user, visibleState.isVisible]);
 
   // Re-request background permission when showing the "allow all the time" error modal
   useEffect(() => {
@@ -460,6 +520,46 @@ export default function MipoScreen() {
               ))}
             </View>
           )}
+
+          <View style={styles.section}>
+            <Text style={styles.label}>Notify when within</Text>
+            <View style={styles.timerRow}>
+              {DISTANCE_PRESETS.map(p => (
+                <TouchableOpacity
+                  key={p.value}
+                  style={[styles.timerChip, distanceOption === p.value && styles.timerChipActive]}
+                  onPress={() => {
+                    setDistanceOption(p.value);
+                    if (p.value !== 'custom') updateSessionDistance(p.meters);
+                  }}
+                >
+                  <Text style={[styles.timerChipText, distanceOption === p.value && styles.timerChipTextActive]}>
+                    {p.value === 'custom' ? 'Custom' : p.value}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {distanceOption === 'custom' && (
+              <View style={[styles.searchBox, { marginTop: 8 }]}>
+                <TextInput
+                  style={styles.searchInput}
+                  value={customDistanceM}
+                  onChangeText={setCustomDistanceM}
+                  onBlur={() => updateSessionDistance(getProximityDistanceM())}
+                  placeholder={`${CUSTOM_DISTANCE_MIN}–${CUSTOM_DISTANCE_MAX} m`}
+                  placeholderTextColor={Colors.textSecondary}
+                  keyboardType="number-pad"
+                />
+                <Text style={styles.sublabel}>meters</Text>
+              </View>
+            )}
+            <Text style={[styles.sublabel, { marginTop: 4 }]}>
+              {distanceOption === '500m' && '5 min walk'}
+              {distanceOption === '3km' && 'Same neighborhood'}
+              {distanceOption === '10km' && 'Same city'}
+              {distanceOption === 'custom' && `${getProximityDistanceM()}m`}
+            </Text>
+          </View>
 
           <View style={styles.section}>
             <Text style={styles.label}>Who can see you (edit anytime)</Text>
@@ -624,6 +724,42 @@ export default function MipoScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>Notify when within</Text>
+          <View style={styles.timerRow}>
+            {DISTANCE_PRESETS.map(p => (
+              <TouchableOpacity
+                key={p.value}
+                style={[styles.timerChip, distanceOption === p.value && styles.timerChipActive]}
+                onPress={() => setDistanceOption(p.value)}
+              >
+                <Text style={[styles.timerChipText, distanceOption === p.value && styles.timerChipTextActive]}>
+                  {p.value === 'custom' ? 'Custom' : p.value}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+            {distanceOption === 'custom' && (
+              <View style={[styles.searchBox, { marginTop: 8 }]}>
+                <TextInput
+                  style={styles.searchInput}
+                  value={customDistanceM}
+                  onChangeText={setCustomDistanceM}
+                  placeholder={`${CUSTOM_DISTANCE_MIN}–${CUSTOM_DISTANCE_MAX} m`}
+                  placeholderTextColor={Colors.textSecondary}
+                  keyboardType="number-pad"
+                />
+                <Text style={[styles.sublabel, { marginLeft: 4 }]}>m</Text>
+              </View>
+            )}
+          <Text style={[styles.sublabel, { marginTop: 4 }]}>
+            {distanceOption === '500m' && '5 min walk'}
+            {distanceOption === '3km' && 'Same neighborhood'}
+            {distanceOption === '10km' && 'Same city'}
+            {distanceOption === 'custom' && `${getProximityDistanceM()}m`}
+          </Text>
         </View>
 
         <View style={styles.section}>
