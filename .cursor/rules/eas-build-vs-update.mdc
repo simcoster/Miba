@@ -1,0 +1,43 @@
+---
+description: Pause before full EAS build changes; offer update-only alternative
+alwaysApply: true
+---
+
+# EAS Build vs Update – Pause Before Proceeding
+
+When the user asks for changes that would require a **full EAS build** (not just `eas update`), **do NOT make the changes yet**. Instead:
+
+1. **Stop and present the options** – Describe what you would change and that it requires a full build.
+2. **Suggest an EAS update–only alternative** – If there is a way to achieve a similar outcome using only JS/assets (e.g. config in Supabase, feature flags, or a different implementation that avoids native changes), describe it.
+3. **Explain tradeoffs** – For each path:
+   - Full build: what you get, cost (build credits), time (wait for build), when it applies.
+   - Update only: what you get, limitations, when it applies.
+4. **Ask the user to choose** – "Which path would you like to take?" or similar.
+5. **Only make changes after they decide** – Implement the chosen approach.
+
+Do NOT mention deployment when changes only need an EAS update (JS/assets only).
+
+## Requires Full EAS Build (pause and offer alternatives)
+
+- `app.config.ts` / `app.json` (plugins, permissions, native config)
+- `eas.json`
+- `package.json` (adding/removing dependencies, especially with native code)
+- `plugins/*` (config plugins)
+- `ios/`, `android/` (native code)
+- `expo-*` or `react-native-*` dependency changes
+- `runtimeVersion` or `version` in app config
+- New native assets (e.g. splash, icons) or plugin config changes
+
+## Example Flow
+
+```
+⚠️ **This change requires a full EAS build** – [reason]
+
+**Option A – Full build:** [what you'd change]
+- Tradeoffs: [cost, time, etc.]
+
+**Option B – EAS update only:** [alternative if available]
+- Tradeoffs: [limitations, what you give up]
+
+Which path would you like to take?
+```

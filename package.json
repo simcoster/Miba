@@ -1,6 +1,6 @@
 {
   "name": "miba",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -9,12 +9,19 @@
     "web": "expo start --web",
     "db:migrate": "supabase db push",
     "db:new": "supabase migration new",
-    "build:internal": "node scripts/bump-version.js && eas build --profile internal --platform android",
-    "build:internal:ios": "eas build --profile internal --platform ios",
+    "build:internal": "node scripts/check-eas-credits.js all && node scripts/bump-version.js && eas build --profile internal --platform all --auto-submit && eas update --branch internal --message \"Build\"",
+    "build:internal:android": "node scripts/check-eas-credits.js android && node scripts/bump-version.js && eas build --profile internal --platform android --auto-submit && eas update --branch internal --message \"Build\"",
+    "build:internal:ios": "node scripts/check-eas-credits.js ios && node scripts/bump-version.js && eas build --profile internal --platform ios --auto-submit && eas update --branch internal --message \"Build\"",
+    "build:production": "node scripts/check-eas-credits.js all && node scripts/bump-version.js && eas build --profile production --platform all && eas update --branch production --message \"Build\"",
+    "build:production:android": "node scripts/check-eas-credits.js android && node scripts/bump-version.js && eas build --profile production --platform android && eas update --branch production --message \"Build\"",
+    "build:production:ios": "node scripts/check-eas-credits.js ios && node scripts/bump-version.js && eas build --profile production --platform ios && eas update --branch production --message \"Build\"",
     "build:preview": "eas build --profile preview --platform android",
     "build:preview:fix": "eas build --profile preview --platform android -m \"Firebase push registration fix\"",
     "fix": "eas update --branch preview --message \"JS fix\"",
-    "build:cancel": "node scripts/cancel-build.js"
+    "update:internal": "eas update --branch internal --message \"Update\"",
+    "update:preview": "eas update --branch preview --message \"Update\"",
+    "build:cancel": "node scripts/cancel-build.js",
+    "credits": "node scripts/check-eas-credits.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

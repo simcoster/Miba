@@ -27,11 +27,21 @@
       }
     },
     "production": {
+      "channel": "production",
       "autoIncrement": true,
       "environment": "production"
     }
   },
   "submit": {
-    "production": {}
+    "production": {},
+    "internal": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "completed"
+      },
+      "ios": {
+        "ascAppId": "6760240395"
+      }
+    }
   }
 }
