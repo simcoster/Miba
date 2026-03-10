@@ -1,16 +1,29 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
+  TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Modal, Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Application from 'expo-application';
+import * as Updates from 'expo-updates';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import Colors from '@/constants/Colors';
+
+const pkg = require('../../package.json');
+
+function AboutRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.aboutRow}>
+      <Text style={styles.aboutLabel}>{label}</Text>
+      <Text style={styles.aboutValue} selectable numberOfLines={3}>{value}</Text>
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
   const { user, profile, signOut, refreshProfile } = useAuth();
@@ -21,6 +34,13 @@ export default function ProfileScreen() {
   const [username, setUsername] = useState(profile?.username ?? '');
   const [phone, setPhone] = useState(profile?.phone ?? '');
   const [saving, setSaving] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const manifest = Updates.manifest as Record<string, unknown> | undefined;
+  const meta = manifest?.metadata as Record<string, unknown> | undefined;
+  const extra = manifest?.extra as Record<string, unknown> | undefined;
+  const updateMessage = (meta?.message ?? extra?.message ?? null) as string | null;
 
   const handleSave = async () => {
     if (!user) return;
@@ -48,6 +68,22 @@ export default function ProfileScreen() {
       Alert.alert('Error', error.message ?? 'Could not save profile.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdate(true);
+    try {
+      const result = await Updates.fetchUpdateAsync();
+      if (result.isNew && !result.isRollBackToEmbedded) {
+        await Updates.reloadAsync();
+      } else {
+        Alert.alert('Updates', 'You\'re up to date.');
+      }
+    } catch {
+      Alert.alert('Updates', 'You\'re up to date.');
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -122,6 +158,11 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        <TouchableOpacity style={styles.aboutButton} onPress={() => setShowAbout(true)}>
+          <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} />
+          <Text style={styles.aboutButtonText}>About</Text>
+        </TouchableOpacity>
+
         <Button
           label="Sign out"
           onPress={() => Alert.alert('Sign out', 'Are you sure?', [
@@ -132,6 +173,35 @@ export default function ProfileScreen() {
           style={styles.signOutButton}
         />
         <View style={{ height: 40 }} />
+
+        <Modal visible={showAbout} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowAbout(false)}>
+            <Pressable style={styles.aboutModal} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.aboutHeader}>
+                <Text style={styles.aboutTitle}>About</Text>
+                <TouchableOpacity onPress={() => setShowAbout(false)} hitSlop={12}>
+                  <Ionicons name="close" size={24} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.aboutContent}>
+                <AboutRow label="Version" value={pkg.version} />
+                <AboutRow label="Build" value={Application.nativeBuildVersion ?? '—'} />
+                <AboutRow label="Update ID" value={Updates.updateId ?? 'embedded'} />
+                <AboutRow label="Channel" value={Updates.channel ?? '—'} />
+                <AboutRow label="Created" value={Updates.createdAt?.toISOString() ?? '—'} />
+                <AboutRow label="Message" value={updateMessage ?? '—'} />
+                <AboutRow label="Source" value={Updates.isEmbeddedLaunch ? 'Embedded in build' : 'OTA update'} />
+                <Button
+                  label={checkingUpdate ? 'Checking…' : 'Check for updates'}
+                  onPress={handleCheckForUpdates}
+                  loading={checkingUpdate}
+                  disabled={checkingUpdate}
+                  style={styles.checkUpdateButton}
+                />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -169,5 +239,42 @@ const styles = StyleSheet.create({
   saveButton: { marginTop: 12 },
   providerBadge: { backgroundColor: Colors.accentLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   providerText: { fontSize: 13, fontWeight: '600', color: Colors.primaryDark },
+  aboutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  aboutButtonText: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
   signOutButton: { marginTop: 4 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  aboutModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 400,
+    overflow: 'hidden',
+  },
+  aboutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  aboutTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  aboutContent: { padding: 20 },
+  aboutRow: { marginBottom: 14 },
+  aboutLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, marginBottom: 2 },
+  aboutValue: { fontSize: 14, color: Colors.text },
+  checkUpdateButton: { marginTop: 16 },
 });

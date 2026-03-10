@@ -7,6 +7,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { UpdatesCountProvider } from '@/contexts/UpdatesCountContext';
 
@@ -56,6 +57,7 @@ export default function RootLayout() {
           <UpdatesCountProvider>
             <StatusBar style="dark" />
             <RootLayoutNav />
+            <Toast />
           </UpdatesCountProvider>
         </AuthProvider>
       </SafeAreaProvider>

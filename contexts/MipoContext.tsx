@@ -1,10 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
 import * as Notifications from 'expo-notifications';
 import { subMinutes } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Profile } from '@/lib/types';
+import { hasLocationPermission, isMipoLocationHeartbeatStale, turnOffMipoVisibleMode } from '@/lib/mipoLocation';
 
 export type MipoVisibleState = {
   isVisible: boolean;
@@ -25,6 +27,8 @@ type MipoContextType = {
   refreshVisibleState: () => Promise<void>;
   nearbyEvents: ProximityEventWithProfile[];
   refreshNearby: () => Promise<void>;
+  /** Call when app foregrounds or Mipo tab gains focus to detect if service was killed (e.g. user swiped notification) */
+  checkAndTurnOffIfServiceStopped: () => Promise<void>;
 };
 
 const MipoContext = createContext<MipoContextType>({
@@ -33,6 +37,7 @@ const MipoContext = createContext<MipoContextType>({
   refreshVisibleState: async () => {},
   nearbyEvents: [],
   refreshNearby: async () => {},
+  checkAndTurnOffIfServiceStopped: async () => {},
 });
 
 export function MipoProvider({ children }: { children: React.ReactNode }) {
@@ -133,8 +138,56 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [visibleState.isVisible, user, refreshNearby]);
 
+  const checkAndTurnOffIfServiceStopped = useCallback(async () => {
+    if (!user || !visibleState.isVisible) return;
+    try {
+      const hasPermission = await hasLocationPermission();
+      if (!hasPermission) {
+        await turnOffMipoVisibleMode(user.id);
+        setVisible(false, null);
+        refreshVisibleState();
+        Toast.show({
+          type: 'info',
+          text1: 'Mipo visible mode turned off',
+          text2: 'Location disabled. Re-enable in Mipo tab.',
+        });
+        return;
+      }
+      const stale = await isMipoLocationHeartbeatStale(user.id);
+      if (stale) {
+        await turnOffMipoVisibleMode(user.id);
+        setVisible(false, null);
+        refreshVisibleState();
+        Toast.show({
+          type: 'info',
+          text1: 'Mipo visible mode turned off',
+          text2: 'Tracking stopped. Re-enable in Mipo tab.',
+        });
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, [user, visibleState.isVisible, setVisible, refreshVisibleState]);
+
+  // When app returns from background: run heartbeat + permission check
+  useEffect(() => {
+    if (!user || !visibleState.isVisible) return;
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === 'active') checkAndTurnOffIfServiceStopped();
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [user, visibleState.isVisible, checkAndTurnOffIfServiceStopped]);
+
+  // Periodic check while visible: detect if user disabled location while still on Mipo screen
+  useEffect(() => {
+    if (!user || !visibleState.isVisible) return;
+    const interval = setInterval(checkAndTurnOffIfServiceStopped, 10_000);
+    return () => clearInterval(interval);
+  }, [user, visibleState.isVisible, checkAndTurnOffIfServiceStopped]);
+
   return (
-    <MipoContext.Provider value={{ visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby }}>
+    <MipoContext.Provider value={{ visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby, checkAndTurnOffIfServiceStopped }}>
       {children}
     </MipoContext.Provider>
   );

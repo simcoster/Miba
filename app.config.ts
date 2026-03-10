@@ -71,6 +71,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   updates: {
     url: `https://u.expo.dev/${config.extra?.eas?.projectId ?? '2085bc90-aea9-4f54-be69-f93013f3cd39'}`,
     fallbackToCacheTimeout: 0,
+    checkAutomatically: 'ON_LOAD',
   },
   version,
   runtimeVersion: version,

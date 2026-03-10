@@ -78,7 +78,7 @@ export default function MipoScreen() {
   const [customDistanceM, setCustomDistanceM] = useState<string>('2000');
   const [loading, setLoading] = useState(false);
   const [locationSub, setLocationSub] = useState<LocationSubscription | null>(null);
-  const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby } = useMipo();
+  const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby, checkAndTurnOffIfServiceStopped } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [comicScale, setComicScale] = useState(1);
   const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string; missingBackground?: boolean }>({ visible: false, title: '', message: '' });
@@ -123,13 +123,20 @@ export default function MipoScreen() {
     }, [fetchCircles, user])
   );
 
+  // When Mipo tab gains focus and visible: check if foreground service was killed (e.g. user swiped notification)
+  useFocusEffect(
+    useCallback(() => {
+      if (visibleState.isVisible) checkAndTurnOffIfServiceStopped();
+    }, [visibleState.isVisible, checkAndTurnOffIfServiceStopped])
+  );
+
   useEffect(() => {
     if (!user) return;
     supabase
       .from('mipo_selections')
       .select('selected_user_id, profile:profiles!selected_user_id(id, full_name, avatar_url)')
       .eq('user_id', user.id)
-      .then(({ data }) => {
+      .then(({ data }: { data: Array<{ selected_user_id: string; profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> }> | null }) => {
         const pool = new Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>();
         (data ?? []).forEach((row: any) => {
           if (row.profile) pool.set(row.selected_user_id, row.profile);
@@ -141,8 +148,10 @@ export default function MipoScreen() {
   useEffect(() => {
     if (visibleState.isVisible) {
       setView('active');
-    } else if (view === 'active') {
-      setView('selection');
+    } else {
+      if (view === 'active') setView('selection');
+      // Sync: when context forces turn off (e.g. user swiped notification), clear stale subscription
+      setLocationSub((prev) => (prev !== null ? null : prev));
     }
   }, [visibleState.isVisible]);
 
@@ -154,7 +163,7 @@ export default function MipoScreen() {
       .select('proximity_distance_m')
       .eq('user_id', user.id)
       .single()
-      .then(({ data }) => {
+      .then(({ data }: { data: { proximity_distance_m?: number } | null }) => {
         if (data?.proximity_distance_m) {
           const m = data.proximity_distance_m as number;
           const preset = DISTANCE_PRESETS.find(p => p.meters === m);
@@ -200,7 +209,7 @@ export default function MipoScreen() {
       .eq('circle_id', circle.id)
       .neq('user_id', user.id);
     if (error) { Alert.alert('Error', 'Could not load circle members.'); return; }
-    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
+    const memberIds = new Set<string>((data ?? []).map((m: { user_id: string }) => m.user_id));
     setExpandedCircleIds(prev => new Set(prev).add(circle.id));
     setCircleMembersMap(prev => new Map(prev).set(circle.id, memberIds));
     setSelectedPool(prev => {

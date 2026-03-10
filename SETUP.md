@@ -141,6 +141,16 @@ supabase/
 
 ---
 
+## Upgrading Expo
+
+> **⚠️ Warning:** Upgrading the Expo SDK (`expo`, `expo-router`, or other Expo packages) or adding/changing plugins in `app.config.ts` **requires a full EAS build**. OTA updates (EAS Update) only push JavaScript — they cannot update native code.
+>
+> Before running `npx expo install --fix`, `npx expo install expo@latest`, or similar:
+> 1. Plan for a new build: `eas build --profile <your-profile> --platform <android|ios>`
+> 2. Testers will need to install the new build; OTA updates alone will not apply the upgrade.
+
+---
+
 ## Troubleshooting
 
 **"Invalid OAuth redirect" error on login:**

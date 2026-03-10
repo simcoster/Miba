@@ -5,7 +5,7 @@ alwaysApply: true
 
 # EAS Build vs Update – Pause Before Proceeding
 
-When the user asks for changes that would require a **full EAS build** (not just `eas update`), **do NOT make the changes yet**. Instead:
+When the user asks for changes **or when you are about to suggest a fix** that would require a **full EAS build** (not just `eas update`), **do NOT make the changes yet**. Instead:
 
 1. **Stop and present the options** – Describe what you would change and that it requires a full build.
 2. **Suggest an EAS update–only alternative** – If there is a way to achieve a similar outcome using only JS/assets (e.g. config in Supabase, feature flags, or a different implementation that avoids native changes), describe it.
@@ -24,7 +24,7 @@ Do NOT mention deployment when changes only need an EAS update (JS/assets only).
 - `package.json` (adding/removing dependencies, especially with native code)
 - `plugins/*` (config plugins)
 - `ios/`, `android/` (native code)
-- `expo-*` or `react-native-*` dependency changes
+- `expo-*` or `react-native-*` dependency changes (including commands like `npx expo install --fix`, `npx expo install expo@latest`, `npm install expo-router@latest`)
 - `runtimeVersion` or `version` in app config
 - New native assets (e.g. splash, icons) or plugin config changes
 

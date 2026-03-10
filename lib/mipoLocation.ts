@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {
   getBackgroundPermissionsAsync,
@@ -7,6 +8,7 @@ import {
   startLocationUpdatesAsync,
   stopLocationUpdatesAsync,
 } from 'expo-location';
+import { supabase } from '@/lib/supabase';
 import { MIPO_LOCATION_TASK_NAME, setMipoActiveUserId } from './mipoLocationTask';
 
 export type LocationSubscription = {
@@ -95,6 +97,57 @@ export async function requestBackgroundLocationPermission(): Promise<boolean> {
 export async function hasLocationPermission(): Promise<boolean> {
   const { status } = await Location.getForegroundPermissionsAsync();
   return status === 'granted';
+}
+
+/**
+ * Check if the Mipo location foreground service is still running.
+ * TaskManager.getRegisteredTasksAsync() is unreliable when the service is killed
+ * (e.g. user swiped notification) - the task may still appear registered.
+ */
+export async function isMipoLocationRunning(): Promise<boolean> {
+  try {
+    const tasks = await TaskManager.getRegisteredTasksAsync();
+    return tasks.some((t) => t.taskName === MIPO_LOCATION_TASK_NAME);
+  } catch {
+    return false;
+  }
+}
+
+/** Threshold: if no location update in this many ms, service likely stopped. Location updates every ~5s. */
+const MIPO_HEARTBEAT_STALE_MS = 12_000;
+
+/**
+ * Check if the Mipo session's last location update is stale.
+ * The background task updates mipo_visible_sessions every ~5s. If updated_at
+ * is older than threshold, the service likely stopped (e.g. user swiped notification).
+ */
+export async function isMipoLocationHeartbeatStale(userId: string): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from('mipo_visible_sessions')
+      .select('updated_at')
+      .eq('user_id', userId)
+      .single();
+    if (!data?.updated_at) return true;
+    const updatedAt = new Date(data.updated_at).getTime();
+    return Date.now() - updatedAt > MIPO_HEARTBEAT_STALE_MS;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Turn off Mipo visible mode: stop location updates, clear active user, delete session.
+ * Use when the foreground service was killed (e.g. user swiped notification).
+ */
+export async function turnOffMipoVisibleMode(userId: string): Promise<void> {
+  try {
+    await stopLocationUpdatesAsync(MIPO_LOCATION_TASK_NAME);
+  } catch {
+    // Service may already be stopped
+  }
+  await setMipoActiveUserId(null);
+  await supabase.from('mipo_visible_sessions').delete().eq('user_id', userId);
 }
 
 /**
