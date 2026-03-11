@@ -506,7 +506,7 @@ export default function MipoScreen() {
       : 'You\'re visible — no time limit';
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: 20 }]} showsVerticalScrollIndicator={false}>
+        <View style={[styles.scroll, styles.content, { paddingBottom: 20 }]}>
           <Text style={styles.title}>Mipo</Text>
           <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
           {filteredNearbyEvents.length > 0 && (
@@ -572,7 +572,6 @@ export default function MipoScreen() {
 
           <View style={styles.section}>
             <Text style={styles.label}>Who can see you (edit anytime)</Text>
-            <Text style={styles.sublabel}>Select via circle</Text>
             {circles.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {circles.map(c => {
@@ -591,7 +590,6 @@ export default function MipoScreen() {
                 })}
               </ScrollView>
             )}
-            <Text style={styles.sublabel}>Select by name</Text>
             <View style={styles.searchBox}>
               <Ionicons name="search" size={18} color={Colors.textSecondary} />
               <TextInput
@@ -649,8 +647,8 @@ export default function MipoScreen() {
               </>
             )}
           </View>
-        </ScrollView>
-        <View style={[styles.mipoFooter, { paddingBottom: insets.bottom + 8 }]}>
+        </View>
+        <View style={[styles.mipoFooter, { paddingBottom: 16 }]}>
           <Text style={styles.youreVisibleLabel}>{visibleUntilLabel}</Text>
           <View style={[styles.buttonWithRadar, { marginTop: 12 }]}>
             <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" fullWidth={false} style={styles.buttonWithRadarBtn} />
@@ -693,7 +691,7 @@ export default function MipoScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: 20 }]} showsVerticalScrollIndicator={false}>
+      <View style={[styles.scroll, styles.content, { paddingBottom: 20 }]}>
         <Text style={styles.title}>Mipo</Text>
         <HowItWorksButton onPress={() => { setComicScale(1); setShowHowItWorks(true); }} />
 
@@ -719,7 +717,7 @@ export default function MipoScreen() {
         )}
 
         <View style={styles.timerSection}>
-          <Text style={styles.label}>How long?</Text>
+          <Text style={styles.label}>Duration</Text>
           <View style={styles.timerRow}>
             {(['10min', '1hour', 'unlimited'] as const).map(opt => (
               <TouchableOpacity
@@ -736,7 +734,7 @@ export default function MipoScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Notify when within</Text>
+          <Text style={styles.label}>Distance</Text>
           <View style={styles.timerRow}>
             {DISTANCE_PRESETS.map(p => (
               <TouchableOpacity
@@ -772,8 +770,7 @@ export default function MipoScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Who can see you (edit anytime)</Text>
-          <Text style={styles.sublabel}>Select via circle</Text>
+          <Text style={styles.label}>Who can see you</Text>
           {circles.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               {circles.map(c => {
@@ -792,7 +789,6 @@ export default function MipoScreen() {
               })}
             </ScrollView>
           )}
-          <Text style={styles.sublabel}>Select by name</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={Colors.textSecondary} />
             <TextInput
@@ -850,8 +846,8 @@ export default function MipoScreen() {
             </>
           )}
         </View>
-      </ScrollView>
-      <View style={[styles.mipoFooter, { paddingBottom: insets.bottom + 8 }]}>
+      </View>
+      <View style={[styles.mipoFooter, { paddingBottom: 16 }]}>
         <View style={[styles.buttonWithRadar, { marginTop: 0 }]}>
           <Button label="Turn on visible mode" onPress={handleTurnOnVisible} loading={loading} disabled={selectedList.length === 0} fullWidth={false} style={styles.buttonWithRadarBtn} />
           <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
@@ -893,7 +889,7 @@ export default function MipoScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flex: 1 },
+  scroll: { flex: 1, overflow: 'hidden' as const },
   content: { padding: 20 },
   title: { fontSize: 24, fontWeight: '700', color: Colors.text, marginBottom: 8 },
   subtitle: { fontSize: 15, color: Colors.textSecondary, marginBottom: 24 },
@@ -948,8 +944,6 @@ const styles = StyleSheet.create({
   timerChipTextActive: { color: Colors.primary },
   mipoFooter: {
     backgroundColor: Colors.background,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
     paddingHorizontal: 20,
     paddingTop: 16,
   },

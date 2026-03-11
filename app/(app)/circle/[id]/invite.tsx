@@ -18,10 +18,8 @@ export default function InviteScreen() {
   const { user } = useAuth();
 
   const [query, setQuery] = useState('');
-  const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [results, setResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
-  const [loadingAll, setLoadingAll] = useState(true);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -90,17 +88,6 @@ export default function InviteScreen() {
       fetchMemberIds();
     }, [fetchMemberIds])
   );
-
-  useEffect(() => {
-    if (!user?.id) {
-      setLoadingAll(false);
-      return;
-    }
-    setLoadingAll(true);
-    supabase.from('profiles').select('id, full_name, avatar_url, username, email, phone')
-      .neq('id', user.id).order('full_name').limit(100)
-      .then(({ data }) => { setAllUsers((data ?? []) as Profile[]); setLoadingAll(false); });
-  }, [user?.id]);
 
   const search = async (text: string) => {
     setQuery(text);
@@ -216,43 +203,8 @@ export default function InviteScreen() {
             }}
           />
         )
-      ) : loadingAll ? (
-        <View style={styles.hint}><ActivityIndicator size="large" color={Colors.primary} /></View>
-      ) : allUsers.length === 0 ? (
-        <View style={styles.hint}><Text style={styles.hintText}>No users found</Text></View>
       ) : (
-        <FlatList
-          data={allUsers}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => {
-            const isMember = memberIds.includes(item.id);
-            const isInviting = inviting === item.id;
-            return (
-                <View style={styles.row}>
-                <Avatar uri={item.avatar_url} name={item.full_name} size={44} />
-                <View style={styles.info}>
-                  <Text style={styles.name}>{item.full_name ?? 'Unknown'}</Text>
-                  <View style={styles.metaRow}>
-                    {item.username && <Text style={styles.username}>@{item.username}</Text>}
-                    {item.email && <Text style={styles.meta} numberOfLines={1}>{item.email}</Text>}
-                    {item.phone && !item.email && <Text style={styles.meta} numberOfLines={1}>{item.phone}</Text>}
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.addBtn, isMember && styles.addBtnDone]}
-                  onPress={() => !isMember && handleAdd(item)}
-                  disabled={isMember || isInviting}
-                >
-                  {isInviting ? <ActivityIndicator size="small" color="#fff" />
-                    : isMember ? <Ionicons name="checkmark" size={18} color={Colors.success} />
-                    : <Ionicons name="add" size={20} color="#fff" />
-                  }
-                </TouchableOpacity>
-              </View>
-            );
-          }}
-        />
+        <View style={styles.hint}><Text style={styles.hintText}>Search by name, username, email or phone to add members</Text></View>
       )}
     </View>
   );

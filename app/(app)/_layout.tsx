@@ -144,6 +144,14 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="chats"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} focused={focused} label="Chats" />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="mipo"
         options={{
           tabBarIcon: ({ focused }) => <MipoTabIcon focused={focused} />,

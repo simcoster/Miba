@@ -52,10 +52,17 @@ export default function EventsScreen() {
   const [invitedCount, setInvitedCount] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
 
   const fetchActivities = useCallback(async () => {
     if (!user) return;
     setError(null);
+
+    const { data: mipoDms } = await supabase
+      .from('mipo_dm_activities')
+      .select('activity_id')
+      .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`);
+    setMipoDmActivityIds(new Set((mipoDms ?? []).map((d: { activity_id: string }) => d.activity_id)));
 
     const { data, error: fetchError } = await supabase
       .from('activities')
@@ -183,9 +190,10 @@ export default function EventsScreen() {
         return [...activities]
           .reverse()
           .filter(a =>
-            (isPast(new Date(a.activity_time)) &&
+            !mipoDmActivityIds.has(a.id) &&
+            ((isPast(new Date(a.activity_time)) &&
               (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')) ||
-            (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in'))
+            (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in')))
           );
       case 'invited':
         return activities.filter(a =>
