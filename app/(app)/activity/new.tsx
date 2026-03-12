@@ -4,6 +4,8 @@ import {
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   ActivityIndicator, Linking, Modal, Pressable, Dimensions,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import Toast from 'react-native-toast-message';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -498,28 +500,46 @@ export default function NewActivityScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          {searchResults.length > 0 && (
+          {searchQuery.trim().length >= 2 && !searching && (
             <View style={styles.searchResults}>
-              {searchResults.map(p => {
-                const already = invitePool.has(p.id);
-                return (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={styles.searchRow}
-                    onPress={() => !already && addFromSearch(p)}
-                    disabled={already}
-                  >
-                    <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
-                    <View style={styles.searchInfo}>
-                      <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
-                      {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
-                    </View>
-                    {already
-                      ? <Ionicons name="checkmark-circle" size={22} color={Colors.success} />
-                      : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />}
-                  </TouchableOpacity>
-                );
-              })}
+              {searchResults.length > 0 ? (
+                <>
+                  {searchResults.map(p => {
+                    const already = invitePool.has(p.id);
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={styles.searchRow}
+                        onPress={() => !already && addFromSearch(p)}
+                        disabled={already}
+                      >
+                        <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
+                        <View style={styles.searchInfo}>
+                          <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
+                          {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
+                        </View>
+                        {already
+                          ? <Ionicons name="checkmark-circle" size={22} color={Colors.success} />
+                          : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              ) : (
+                <View style={styles.noResultsHint}>
+                  <Text style={styles.noResultsText}>No users found for "{searchQuery.trim()}"</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.inviteLinkRow}
+                onPress={async () => {
+                  await Clipboard.setStringAsync('https://forms.gle/emYw5bgybEhcH3iB8');
+                  Toast.show({ type: 'success', text1: 'Invite link copied' });
+                }}
+              >
+                <Ionicons name="link-outline" size={18} color={Colors.primary} />
+                <Text style={styles.inviteLinkText}>Not here? Click to copy invite link</Text>
+              </TouchableOpacity>
             </View>
           )}
           {searchQuery.trim().length >= 2 && !searching && searchResults.length === 0 &&
@@ -811,6 +831,10 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 16, color: Colors.text, paddingVertical: 12 },
   searchResults: { marginTop: 6, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  inviteLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 12 },
+  inviteLinkText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  noResultsHint: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
+  noResultsText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   searchInfo: { flex: 1 },
   titleSection: { marginBottom: 22, position: 'relative' as const, overflow: 'hidden' as const, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
   titleSectionWithSplash: { borderColor: 'transparent' },

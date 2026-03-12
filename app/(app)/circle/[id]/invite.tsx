@@ -3,6 +3,8 @@ import {
   View, Text, TextInput, StyleSheet, FlatList,
   TouchableOpacity, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import Toast from 'react-native-toast-message';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -170,12 +172,36 @@ export default function InviteScreen() {
 
       {query.length >= 2 ? (
         results.length === 0 && !searching ? (
-          <View style={styles.hint}><Text style={styles.hintText}>No users found for "{query}"</Text></View>
+          <View style={styles.hint}>
+            <Text style={styles.hintText}>No users found for "{query}"</Text>
+            <TouchableOpacity
+              style={styles.inviteLinkRow}
+              onPress={async () => {
+                await Clipboard.setStringAsync('https://forms.gle/emYw5bgybEhcH3iB8');
+                Toast.show({ type: 'success', text1: 'Invite link copied' });
+              }}
+            >
+              <Ionicons name="link-outline" size={18} color={Colors.primary} />
+              <Text style={styles.inviteLinkText}>Not here? Click to copy invite link</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
             data={results}
             keyExtractor={item => item.id}
             contentContainerStyle={styles.list}
+            ListFooterComponent={
+              <TouchableOpacity
+                style={styles.inviteLinkRow}
+                onPress={async () => {
+                  await Clipboard.setStringAsync('https://forms.gle/emYw5bgybEhcH3iB8');
+                  Toast.show({ type: 'success', text1: 'Invite link copied' });
+                }}
+              >
+                <Ionicons name="link-outline" size={18} color={Colors.primary} />
+                <Text style={styles.inviteLinkText}>Not here? Click to copy invite link</Text>
+              </TouchableOpacity>
+            }
             renderItem={({ item }) => {
               const isMember = memberIds.includes(item.id);
               const isInviting = inviting === item.id;
@@ -230,7 +256,9 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 16, color: Colors.text, paddingVertical: 12 },
   hint: { padding: 40, alignItems: 'center' },
-  hintText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
+  hintText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', marginBottom: 16 },
+  inviteLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  inviteLinkText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
   list: { paddingHorizontal: 20 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   info: { flex: 1 },

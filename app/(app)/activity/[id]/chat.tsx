@@ -39,7 +39,7 @@ type LocationShare = {
   lat: number;
   lng: number;
   updated_at: string;
-  profile?: { full_name?: string } | null;
+  profile?: { full_name?: string; avatar_url?: string | null } | null;
 };
 
 function formatMessageTime(dateStr: string): string {
@@ -150,9 +150,9 @@ export default function ActivityChatScreen() {
     const userIds = [...new Set(rows.map(r => r.user_id))];
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, full_name')
+      .select('id, full_name, avatar_url')
       .in('id', userIds);
-    const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string }) => [p.id, { full_name: p.full_name }]));
+    const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string; avatar_url: string | null }) => [p.id, { full_name: p.full_name, avatar_url: p.avatar_url }]));
     setLocationShares(rows.map(r => ({
       ...r,
       profile: profileMap.get(r.user_id) ?? null,
@@ -160,7 +160,7 @@ export default function ActivityChatScreen() {
   }, [id]);
 
   useEffect(() => {
-    if (!id || !isMipoDm) return;
+    if (!id) return;
     fetchLocationShares();
     const channel = supabase
       .channel(`chat-location-shares-${id}`)
@@ -171,7 +171,7 @@ export default function ActivityChatScreen() {
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [id, isMipoDm, fetchLocationShares]);
+  }, [id, fetchLocationShares]);
 
   // Location polling when sharing
   useEffect(() => {
@@ -445,7 +445,7 @@ export default function ActivityChatScreen() {
     );
   };
 
-  const showMap = isMipoDm && locationShares.length > 0 && Platform.OS !== 'web';
+  const showMap = locationShares.length > 0 && Platform.OS !== 'web';
   showMapRef.current = showMap;
   const mapRegion = locationShares.length >= 2
     ? {
@@ -495,31 +495,29 @@ export default function ActivityChatScreen() {
         />
       )}
 
-      {isMipoDm && (
-        <View style={styles.locationSection}>
-          {sharingLocation ? (
-            <TouchableOpacity style={styles.locationBtn} onPress={handleStopLocation}>
-              <Ionicons name="location" size={18} color={Colors.danger} />
-              <Text style={styles.locationBtnText}>Stop showing location</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.locationBtn}
-              onPress={handleShareLocation}
-              disabled={shareLocationLoading}
-            >
-              {shareLocationLoading ? (
-                <ActivityIndicator size="small" color={Colors.primary} />
-              ) : (
-                <>
-                  <Ionicons name="location-outline" size={18} color={Colors.primary} />
-                  <Text style={[styles.locationBtnText, styles.locationBtnTextPrimary]}>Share live location</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
+      <View style={styles.locationSection}>
+        {sharingLocation ? (
+          <TouchableOpacity style={styles.locationBtn} onPress={handleStopLocation}>
+            <Ionicons name="location" size={18} color={Colors.danger} />
+            <Text style={styles.locationBtnText}>Stop showing location</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.locationBtn}
+            onPress={handleShareLocation}
+            disabled={shareLocationLoading}
+          >
+            {shareLocationLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="location-outline" size={18} color={Colors.primary} />
+                <Text style={[styles.locationBtnText, styles.locationBtnTextPrimary]}>Share live location</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
 
       {showMap && mapRegion && (
         <View style={[styles.mapContainer, keyboardVisible && styles.mapContainerKeyboard]}>
@@ -541,6 +539,7 @@ export default function ActivityChatScreen() {
                   key={s.user_id}
                   coordinate={{ latitude: s.lat, longitude: s.lng }}
                   title={s.user_id === user?.id ? 'You' : (s.profile?.full_name ?? 'Friend')}
+                  image={s.profile?.avatar_url ? { uri: s.profile.avatar_url } : undefined}
                 />
               ))}
             </MapView>

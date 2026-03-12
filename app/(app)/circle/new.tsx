@@ -4,6 +4,8 @@ import {
   View, Text, TextInput, StyleSheet, ScrollView,
   Alert, KeyboardAvoidingView, Platform, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import Toast from 'react-native-toast-message';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -181,28 +183,44 @@ export default function NewCircleScreen() {
               </TouchableOpacity>
             )}
           </View>
-          {searchResults.length > 0 && (
+          {searchQuery.trim().length >= 2 && !searching && (
             <View style={styles.searchResults}>
-              {searchResults.map(p => {
-                const already = selectedMembers.has(p.id);
-                return (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={styles.searchRow}
-                    onPress={() => !already && addFromSearch(p)}
-                    disabled={already}
-                  >
-                    <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
-                    <View style={styles.searchInfo}>
-                      <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
-                      {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
-                    </View>
-                    {already
-                      ? <Ionicons name="checkmark-circle" size={22} color={Colors.success} />
-                      : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />}
-                  </TouchableOpacity>
-                );
-              })}
+              {searchResults.length > 0 ? (
+                searchResults.map(p => {
+                  const already = selectedMembers.has(p.id);
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.searchRow}
+                      onPress={() => !already && addFromSearch(p)}
+                      disabled={already}
+                    >
+                      <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
+                      <View style={styles.searchInfo}>
+                        <Text style={styles.searchName}>{p.full_name ?? 'Unknown'}</Text>
+                        {p.username && <Text style={styles.searchUsername}>@{p.username}</Text>}
+                      </View>
+                      {already
+                        ? <Ionicons name="checkmark-circle" size={22} color={Colors.success} />
+                        : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <View style={styles.noResultsHint}>
+                  <Text style={styles.noResultsText}>No users found for "{searchQuery.trim()}"</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.inviteLinkRow}
+                onPress={async () => {
+                  await Clipboard.setStringAsync('https://forms.gle/emYw5bgybEhcH3iB8');
+                  Toast.show({ type: 'success', text1: 'Invite link copied' });
+                }}
+              >
+                <Ionicons name="link-outline" size={18} color={Colors.primary} />
+                <Text style={styles.inviteLinkText}>Not here? Click to copy invite link</Text>
+              </TouchableOpacity>
             </View>
           )}
           {selectedMembers.size > 0 && (
@@ -253,6 +271,10 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 16, color: Colors.text, paddingVertical: 12 },
   searchResults: { marginTop: 4 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  inviteLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  inviteLinkText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  noResultsHint: { paddingTop: 12, paddingBottom: 4 },
+  noResultsText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   searchInfo: { flex: 1 },
   searchName: { fontSize: 16, fontWeight: '600', color: Colors.text },
   searchUsername: { fontSize: 13, color: Colors.textSecondary },

@@ -4,6 +4,8 @@ import {
   TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView, BackHandler, Keyboard,
   Modal,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import Toast from 'react-native-toast-message';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -112,9 +114,9 @@ export default function ActivityDetailScreen() {
         going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
       } as Activity;
       setActivity(act);
-      // Mark this activity as seen (clears "new", "new messages", and RSVP changes from updates feed)
+      // Mark chat/RSVP as seen for badge clearing. Do NOT set miba_activity_last_seen here —
+      // that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
-      AsyncStorage.setItem(`miba_activity_last_seen_${id}`, now).catch(() => {});
       AsyncStorage.setItem(`miba_chat_last_read_${id}`, now).catch(() => {});
       AsyncStorage.setItem(`miba_rsvp_changes_seen_${id}`, now).catch(() => {});
 
@@ -848,48 +850,61 @@ export default function ActivityDetailScreen() {
                   )
                 }
               </View>
-              {addResults.length > 0 && (
+              {addQuery.trim().length >= 2 && !addSearching && (
                 <View style={styles.addResultsList}>
-                  {addResults.map(p => (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={styles.addResultRow}
-                      onPress={() => handleAddInvitee(p)}
-                      disabled={addLoading === p.id}
-                    >
-                      <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
-                      <View style={styles.addResultInfo}>
-                        <Text style={styles.addResultName}>{p.full_name ?? 'Unknown'}</Text>
-                        {p.username && <Text style={styles.addResultUsername}>@{p.username}</Text>}
+                  {addResults.length > 0 ? (
+                    addResults.map(p => (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={styles.addResultRow}
+                        onPress={() => handleAddInvitee(p)}
+                        disabled={addLoading === p.id}
+                      >
+                        <Avatar uri={p.avatar_url} name={p.full_name} size={36} />
+                        <View style={styles.addResultInfo}>
+                          <Text style={styles.addResultName}>{p.full_name ?? 'Unknown'}</Text>
+                          {p.username && <Text style={styles.addResultUsername}>@{p.username}</Text>}
+                        </View>
+                        {addLoading === p.id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
+                        }
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addQuery.trim()) ? (
+                      <TouchableOpacity
+                        style={styles.inviteEmailBtn}
+                        onPress={() => {
+                          const email = addQuery.trim();
+                          const name = profile?.full_name ?? 'A friend';
+                          const subject = encodeURIComponent('Join me on Miba!');
+                          const body = encodeURIComponent(
+                            `Hey!\n\n${name} is inviting you to join Miba — an app for organising hangouts with friends.\n\nDownload it and we can start planning!\n\nhttps://miba.app\n\n— ${name}`
+                          );
+                          Linking.openURL(`mailto:${email}?subject=${subject}&body=${body}`);
+                        }}
+                      >
+                        <Ionicons name="mail-outline" size={18} color={Colors.primary} />
+                        <Text style={styles.inviteEmailText}>Invite <Text style={{ fontWeight: '700' }}>{addQuery.trim()}</Text> to Miba</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.addNoResultsWrap}>
+                        <Text style={styles.addNoResults}>No users found for "{addQuery}"</Text>
                       </View>
-                      {addLoading === p.id
-                        ? <ActivityIndicator size="small" color={Colors.primary} />
-                        : <Ionicons name="add-circle-outline" size={22} color={Colors.primary} />
-                      }
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-              {addQuery.length >= 2 && !addSearching && addResults.length === 0 && (
-                /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addQuery.trim()) ? (
+                    )
+                  )}
                   <TouchableOpacity
-                    style={styles.inviteEmailBtn}
-                    onPress={() => {
-                      const email = addQuery.trim();
-                      const name = profile?.full_name ?? 'A friend';
-                      const subject = encodeURIComponent('Join me on Miba!');
-                      const body = encodeURIComponent(
-                        `Hey!\n\n${name} is inviting you to join Miba — an app for organising hangouts with friends.\n\nDownload it and we can start planning!\n\nhttps://miba.app\n\n— ${name}`
-                      );
-                      Linking.openURL(`mailto:${email}?subject=${subject}&body=${body}`);
+                    style={styles.inviteLinkRow}
+                    onPress={async () => {
+                      await Clipboard.setStringAsync('https://forms.gle/emYw5bgybEhcH3iB8');
+                      Toast.show({ type: 'success', text1: 'Invite link copied' });
                     }}
                   >
-                    <Ionicons name="mail-outline" size={18} color={Colors.primary} />
-                    <Text style={styles.inviteEmailText}>Invite <Text style={{ fontWeight: '700' }}>{addQuery.trim()}</Text> to Miba</Text>
+                    <Ionicons name="link-outline" size={18} color={Colors.primary} />
+                    <Text style={styles.inviteLinkText}>Not here? Click to copy invite link</Text>
                   </TouchableOpacity>
-                ) : (
-                  <Text style={styles.addNoResults}>No users found for "{addQuery}"</Text>
-                )
+                </View>
               )}
             </View>
           )}
@@ -1283,7 +1298,10 @@ const styles = StyleSheet.create({
   addResultName: { fontSize: 15, fontWeight: '600', color: Colors.text },
   addResultUsername: { fontSize: 12, color: Colors.textSecondary },
   addNoResults: { fontSize: 13, color: Colors.textSecondary, paddingHorizontal: 4 },
-  inviteEmailBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2, backgroundColor: Colors.accentLight, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', paddingHorizontal: 12, paddingVertical: 10 },
+  addNoResultsWrap: { paddingHorizontal: 12, paddingVertical: 12 },
+  inviteEmailBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginTop: 2, marginBottom: 4, backgroundColor: Colors.accentLight, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.primary, borderStyle: 'dashed', paddingHorizontal: 12, paddingVertical: 10 },
+  inviteLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  inviteLinkText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
   inviteEmailText: { flex: 1, fontSize: 13, color: Colors.primaryDark },
   noAttendees: { fontSize: 14, color: Colors.textSecondary },
   attendeeList: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
