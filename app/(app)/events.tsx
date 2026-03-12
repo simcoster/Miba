@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView, Alert,
-  BackHandler, Platform,
+  BackHandler, Platform, Modal, Pressable, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { isPast } from 'date-fns';
+import { format, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Activity } from '@/lib/types';
@@ -15,7 +15,101 @@ import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
 import { ActivityCard } from '@/components/ActivityCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
+import { SplashArt } from '@/components/SplashArt';
+import type { SplashPreset } from '@/lib/splashArt';
 import Colors from '@/constants/Colors';
+import { useTutorial } from '@/contexts/TutorialContext';
+
+type PastActivity = { id: string; title: string; activity_time: string; description: string | null; location: string | null; splash_art: string | null };
+
+function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; onDismiss: () => void; userId: string }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [pastEvents, setPastEvents] = useState<PastActivity[]>([]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setLoading(true);
+    Promise.all([
+      supabase
+        .from('activities')
+        .select('id, title, activity_time, description, location, splash_art')
+        .eq('created_by', userId)
+        .lt('activity_time', new Date().toISOString())
+        .order('activity_time', { ascending: false })
+        .limit(25),
+      supabase
+        .from('mipo_dm_activities')
+        .select('activity_id')
+        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`),
+    ]).then(([activitiesRes, mipoDmsRes]) => {
+      const mipoIds = new Set((mipoDmsRes.data ?? []).map((d: any) => d.activity_id));
+      const items = ((activitiesRes.data ?? []) as PastActivity[])
+        .filter(a => !mipoIds.has(a.id))
+        .slice(0, 20);
+      setPastEvents(items);
+      setLoading(false);
+    });
+  }, [visible, userId]);
+
+  const handleSelect = (event: PastActivity) => {
+    onDismiss();
+    const parts = [`clone=1`, `title=${encodeURIComponent(event.title)}`];
+    if (event.description) parts.push(`description=${encodeURIComponent(event.description)}`);
+    if (event.location) parts.push(`location=${encodeURIComponent(event.location)}`);
+    if (event.splash_art) parts.push(`splashArt=${encodeURIComponent(event.splash_art)}`);
+    router.push(`/(app)/activity/new?${parts.join('&')}` as any);
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <Pressable style={cloneStyles.overlay} onPress={onDismiss}>
+        <Pressable style={cloneStyles.card} onPress={() => {}}>
+          <Text style={cloneStyles.title}>Clone past event</Text>
+          {loading ? (
+            <ActivityIndicator color={Colors.primary} style={{ marginVertical: 24 }} />
+          ) : pastEvents.length === 0 ? (
+            <Text style={cloneStyles.empty}>No past events to copy.</Text>
+          ) : (
+            <ScrollView style={cloneStyles.list} showsVerticalScrollIndicator={false}>
+              {pastEvents.map(e => (
+                <TouchableOpacity key={e.id} style={cloneStyles.row} onPress={() => handleSelect(e)}>
+                  <View style={[cloneStyles.thumb, !e.splash_art && cloneStyles.thumbEmpty]}>
+                    {e.splash_art && <SplashArt preset={e.splash_art as SplashPreset} height={44} opacity={1} />}
+                  </View>
+                  <View style={cloneStyles.rowInfo}>
+                    <Text style={cloneStyles.rowTitle} numberOfLines={1}>{e.title}</Text>
+                    <Text style={cloneStyles.rowDate}>{format(new Date(e.activity_time), 'MMM d, yyyy')}</Text>
+                  </View>
+                  <Ionicons name="copy-outline" size={18} color={Colors.primary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+          <TouchableOpacity style={cloneStyles.cancelBtn} onPress={onDismiss}>
+            <Text style={cloneStyles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const cloneStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  card: { backgroundColor: Colors.surface, borderRadius: 20, padding: 20, width: '100%', maxWidth: 360, maxHeight: '70%' },
+  title: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 16 },
+  list: { maxHeight: 320 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, gap: 12 },
+  thumb: { width: 56, height: 40, borderRadius: 8, overflow: 'hidden' },
+  thumbEmpty: { backgroundColor: Colors.borderLight },
+  rowInfo: { flex: 1 },
+  rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  rowDate: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
+  empty: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginVertical: 24 },
+  cancelBtn: { marginTop: 16, alignItems: 'center', paddingVertical: 10 },
+  cancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+});
 
 type Filter = 'upcoming' | 'invited' | 'past' | 'declined';
 
@@ -32,9 +126,9 @@ const TABS: Array<{ id: Filter; label: string }> = [
 const INVITED_BLUE = '#3B82F6';
 
 const EMPTY: Record<Filter, { emoji: string; title: string; subtitle: string }> = {
-  upcoming: { emoji: '🌅', title: 'Nothing planned yet', subtitle: 'Post an activity to a Circle and see who joins!' },
+  upcoming: { emoji: '🌅', title: 'Nothing planned yet', subtitle: 'Post an event to a Circle and see who joins!' },
   invited: { emoji: '📬', title: 'No pending invites', subtitle: "When someone invites you, it'll appear here." },
-  past: { emoji: '📅', title: 'No past activities', subtitle: 'Your attended activities will appear here.' },
+  past: { emoji: '📅', title: 'No past events', subtitle: 'Your attended events will appear here.' },
   declined: { emoji: '🙅', title: 'No declined events', subtitle: 'Events you declined will appear here.' },
 };
 
@@ -43,6 +137,8 @@ export default function EventsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const { registerTarget } = useTutorial();
+  const newEventBtnRef = useRef<View>(null);
 
   const [allActivities, setAllActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +149,12 @@ export default function EventsScreen() {
   const [showHidden, setShowHidden] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
+  const [showAddDropdown, setShowAddDropdown] = useState(false);
+  const [showClonePicker, setShowClonePicker] = useState(false);
+
+  useEffect(() => {
+    if (newEventBtnRef.current) registerTarget('btn-new-event', newEventBtnRef);
+  }, [registerTarget]);
 
   const fetchActivities = useCallback(async () => {
     if (!user) return;
@@ -217,9 +319,39 @@ export default function EventsScreen() {
           <Text style={styles.greeting}>{greeting}</Text>
           <Text style={styles.subtitle}>What are you doing today?</Text>
         </View>
-        <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/activity/new')}>
-          <Ionicons name="add" size={28} color={Colors.primary} />
-        </TouchableOpacity>
+        <View ref={newEventBtnRef} collapsable={false}>
+          <TouchableOpacity style={styles.newButton} onPress={() => setShowAddDropdown(v => !v)}>
+            <Ionicons name="add" size={28} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+        <Modal visible={showAddDropdown} transparent animationType="none">
+          <Pressable style={[styles.dropdownBackdrop, { paddingTop: insets.top + 80 }]} onPress={() => setShowAddDropdown(false)}>
+            <View style={styles.addDropdown}>
+              <TouchableOpacity
+                style={styles.addDropdownRow}
+                onPress={() => { setShowAddDropdown(false); router.push('/(app)/activity/new'); }}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                <Text style={styles.addDropdownText}>New Event</Text>
+              </TouchableOpacity>
+              <View style={styles.addDropdownDivider} />
+              <TouchableOpacity
+                style={styles.addDropdownRow}
+                onPress={() => { setShowAddDropdown(false); setShowClonePicker(true); }}
+              >
+                <Ionicons name="copy-outline" size={18} color={Colors.primary} />
+                <Text style={styles.addDropdownText}>Clone Past Event</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Modal>
+        {user && (
+          <ClonePickerModal
+            visible={showClonePicker}
+            onDismiss={() => setShowClonePicker(false)}
+            userId={user.id}
+          />
+        )}
       </View>
 
       <View style={styles.tabRowWrap}>
@@ -268,7 +400,7 @@ export default function EventsScreen() {
             title={EMPTY[filter].title}
             subtitle={EMPTY[filter].subtitle}
             action={filter === 'upcoming'
-              ? <Button label="Post an activity" onPress={() => router.push('/(app)/activity/new')} />
+              ? <Button label="Post an event" onPress={() => router.push('/(app)/activity/new')} />
               : undefined}
           />
         </ScrollView>
@@ -351,6 +483,34 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',
   },
+  dropdownBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
+    alignItems: 'flex-end',
+    paddingRight: 20,
+  },
+  addDropdown: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+    minWidth: 190,
+    overflow: 'hidden',
+  },
+  addDropdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  addDropdownText: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  addDropdownDivider: { height: 1, backgroundColor: Colors.borderLight },
   tabRowWrap: { paddingHorizontal: 20, marginBottom: 12 },
   tabRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   filterTab: {

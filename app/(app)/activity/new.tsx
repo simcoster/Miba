@@ -1,13 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet,
+  View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   ActivityIndicator, Linking, Modal, Pressable, Dimensions,
-  Image, useWindowDimensions,
 } from 'react-native';
-import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { ZoomableImage } from '@/components/ZoomableImage';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addHours } from 'date-fns';
@@ -24,31 +21,42 @@ import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
-const LIMITED_EVENT_COMIC = require('@/assets/images/limited-event-comic.png');
-
 export default function NewActivityScreen() {
   const { user, profile } = useAuth();
   const router = useRouter();
+  const {
+    clone,
+    title: paramTitle,
+    description: paramDescription,
+    location: paramLocation,
+    splashArt: paramSplashArt,
+  } = useLocalSearchParams<{
+    clone?: string;
+    title?: string;
+    description?: string;
+    location?: string;
+    splashArt?: string;
+  }>();
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
-  const [splashArt, setSplashArt] = useState<SplashPreset | null>(null);
+  const isClone = clone === '1';
+
+  const [title, setTitle] = useState(paramTitle ?? '');
+  const [description, setDescription] = useState(paramDescription ?? '');
+  const [location, setLocation] = useState(paramLocation ?? '');
+  const [splashArt, setSplashArt] = useState<SplashPreset>(
+    (paramSplashArt as SplashPreset) || SPLASH_PRESETS[0].id
+  );
   const [showSplashPicker, setShowSplashPicker] = useState(false);
-  const [showDetailsInput, setShowDetailsInput] = useState(false);
+  const [showDetailsInput, setShowDetailsInput] = useState(!!paramDescription);
   const [isLimited, setIsLimited] = useState(false);
   const [maxParticipants, setMaxParticipants] = useState<number>(1);
-  const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 2));
+  const [activityTime, setActivityTime] = useState<Date>(addHours(new Date(), 1));
+  const [timeHighlight, setTimeHighlight] = useState(false);
   const [showExcludeBubble, setShowExcludeBubble] = useState(false);
-  const [showLimitedComic, setShowLimitedComic] = useState(false);
-  const [comicScale, setComicScale] = useState(1);
+  const [showLimitedBubble, setShowLimitedBubble] = useState(false);
   const [bubblePosition, setBubblePosition] = useState<{ x: number; y: number } | null>(null);
   const excludeIconRef = useRef<View>(null);
-  const { width: screenWidth } = useWindowDimensions();
-  const comicSource = Image.resolveAssetSource(LIMITED_EVENT_COMIC);
-  const comicMaxWidth = Math.round(screenWidth - 80);
-  const comicAspectRatio = comicSource?.height && comicSource?.width ? comicSource.height / comicSource.width : 1.4;
-  const comicHeight = Math.round(comicMaxWidth * comicAspectRatio);
+  const limitedIconRef = useRef<View>(null);
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
@@ -83,7 +91,7 @@ export default function NewActivityScreen() {
     if (!user) return;
     const { data } = await supabase
       .from('circles')
-      .select('id, name, emoji, created_by, created_at')
+      .select('id, name, emoji, description, created_by, created_at')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
     setCircles((data ?? []) as Circle[]);
@@ -93,6 +101,17 @@ export default function NewActivityScreen() {
     if (!user) return;
     fetchCircles();
   }, [fetchCircles]);
+
+  // Highlight the date/time buttons when cloning (don't auto-open the picker)
+  useEffect(() => {
+    if (!isClone) return;
+    const t = setTimeout(() => {
+      setTimeHighlight(true);
+      setTimeout(() => setTimeHighlight(false), 3000);
+    }, 300);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const skipFirstFocus = useRef(true);
   useFocusEffect(
@@ -140,7 +159,7 @@ export default function NewActivityScreen() {
 
     if (error) { Alert.alert('Error', 'Could not load circle members.'); return; }
 
-    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
+    const memberIds = new Set<string>((data ?? []).map((m: { user_id: string }) => m.user_id));
 
     // Compute excluded set (may be stale in closure, so compute fresh)
     const excluded = new Set(excludeUserIds);
@@ -220,7 +239,7 @@ export default function NewActivityScreen() {
   const addExclusionCircle = async (circle: Circle) => {
     setExcludeCircleIds(prev => new Set(prev).add(circle.id));
     const { data } = await supabase.from('circle_members').select('user_id').eq('circle_id', circle.id);
-    const memberIds = new Set((data ?? []).map((m: { user_id: string }) => m.user_id));
+    const memberIds = new Set<string>((data ?? []).map((m: { user_id: string }) => m.user_id));
     setInvitePool(prev => {
       const next = new Map(prev);
       memberIds.forEach(uid => next.delete(uid));
@@ -239,6 +258,10 @@ export default function NewActivityScreen() {
 
   const handleCreate = async () => {
     if (!user || title.trim().length < 2) return;
+    if (activityTime <= new Date()) {
+      Alert.alert('Past date', 'Please choose a future date and time.');
+      return;
+    }
     try {
       setLoading(true);
 
@@ -299,32 +322,26 @@ export default function NewActivityScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScreenHeader title="New Activity" showBack />
+      <ScreenHeader title="New Event" showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Cover image — above title, like event details */}
-        <View style={[styles.coverSection, splashArt && styles.coverSectionWithSplash]}>
+        {/* Title + Cover — merged section with splash as background */}
+        <View style={[styles.titleSection, splashArt && styles.titleSectionWithSplash]}>
           {splashArt && (
-            <View style={styles.splashBackground}>
-              <SplashArt preset={splashArt} height={105} opacity={0.4} />
+            <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}>
+              <SplashArt preset={splashArt} height={300} opacity={0.35} />
             </View>
           )}
-          <View style={[styles.coverOverlay, splashArt && styles.coverOverlayWithSplash]}>
+          <View style={styles.titleSectionInner}>
             <TouchableOpacity
               style={styles.addCoverBtn}
               onPress={() => setShowSplashPicker(v => !v)}
             >
               <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Add cover image'}</Text>
+              <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Cover image'}</Text>
             </TouchableOpacity>
             {showSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
-                <TouchableOpacity
-                  style={[styles.splashOption, !splashArt && styles.splashOptionActive]}
-                  onPress={() => { setSplashArt(null); setShowSplashPicker(false); }}
-                >
-                  <Text style={styles.splashOptionText}>None</Text>
-                </TouchableOpacity>
                 {SPLASH_PRESETS.map(p => (
                   <TouchableOpacity
                     key={p.id}
@@ -339,17 +356,37 @@ export default function NewActivityScreen() {
                 ))}
               </ScrollView>
             )}
+            <Text style={[styles.label, styles.titleLabel]}>What's happening? *</Text>
+            <TextInput
+              style={styles.input} value={title} onChangeText={setTitle}
+              placeholder="e.g. Morning surf, Escape room…"
+              placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
+            />
           </View>
         </View>
-
-        {/* Title */}
+        
+        {/* Details (hidden until button tapped) */}
         <View style={styles.section}>
-          <Text style={styles.label}>What's happening? *</Text>
-          <TextInput
-            style={styles.input} value={title} onChangeText={setTitle}
-            placeholder="e.g. Morning surf, Escape room…"
-            placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
-          />
+          <TouchableOpacity
+            style={styles.addCoverBtn}
+            onPress={() => setShowDetailsInput(v => !v)}
+          >
+            <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+            <Text style={styles.addCoverBtnText}>{description.trim() ? 'Change details' : 'Details'}</Text>
+          </TouchableOpacity>
+          {showDetailsInput && (
+            <TextInput
+              style={[styles.input, styles.textArea, { marginTop: 10 }]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Any extra info…"
+              placeholderTextColor={Colors.textSecondary}
+              maxLength={300}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+          )}
         </View>
 
         {/* Date & Time */}
@@ -357,14 +394,14 @@ export default function NewActivityScreen() {
           <Text style={styles.label}>When? *</Text>
           <View style={styles.datetimeRow}>
             <TouchableOpacity
-              style={[styles.datetimeBtn, { flex: 2 }]}
+              style={[styles.datetimeBtn, { flex: 2 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
               onPress={() => { setPickerMode('date'); setShowPicker(true); }}
             >
               <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
               <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.datetimeBtn, { flex: 1 }]}
+              style={[styles.datetimeBtn, { flex: 1 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
               onPress={() => { setPickerMode('time'); setShowPicker(true); }}
             >
               <Ionicons name="time-outline" size={18} color={Colors.primary} />
@@ -384,43 +421,20 @@ export default function NewActivityScreen() {
 
         {/* Location */}
         <View style={styles.section}>
-          <Text style={styles.label}>Where? (optional)</Text>
+          <Text style={styles.label}>Where?</Text>
           <LocationAutocomplete
             value={parseLocation(location)?.address ?? location ?? ''}
             onChangeText={(text) => setLocation(text)}
             onResolvedPlace={(p) => setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
-            placeholder="Venue, address, or link…"
+            placeholder="Venue or address"
             maxLength={150}
           />
         </View>
 
-        {/* Details (hidden until button tapped) */}
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.addCoverBtn}
-            onPress={() => setShowDetailsInput(v => !v)}
-          >
-            <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
-            <Text style={styles.addCoverBtnText}>{description.trim() ? 'Change details' : 'Add details'}</Text>
-          </TouchableOpacity>
-          {showDetailsInput && (
-            <TextInput
-              style={[styles.input, styles.textArea, { marginTop: 10 }]}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Any extra info…"
-              placeholderTextColor={Colors.textSecondary}
-              maxLength={300}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-          )}
-        </View>
-
+      
         {/* Invite via Circles */}
         <View style={styles.section}>
-          <Text style={styles.label}>Invite via Circle</Text>
+          <Text style={styles.label}>Invite</Text>
           {circles.length === 0 ? (
             <TouchableOpacity style={styles.emptyCircles} onPress={() => router.push('/(app)/circle/new')}>
               <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
@@ -448,7 +462,6 @@ export default function NewActivityScreen() {
 
         {/* Individual Search */}
         <View style={styles.section}>
-          <Text style={styles.label}>Invite individuals</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={18} color={Colors.textSecondary} />
             <TextInput
@@ -531,7 +544,6 @@ export default function NewActivityScreen() {
             <View style={styles.excludeSection}>
               {circles.length > 0 && (
                 <View style={styles.excludeCirclesRow}>
-                  <Text style={styles.excludeSubLabel}>Exclude circle</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     {circles.map(c => {
                       const isExcluded = excludeCircleIds.has(c.id);
@@ -550,7 +562,6 @@ export default function NewActivityScreen() {
                   </ScrollView>
                 </View>
               )}
-              <Text style={styles.excludeSubLabel}>Exclude individual</Text>
               <View style={styles.searchBox}>
                 <Ionicons name="search" size={18} color={Colors.textSecondary} />
                 <TextInput
@@ -644,12 +655,19 @@ export default function NewActivityScreen() {
               <Ionicons name={isLimited ? 'people' : 'people-outline'} size={16} color={Colors.primary} />
               <Text style={styles.addCoverBtnText}>Limited event</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => { setComicScale(1); setShowLimitedComic(true); }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
-            </TouchableOpacity>
+            <View ref={limitedIconRef} collapsable={false}>
+              <TouchableOpacity
+                onPress={() => {
+                  limitedIconRef.current?.measureInWindow((x, y, w) => {
+                    setBubblePosition({ x: x + w + 8, y });
+                    setShowLimitedBubble(true);
+                  });
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+              </TouchableOpacity>
+            </View>
           </View>
           {isLimited && (
             <View style={styles.limitedSection}>
@@ -694,10 +712,13 @@ export default function NewActivityScreen() {
         />
       </ScrollView>
 
-      {/* Exclude tooltip bubble */}
-      <Modal visible={showExcludeBubble} transparent animationType="fade">
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowExcludeBubble(false)} />
-        {bubblePosition && (
+      {/* Tooltip bubbles - overlay closes on any tap */}
+      <Modal visible={showExcludeBubble || showLimitedBubble} transparent animationType="fade">
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => { setShowExcludeBubble(false); setShowLimitedBubble(false); }}
+        />
+        {bubblePosition && showExcludeBubble && (
           <Pressable
             style={[
               styles.bubble,
@@ -710,26 +731,25 @@ export default function NewActivityScreen() {
             ]}
             onPress={() => setShowExcludeBubble(false)}
           >
-            <Text style={styles.bubbleText}>Excluded people won't be invited.</Text>
+            <Text style={styles.bubbleText}>Invite all, except selected people.</Text>
           </Pressable>
         )}
-      </Modal>
-
-      {/* Limited event comic modal — GestureHandlerRootView needed for gestures inside Modal on Android */}
-      <Modal visible={showLimitedComic} transparent animationType="fade">
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <View style={styles.comicModalOverlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowLimitedComic(false)} />
-            <View style={[styles.comicModalContent, { width: Math.min(400, screenWidth - 40) }]}>
-              <TouchableOpacity style={styles.comicModalClose} onPress={() => setShowLimitedComic(false)}>
-                <Ionicons name="close" size={28} color={Colors.text} />
-              </TouchableOpacity>
-              <ScrollView style={styles.comicModalScroll} contentContainerStyle={styles.comicModalScrollContent} showsVerticalScrollIndicator={false} scrollEnabled={comicScale <= 1}>
-                <ZoomableImage source={LIMITED_EVENT_COMIC} style={{ width: comicMaxWidth, height: comicHeight }} onScaleChange={setComicScale} />
-              </ScrollView>
-            </View>
-          </View>
-        </GestureHandlerRootView>
+        {bubblePosition && showLimitedBubble && (
+          <Pressable
+            style={[
+              styles.bubble,
+              styles.bubbleRight,
+              {
+                left: bubblePosition.x,
+                top: bubblePosition.y,
+                maxWidth: Dimensions.get('window').width - bubblePosition.x - 24,
+              },
+            ]}
+            onPress={() => setShowLimitedBubble(false)}
+          >
+            <Text style={styles.bubbleText}>Cap how many friends can join.</Text>
+          </Pressable>
+        )}
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -746,39 +766,21 @@ const styles = StyleSheet.create({
   excludeBtnActive: {},
   excludeBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   limitedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  comicModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    position: 'relative' as const,
-  },
-  comicModalContent: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    maxWidth: 400,
-    maxHeight: '90%',
-    overflow: 'hidden',
-  },
-  comicModalClose: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    zIndex: 1,
-    padding: 4,
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-  },
-  comicModalScroll: { maxHeight: '100%' },
-  comicModalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   limitedSection: { marginTop: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   limitedHint: { fontSize: 13, color: Colors.textSecondary, marginBottom: 8 },
   maxInputRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   maxBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
   maxBtnDisabled: { opacity: 0.5 },
   maxInput: { width: 70, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 12, paddingVertical: 10, fontSize: 18, fontWeight: '600', color: Colors.text, textAlign: 'center' },
-  excludeSection: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  excludeSection: {
+    marginTop: 12,
+    padding: 14,
+    paddingTop: 14,
+    backgroundColor: Colors.dangerLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+  },
   excludeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   bubbleRight: { position: 'absolute' as const, minWidth: 160, maxWidth: 280 },
   excludeSubLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 8 },
@@ -810,15 +812,14 @@ const styles = StyleSheet.create({
   searchResults: { marginTop: 6, backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, overflow: 'hidden' },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   searchInfo: { flex: 1 },
-  coverSection: { paddingTop: 8, paddingBottom: 4, marginBottom: 22, position: 'relative' as const },
-  coverSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
-  splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, height: 105, overflow: 'hidden', borderRadius: 16 },
-  coverOverlay: { paddingTop: 8, paddingBottom: 4 },
-  coverOverlayWithSplash: { paddingTop: 117 },
+  titleSection: { marginBottom: 22, position: 'relative' as const, overflow: 'hidden' as const, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
+  titleSectionWithSplash: { borderColor: 'transparent' },
+  titleSectionInner: { padding: 14 },
+  titleLabel: { marginTop: 12 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
-  splashScroll: { marginHorizontal: -20, marginTop: 10 },
-  splashScrollContent: { paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center' },
+  splashScroll: { marginHorizontal: -14, marginTop: 10 },
+  splashScrollContent: { paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
   splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10, backgroundColor: Colors.surface },
   splashOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   splashOptionImage: { padding: 0, overflow: 'hidden', width: 80 },

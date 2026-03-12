@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,15 +10,30 @@ import { useUpdatesCount } from '@/contexts/UpdatesCountContext';
 import { ContactImportModal } from '@/components/ContactImportModal';
 import { hasOfferedImport } from '@/lib/contactImport';
 import { useAuth } from '@/contexts/AuthContext';
+import { TutorialProvider, useTutorial } from '@/contexts/TutorialContext';
+import { TutorialOverlay } from '@/components/TutorialOverlay';
+import { hasTutorialCompleted } from '@/lib/tutorial';
 
-function TabIcon({ name, focused, label }: {
+function TabIcon({ name, focused, label, tutorialTarget }: {
   name: React.ComponentProps<typeof Ionicons>['name'];
   focused: boolean;
   label: string;
+  tutorialTarget?: string;
 }) {
+  const ref = useRef<View>(null);
+  const { registerTarget } = useTutorial();
+
+  useEffect(() => {
+    if (tutorialTarget && ref.current) {
+      registerTarget(tutorialTarget, ref);
+    }
+  }, [tutorialTarget, registerTarget]);
+
   return (
     <View style={styles.tabIconContainer}>
-      <Ionicons name={name} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
+      <View ref={ref} collapsable={false}>
+        <Ionicons name={name} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
+      </View>
       <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>{label}</Text>
     </View>
   );
@@ -43,12 +58,21 @@ function UpdatesTabIcon({ focused }: { focused: boolean }) {
 
 function MipoTabIcon({ focused }: { focused: boolean }) {
   const { visibleState } = useMipo();
+  const { registerTarget } = useTutorial();
+  const ref = useRef<View>(null);
   const isActive = visibleState.isVisible;
   const color = isActive ? Colors.success : (focused ? Colors.primary : Colors.textSecondary);
   const iconName = (isActive || focused ? 'location' : 'location-outline') as React.ComponentProps<typeof Ionicons>['name'];
+
+  useEffect(() => {
+    if (ref.current) registerTarget('tab-mipo', ref);
+  }, [registerTarget]);
+
   return (
     <View style={styles.tabIconContainer}>
-      <Ionicons name={iconName} size={24} color={color} />
+      <View ref={ref} collapsable={false}>
+        <Ionicons name={iconName} size={24} color={color} />
+      </View>
       <Text style={[styles.tabLabel, (focused || isActive) && styles.tabLabelActive, isActive && styles.tabLabelMipoActive]} numberOfLines={1} allowFontScaling={false}>Mipo</Text>
     </View>
   );
@@ -101,12 +125,30 @@ function ContactImportGate({ children }: { children: React.ReactNode }) {
   );
 }
 
+function TutorialGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const { start } = useTutorial();
+
+  useEffect(() => {
+    if (!user) return;
+    hasTutorialCompleted().then(done => {
+      if (!done) setTimeout(() => start(), 800);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  return <>{children}</>;
+}
+
 export default function AppLayout() {
   const insets = useSafeAreaInsets();
   return (
+    <TutorialProvider>
     <MipoProvider>
+    <TutorialGate>
     <ContactImportGate>
     <NotificationHandler />
+    <TutorialOverlay />
     <Tabs
       backBehavior="history"
       screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}
@@ -131,7 +173,7 @@ export default function AppLayout() {
         name="circles"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'people' : 'people-outline'} focused={focused} label="Circles" />
+            <TabIcon name={focused ? 'people' : 'people-outline'} focused={focused} label="Circles" tutorialTarget="tab-circles" />
           ),
         }}
       />
@@ -166,7 +208,9 @@ export default function AppLayout() {
       <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>
     </ContactImportGate>
+    </TutorialGate>
     </MipoProvider>
+    </TutorialProvider>
   );
 }
 

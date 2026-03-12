@@ -21,7 +21,7 @@ export function parseLocation(location: string | null | undefined): ParsedLocati
       displayName: parts[2].trim(),
     };
   }
-  return { address: location.trim() };
+  return { address: location };
 }
 
 export function buildLocationWithPlace(address: string, placeId: string, displayName: string): string {

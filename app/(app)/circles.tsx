@@ -13,11 +13,18 @@ import { CircleCard } from '@/components/CircleCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import Colors from '@/constants/Colors';
+import { useTutorial } from '@/contexts/TutorialContext';
 
 export default function CirclesScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { registerTarget } = useTutorial();
+  const newCircleBtnRef = useRef<View>(null);
+
+  useEffect(() => {
+    if (newCircleBtnRef.current) registerTarget('btn-add-circle', newCircleBtnRef);
+  }, [registerTarget]);
 
   const [circles, setCircles] = useState<Circle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,9 +96,11 @@ export default function CirclesScreen() {
             Examples: PlayStation buddies 🎮, dog walkers 🐕
           </Text>
         </View>
-        <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/circle/new?fromTab=circles')}>
-          <Ionicons name="add" size={28} color={Colors.primary} />
-        </TouchableOpacity>
+        <View ref={newCircleBtnRef} collapsable={false}>
+          <TouchableOpacity style={styles.newButton} onPress={() => router.push('/(app)/circle/new?fromTab=circles')}>
+            <Ionicons name="add" size={28} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (

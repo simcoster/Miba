@@ -123,7 +123,7 @@ export default function ActivityDetailScreen() {
         setEditDesc(act.description ?? '');
         setEditLocation(act.location ?? '');
         setEditTime(new Date(act.activity_time));
-        setEditSplashArt(act.splash_art ?? null);
+        setEditSplashArt(act.splash_art ?? 'banner_1');
         setIsEditing(true);
       }
     }
@@ -352,12 +352,16 @@ export default function ActivityDetailScreen() {
     setEditDesc(activity.description ?? '');
     setEditLocation(activity.location ?? '');
     setEditTime(new Date(activity.activity_time));
-    setEditSplashArt(activity.splash_art ?? null);
+    setEditSplashArt(activity.splash_art ?? 'banner_1');
     setIsEditing(true);
   };
 
   const handleSaveEdit = async () => {
     if (!activity || editTitle.trim().length < 2) return;
+    if (editTime <= new Date()) {
+      Alert.alert('Past date', 'Please choose a future date and time.');
+      return;
+    }
     try {
       setSaveLoading(true);
 
@@ -574,12 +578,6 @@ export default function ActivityDetailScreen() {
             </TouchableOpacity>
             {showEditSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
-                <TouchableOpacity
-                  style={[styles.splashPickerOption, !editSplashArt && styles.splashPickerOptionActive]}
-                  onPress={() => { setEditSplashArt(null); setShowEditSplashPicker(false); }}
-                >
-                  <Text style={styles.splashPickerOptionText}>None</Text>
-                </TouchableOpacity>
                 {SPLASH_PRESETS.map(p => (
                   <TouchableOpacity
                     key={p.id}

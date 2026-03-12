@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable,
   TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
-  Platform, Linking,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -13,6 +13,7 @@ import * as Crypto from 'expo-crypto';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addMinutes } from 'date-fns';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMipo, type ProximityEventWithProfile } from '@/contexts/MipoContext';
@@ -21,11 +22,11 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import {
   checkMipoVisibleModePermissions,
-  requestBackgroundLocationPermission,
   startMipoLocationWatch,
   type LocationSubscription,
 } from '@/lib/mipoLocation';
 import Colors from '@/constants/Colors';
+import { hasMipoPermissionBeenExplained, markMipoPermissionExplained } from '@/lib/mipoPermissionExplained';
 
 type TimerOption = '10min' | '1hour' | 'unlimited';
 
@@ -42,7 +43,6 @@ const CUSTOM_DISTANCE_MIN = 100;
 const CUSTOM_DISTANCE_MAX = 50000;
 
 const MIPO_COMIC = require('@/assets/images/Mipo-comic.png');
-const MIPO_PERMISSIONS_HOWTO = require('@/assets/images/Mipo-permissions-howto.jpeg');
 
 const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
   <TouchableOpacity style={styles.howItWorksBtn} onPress={onPress} activeOpacity={0.7}>
@@ -81,7 +81,8 @@ export default function MipoScreen() {
   const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby, checkAndTurnOffIfServiceStopped } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [comicScale, setComicScale] = useState(1);
-  const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string; missingBackground?: boolean }>({ visible: false, title: '', message: '' });
+  const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string }>({ visible: false, title: '', message: '' });
+  const [showPermissionExplain, setShowPermissionExplain] = useState(false);
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -268,8 +269,22 @@ export default function MipoScreen() {
   }, [view, selectedPool, user, saveSelections]);
 
   const handleTurnOnVisible = useCallback(async () => {
+    const explained = await hasMipoPermissionBeenExplained();
+    if (!explained) {
+      setShowPermissionExplain(true);
+      return;
+    }
     await saveSelections();
     if (!user) return;
+    const { status: notifStatus } = await Notifications.requestPermissionsAsync();
+    if (notifStatus !== 'granted') {
+      setPermissionErrorModal({
+        visible: true,
+        title: 'Notifications required',
+        message: 'Mipo visible mode notifies you when a friend is nearby — it needs notification permission to do that.\n\nPlease enable notifications for Miba in Settings.',
+      });
+      return;
+    }
     const permResult = await checkMipoVisibleModePermissions();
     if (!permResult.ok) {
       const title = permResult.missingPrecise
@@ -281,7 +296,6 @@ export default function MipoScreen() {
         visible: true,
         title,
         message: permResult.message ?? 'Mipo needs location permissions to work. Please enable them in Settings.',
-        missingBackground: permResult.missingBackground,
       });
       return;
     }
@@ -329,7 +343,6 @@ export default function MipoScreen() {
           message: Platform.OS === 'ios'
             ? 'Mipo needs "Allow all the time" location access to notify you when friends are nearby. Please enable it in Settings > Privacy > Location Services > Miba.'
             : 'Could not start location tracking. Please check that location permissions are enabled in Settings.',
-          missingBackground: Platform.OS === 'ios',
         });
         return;
       }
@@ -390,19 +403,6 @@ export default function MipoScreen() {
       .eq('user_id', user.id)
       .then(() => {});
   }, [user, visibleState.isVisible]);
-
-  // Re-request background permission when showing the "allow all the time" error modal
-  useEffect(() => {
-    if (permissionErrorModal.visible && permissionErrorModal.missingBackground) {
-      if (Platform.OS === 'android') {
-        // On Android, requestBackgroundPermissionsAsync often doesn't open settings reliably.
-        // Linking.openSettings() opens the app's settings page where the user can set "Allow all the time".
-        Linking.openSettings();
-      } else {
-        requestBackgroundLocationPermission();
-      }
-    }
-  }, [permissionErrorModal.visible, permissionErrorModal.missingBackground]);
 
   const checkMipoUnread = useCallback(async () => {
     if (!user || nearbyEvents.length === 0) {
@@ -678,7 +678,6 @@ export default function MipoScreen() {
                 <Ionicons name="close" size={28} color={Colors.text} />
               </TouchableOpacity>
               <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
-                <Image source={MIPO_PERMISSIONS_HOWTO} style={styles.permissionHowtoImage} resizeMode="contain" />
                 <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
                 <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
               </ScrollView>
@@ -853,6 +852,47 @@ export default function MipoScreen() {
           <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
         </View>
       </View>
+      <Modal visible={showPermissionExplain} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPermissionExplain(false)} />
+          <View style={[styles.permissionExplainCard]}>
+            <View style={styles.permissionExplainIcon}>
+              <Ionicons name="location" size={40} color={Colors.primary} />
+            </View>
+            <Text style={styles.permissionExplainTitle}>Mipo needs your location</Text>
+            <Text style={styles.permissionExplainBody}>
+              Mipo detects when you and friends are close by and sends you a notification.
+            </Text>
+            {Platform.OS === 'ios' && (
+              <Text style={styles.permissionExplainBody}>
+                It requires "Allow all the time" access so it works when the app is in the background.
+              </Text>
+            )}
+            {Platform.OS === 'android' && (
+              <Text style={styles.permissionExplainBody}>
+                It runs as a foreground service — you'll see a persistent notification while active.
+              </Text>
+            )}
+            <TouchableOpacity
+              style={styles.permissionExplainContinue}
+              onPress={async () => {
+                await markMipoPermissionExplained();
+                setShowPermissionExplain(false);
+                handleTurnOnVisible();
+              }}
+            >
+              <Text style={styles.permissionExplainContinueText}>Continue</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.permissionExplainNotNow}
+              onPress={() => setShowPermissionExplain(false)}
+            >
+              <Text style={styles.permissionExplainNotNowText}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showHowItWorks} transparent animationType="fade">
         <GestureHandlerRootView style={{ flex: 1 }}>
           <View style={styles.modalOverlay}>
@@ -876,7 +916,6 @@ export default function MipoScreen() {
               <Ionicons name="close" size={28} color={Colors.text} />
             </TouchableOpacity>
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
-              <Image source={MIPO_PERMISSIONS_HOWTO} style={styles.permissionHowtoImage} resizeMode="contain" />
               <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
               <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
             </ScrollView>
@@ -927,7 +966,6 @@ const styles = StyleSheet.create({
   },
   permissionModalContent: { maxHeight: '85%' },
   permissionModalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
-  permissionHowtoImage: { width: '100%', height: 220, marginBottom: 16 },
   permissionModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' },
   permissionModalMessage: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
   modalScroll: { maxHeight: '100%' },
@@ -978,4 +1016,24 @@ const styles = StyleSheet.create({
   nearbyInfo: { flex: 1 },
   nearbyName: { fontSize: 16, fontWeight: '600', color: Colors.text },
   nearbyTime: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
+  permissionExplainCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    padding: 24,
+    maxWidth: 340,
+    width: '100%',
+    alignItems: 'center',
+  },
+  permissionExplainIcon: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: Colors.accentLight,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16,
+  },
+  permissionExplainTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, marginBottom: 8, textAlign: 'center' },
+  permissionExplainBody: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, textAlign: 'center', marginBottom: 8 },
+  permissionExplainContinue: { marginTop: 12, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 14, width: '100%', alignItems: 'center' },
+  permissionExplainContinueText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  permissionExplainNotNow: { marginTop: 8, paddingVertical: 10, width: '100%', alignItems: 'center' },
+  permissionExplainNotNowText: { fontSize: 16, fontWeight: '600', color: Colors.textSecondary },
 });

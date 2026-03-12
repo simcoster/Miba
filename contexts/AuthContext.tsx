@@ -127,7 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
     registerForPushNotifications(user.id).then((result) => {
-      if (!result.success) {
+      // Permission denial is expected — don't surface as an error
+      if (!result.success && result.error && !result.error.startsWith('Permission')) {
         setPushPopup({
           title: 'Push registration failed',
           message: result.error ?? 'Unknown error',
