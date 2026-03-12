@@ -18,6 +18,7 @@ class MapErrorBoundary extends React.Component<
 }
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
 import type { EditSuggestionMetadata } from '@/lib/types';
@@ -49,8 +50,9 @@ function formatMessageTime(dateStr: string): string {
 }
 
 export default function ActivityChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, fromTab } = useLocalSearchParams<{ id: string; fromTab?: string }>();
   const { user } = useAuth();
+  useSetTabHighlight(fromTab);
   const router = useRouter();
 
   const insets = useSafeAreaInsets();
@@ -328,7 +330,7 @@ export default function ActivityChatScreen() {
         return (
           <TouchableOpacity
             style={styles.systemPillWrapper}
-            onPress={() => router.push(`/(app)/activity/${id}/edit-changes?messageId=${item.id}`)}
+            onPress={() => router.push(`/(app)/activity/${id}/edit-changes?messageId=${item.id}${fromTab ? `&fromTab=${encodeURIComponent(fromTab)}` : ''}`)}
             activeOpacity={0.7}
           >
             <View style={styles.systemPill}>
@@ -462,7 +464,12 @@ export default function ActivityChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
     >
-      <ScreenHeader title={isMipoDm ? `Chat with ${otherUserName ?? 'Someone'}` : (activityTitle || 'Chat')} subtitle={isMipoDm ? undefined : 'Group chat'} showBack />
+      <ScreenHeader
+        title={isMipoDm ? `Chat with ${otherUserName ?? 'Someone'}` : (activityTitle || 'Chat')}
+        subtitle={isMipoDm ? undefined : 'Group chat'}
+        showBack
+        onTitlePress={!isMipoDm && id ? () => router.push(`/(app)/activity/${id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`) : undefined}
+      />
 
       {loading ? (
         <View style={styles.center}>

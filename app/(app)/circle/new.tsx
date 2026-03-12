@@ -5,6 +5,7 @@ import {
   Alert, KeyboardAvoidingView, Platform, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -20,6 +21,7 @@ export default function NewCircleScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const { fromTab } = useLocalSearchParams<{ fromTab?: string }>();
+  useSetTabHighlight(fromTab);
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('👥');
   const [loading, setLoading] = useState(false);
@@ -117,7 +119,7 @@ export default function NewCircleScreen() {
       }
 
       if (fromTab) {
-        router.replace({ pathname: '/(app)/circle/[id]', params: { id: circleId, fromTab } } as any);
+        router.replace(`/(app)/circle/${circleId}?fromTab=${encodeURIComponent(fromTab)}`);
       } else {
         router.replace(`/(app)/circle/${circleId}`);
       }

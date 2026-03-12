@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -133,6 +134,7 @@ const EMPTY: Record<Filter, { emoji: string; title: string; subtitle: string }> 
 };
 
 export default function EventsScreen() {
+  useClearTabHighlightOnFocus();
   const { user, profile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();

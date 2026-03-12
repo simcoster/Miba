@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Modal, Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Application from 'expo-application';
@@ -28,6 +29,7 @@ function AboutRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function ProfileScreen() {
+  useClearTabHighlightOnFocus();
   const { user, profile, signOut, refreshProfile } = useAuth();
   const { start } = useTutorial();
   const insets = useSafeAreaInsets();

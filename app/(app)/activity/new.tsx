@@ -436,7 +436,7 @@ export default function NewActivityScreen() {
         <View style={styles.section}>
           <Text style={styles.label}>Invite</Text>
           {circles.length === 0 ? (
-            <TouchableOpacity style={styles.emptyCircles} onPress={() => router.push('/(app)/circle/new')}>
+            <TouchableOpacity style={styles.emptyCircles} onPress={() => router.push('/(app)/circle/new?fromTab=events')}>
               <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
               <Text style={styles.emptyCirclesText}>Create a circle first</Text>
             </TouchableOpacity>

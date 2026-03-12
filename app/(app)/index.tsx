@@ -5,6 +5,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
@@ -21,6 +22,7 @@ import Colors from '@/constants/Colors';
 const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
 export default function UpdatesScreen() {
+  useClearTabHighlightOnFocus();
   const { user } = useAuth();
   const { refresh } = useUpdatesCount();
   const router = useRouter();

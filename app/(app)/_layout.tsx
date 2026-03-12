@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { MipoProvider, useMipo } from '@/contexts/MipoContext';
 import { useUpdatesCount } from '@/contexts/UpdatesCountContext';
+import { TabHighlightProvider, useTabHighlight, type TabName } from '@/contexts/TabHighlightContext';
 import { ContactImportModal } from '@/components/ContactImportModal';
 import { hasOfferedImport } from '@/lib/contactImport';
 import { useAuth } from '@/contexts/AuthContext';
@@ -37,6 +38,12 @@ function TabIcon({ name, focused, label, tutorialTarget }: {
       <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>{label}</Text>
     </View>
   );
+}
+
+function TabIconWithHighlight({ tabName, focused, children }: { tabName: TabName; focused: boolean; children: (focused: boolean) => React.ReactNode }) {
+  const { effectiveTab } = useTabHighlight();
+  const effectiveFocused = focused || effectiveTab === tabName;
+  return <>{children(effectiveFocused)}</>;
 }
 
 function UpdatesTabIcon({ focused }: { focused: boolean }) {
@@ -87,9 +94,9 @@ function NotificationHandler() {
         router.push('/(app)/mipo');
       } else if (data?.activityId && ['chat', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled'].includes(data.type ?? '')) {
         if (data.type === 'chat') {
-          router.push(`/(app)/activity/${data.activityId}/chat`);
+          router.push(`/(app)/activity/${data.activityId}/chat?fromTab=chats`);
         } else {
-          router.push(`/(app)/activity/${data.activityId}`);
+          router.push(`/(app)/activity/${data.activityId}?fromTab=events`);
         }
       }
     };
@@ -140,15 +147,9 @@ function TutorialGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function AppLayout() {
+function TabBarContent() {
   const insets = useSafeAreaInsets();
   return (
-    <TutorialProvider>
-    <MipoProvider>
-    <TutorialGate>
-    <ContactImportGate>
-    <NotificationHandler />
-    <TutorialOverlay />
     <Tabs
       backBehavior="history"
       screenOptions={{ headerShown: false, tabBarShowLabel: false, tabBarStyle: [styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }] }}
@@ -157,7 +158,9 @@ export default function AppLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <UpdatesTabIcon focused={focused} />
+            <TabIconWithHighlight tabName="index" focused={focused}>
+              {(f) => <UpdatesTabIcon focused={f} />}
+            </TabIconWithHighlight>
           ),
         }}
       />
@@ -165,7 +168,9 @@ export default function AppLayout() {
         name="events"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'calendar' : 'calendar-outline'} focused={focused} label="Events" />
+            <TabIconWithHighlight tabName="events" focused={focused}>
+              {(f) => <TabIcon name={f ? 'calendar' : 'calendar-outline'} focused={f} label="Events" />}
+            </TabIconWithHighlight>
           ),
         }}
       />
@@ -173,7 +178,9 @@ export default function AppLayout() {
         name="circles"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'people' : 'people-outline'} focused={focused} label="Circles" tutorialTarget="tab-circles" />
+            <TabIconWithHighlight tabName="circles" focused={focused}>
+              {(f) => <TabIcon name={f ? 'people' : 'people-outline'} focused={f} label="Circles" tutorialTarget="tab-circles" />}
+            </TabIconWithHighlight>
           ),
         }}
       />
@@ -181,7 +188,9 @@ export default function AppLayout() {
         name="profile"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'person' : 'person-outline'} focused={focused} label="Profile" />
+            <TabIconWithHighlight tabName="profile" focused={focused}>
+              {(f) => <TabIcon name={f ? 'person' : 'person-outline'} focused={f} label="Profile" />}
+            </TabIconWithHighlight>
           ),
         }}
       />
@@ -189,14 +198,20 @@ export default function AppLayout() {
         name="chats"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} focused={focused} label="Chats" />
+            <TabIconWithHighlight tabName="chats" focused={focused}>
+              {(f) => <TabIcon name={f ? 'chatbubbles' : 'chatbubbles-outline'} focused={f} label="Chats" />}
+            </TabIconWithHighlight>
           ),
         }}
       />
       <Tabs.Screen
         name="mipo"
         options={{
-          tabBarIcon: ({ focused }) => <MipoTabIcon focused={focused} />,
+          tabBarIcon: ({ focused }) => (
+            <TabIconWithHighlight tabName="mipo" focused={focused}>
+              {(f) => <MipoTabIcon focused={f} />}
+            </TabIconWithHighlight>
+          ),
         }}
       />
       <Tabs.Screen name="circle/new"              options={{ href: null }} />
@@ -207,6 +222,20 @@ export default function AppLayout() {
       <Tabs.Screen name="activity/[id]/chat"             options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>
+  );
+}
+
+export default function AppLayout() {
+  return (
+    <TutorialProvider>
+    <MipoProvider>
+    <TutorialGate>
+    <ContactImportGate>
+    <TabHighlightProvider>
+    <NotificationHandler />
+    <TutorialOverlay />
+    <TabBarContent />
+    </TabHighlightProvider>
     </ContactImportGate>
     </TutorialGate>
     </MipoProvider>

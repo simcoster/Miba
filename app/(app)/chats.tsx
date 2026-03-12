@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -47,6 +48,7 @@ function formatLastMessage(msg: { type: string; content: string } | null): strin
 }
 
 export default function ChatsScreen() {
+  useClearTabHighlightOnFocus();
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -161,7 +163,7 @@ export default function ChatsScreen() {
     <TouchableOpacity
       style={styles.chatRow}
       activeOpacity={0.7}
-      onPress={() => router.push(`/(app)/activity/${item.activityId}/chat`)}
+      onPress={() => router.push(`/(app)/activity/${item.activityId}/chat?fromTab=chats`)}
     >
       {item.splashArt ? (
         <View style={styles.splashCircle}>

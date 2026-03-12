@@ -9,6 +9,7 @@ import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler
 import { ZoomableImage } from '@/components/ZoomableImage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import * as Crypto from 'expo-crypto';
 import { Ionicons } from '@expo/vector-icons';
 import { format, addMinutes } from 'date-fns';
@@ -52,6 +53,7 @@ const HowItWorksButton = ({ onPress }: { onPress: () => void }) => (
 );
 
 export default function MipoScreen() {
+  useClearTabHighlightOnFocus();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -462,7 +464,7 @@ export default function MipoScreen() {
       .single();
 
     if (existing?.activity_id) {
-      router.push(`/(app)/activity/${existing.activity_id}/chat`);
+      router.push(`/(app)/activity/${existing.activity_id}/chat?fromTab=mipo`);
       return;
     }
 
@@ -495,7 +497,7 @@ export default function MipoScreen() {
       activity_id: activityId,
     });
 
-    router.push(`/(app)/activity/${activityId}/chat`);
+    router.push(`/(app)/activity/${activityId}/chat?fromTab=mipo`);
   }, [user, router]);
 
   const selectedList = [...selectedPool.values()];

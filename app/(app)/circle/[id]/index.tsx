@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useGlobalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,6 +23,7 @@ export default function CircleDetailScreen() {
   // useGlobalSearchParams as fallback — hidden tab screens may not get local query params
   const fromTab = localParams.fromTab ?? globalParams.fromTab;
   const { user } = useAuth();
+  useSetTabHighlight(fromTab);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -377,7 +379,7 @@ export default function CircleDetailScreen() {
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>Members</Text>
             {isOwner && (
-              <TouchableOpacity onPress={() => router.push(`/(app)/circle/${id}/invite`)}>
+              <TouchableOpacity onPress={() => router.push(`/(app)/circle/${id}/invite?fromTab=${encodeURIComponent(fromTab ?? 'circles')}`)}>
                 <Text style={styles.addLink}>+ Add</Text>
               </TouchableOpacity>
             )}

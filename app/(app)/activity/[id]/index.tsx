@@ -5,6 +5,7 @@ import {
   Modal,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,6 +33,7 @@ import Colors from '@/constants/Colors';
 export default function ActivityDetailScreen() {
   const { id, edit, fromTab } = useLocalSearchParams<{ id: string; edit?: string; fromTab?: string }>();
   const { user, profile } = useAuth();
+  useSetTabHighlight(fromTab);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -550,7 +552,7 @@ export default function ActivityDetailScreen() {
   const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
   const headerActions = [
-    { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat`), badge: hasUnread },
+    { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat?fromTab=${encodeURIComponent(fromTab ?? 'events')}`), badge: hasUnread },
     ...(isCreator && activity.status === 'active' && !isEditing
       ? [{ icon: 'ellipsis-vertical' as const, onPress: () => setShowMenu(true) }]
       : []),

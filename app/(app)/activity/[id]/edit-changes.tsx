@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -28,7 +29,8 @@ function formatFieldValue(field: keyof EditableFields, value: string | null | un
 }
 
 export default function EditChangesScreen() {
-  const { id, messageId } = useLocalSearchParams<{ id: string; messageId: string }>();
+  const { id, messageId, fromTab } = useLocalSearchParams<{ id: string; messageId: string; fromTab?: string }>();
+  useSetTabHighlight(fromTab);
 
   const [metadata, setMetadata] = useState<EditMetadata | null>(null);
   const [loading, setLoading] = useState(true);

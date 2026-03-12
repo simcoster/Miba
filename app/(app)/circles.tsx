@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -16,6 +17,7 @@ import Colors from '@/constants/Colors';
 import { useTutorial } from '@/contexts/TutorialContext';
 
 export default function CirclesScreen() {
+  useClearTabHighlightOnFocus();
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();

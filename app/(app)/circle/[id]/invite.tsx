@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,8 +15,9 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
 
 export default function InviteScreen() {
-  const { id: circleId } = useLocalSearchParams<{ id: string }>();
+  const { id: circleId, fromTab } = useLocalSearchParams<{ id: string; fromTab?: string }>();
   const { user } = useAuth();
+  useSetTabHighlight(fromTab);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
