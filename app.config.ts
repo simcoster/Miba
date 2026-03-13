@@ -10,6 +10,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   owner: 'simcoster',
   plugins: [
     ...(config.plugins ?? []),
+    'expo-floating-bubble',
     './plugins/withGoogleMapsApiKey.js',
     './plugins/withAndroidReleaseSigning.js',
     '@react-native-firebase/app',

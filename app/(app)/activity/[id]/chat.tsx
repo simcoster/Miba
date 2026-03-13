@@ -31,6 +31,13 @@ import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { parseLocation } from '@/lib/locationUtils';
 import { requestLocationPermission } from '@/lib/mipoLocation';
+import {
+  showChatBubble,
+  hideChatBubble,
+  isChatBubbleActive,
+  getActiveChatActivityId,
+  isChatBubbleAvailable,
+} from '@/lib/chatBubble';
 import Colors from '@/constants/Colors';
 
 type LocationShare = {
@@ -64,10 +71,12 @@ export default function ActivityChatScreen() {
   const [sending, setSending] = useState(false);
   const [isMipoDm, setIsMipoDm] = useState(false);
   const [otherUserName, setOtherUserName] = useState<string | null>(null);
+  const [otherUserAvatar, setOtherUserAvatar] = useState<string | null>(null);
   const [locationShares, setLocationShares] = useState<LocationShare[]>([]);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [shareLocationLoading, setShareLocationLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [bubbleVisible, setBubbleVisible] = useState(false);
 
   const listRef = useRef<FlatList>(null);
   const scrollOffsetRef = useRef(0);
@@ -114,6 +123,13 @@ export default function ActivityChatScreen() {
     fetchInitial().finally(() => { setLoading(false); markRead(); });
   }, [fetchInitial, markRead]);
 
+  // Sync bubbleVisible with actual bubble state (e.g. when returning to chat)
+  useEffect(() => {
+    if (id && isMipoDm && isChatBubbleAvailable()) {
+      setBubbleVisible(isChatBubbleActive() && getActiveChatActivityId() === id);
+    }
+  }, [id, isMipoDm]);
+
   // Detect Mipo DM and fetch other user's name for header
   useEffect(() => {
     if (!id || !user) return;
@@ -126,12 +142,14 @@ export default function ActivityChatScreen() {
         if (!data) {
           setIsMipoDm(false);
           setOtherUserName(null);
+          setOtherUserAvatar(null);
           return;
         }
         setIsMipoDm(true);
         const otherId = data.user_a_id === user.id ? data.user_b_id : data.user_a_id;
-        const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', otherId).single();
+        const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', otherId).single();
         setOtherUserName(profile?.full_name ?? 'Someone');
+        setOtherUserAvatar(profile?.avatar_url ?? null);
       });
   }, [id, user]);
 
@@ -225,6 +243,20 @@ export default function ActivityChatScreen() {
       setShareLocationLoading(false);
     }
   }, [id, user]);
+
+  const handleBubblePress = useCallback(async () => {
+    if (!id) return;
+    console.log('[Chat] handleBubblePress, id:', id);
+    const isActive = isChatBubbleActive() && getActiveChatActivityId() === id;
+    if (isActive) {
+      hideChatBubble();
+      setBubbleVisible(false);
+    } else {
+      const ok = await showChatBubble(id, otherUserAvatar);
+      console.log('[Chat] showChatBubble result:', ok);
+      setBubbleVisible(ok);
+    }
+  }, [id, otherUserAvatar]);
 
   const handleStopLocation = useCallback(async () => {
     if (!id || !user) return;
@@ -469,6 +501,15 @@ export default function ActivityChatScreen() {
         subtitle={isMipoDm ? undefined : 'Group chat'}
         showBack
         onTitlePress={!isMipoDm && id ? () => router.push(`/(app)/activity/${id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`) : undefined}
+        rightAction={
+          isMipoDm && id && isChatBubbleAvailable()
+            ? {
+                icon: bubbleVisible ? 'close-circle' : 'chatbubble',
+                onPress: handleBubblePress,
+                label: bubbleVisible ? undefined : undefined,
+              }
+            : undefined
+        }
       />
 
       {loading ? (

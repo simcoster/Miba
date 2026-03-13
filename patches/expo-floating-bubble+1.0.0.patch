@@ -1,0 +1,90 @@
+diff --git a/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleModule.kt b/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleModule.kt
+index 644b905..7059497 100644
+--- a/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleModule.kt
++++ b/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleModule.kt
+@@ -418,8 +418,15 @@ class ExpoFloatingBubbleModule : Module() {
+         putExtra("initialY", initialY)
+       }
+ 
+-      ContextCompat.startForegroundService(context, intent)
+-      sendEvent("onBubbleShown", mapOf("success" to true))
++      try {
++        android.util.Log.d("FloatingBubble", "showBubble: calling startForegroundService")
++        ContextCompat.startForegroundService(context, intent)
++        android.util.Log.d("FloatingBubble", "showBubble: startForegroundService returned")
++        sendEvent("onBubbleShown", mapOf("success" to true))
++      } catch (e: Exception) {
++        android.util.Log.e("FloatingBubble", "showBubble: startForegroundService failed", e)
++        sendEvent("onBubbleShown", mapOf("success" to false, "reason" to (e.message ?: "unknown")))
++      }
+       Unit
+     }
+ 
+diff --git a/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleService.kt b/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleService.kt
+index 54224b1..38a8a45 100644
+--- a/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleService.kt
++++ b/node_modules/expo-floating-bubble/android/src/main/java/expo/modules/floatingbubble/ExpoFloatingBubbleService.kt
+@@ -23,6 +23,8 @@ import android.view.View.MeasureSpec
+ import android.view.WindowManager
+ import android.widget.ImageView
+ import androidx.core.app.NotificationCompat
++import androidx.core.app.ServiceCompat
++import android.content.pm.ServiceInfo
+ 
+ import java.io.InputStream
+ import java.net.URL
+@@ -52,13 +54,14 @@ class FloatingBubbleService : Service() {
+   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+     if (bubbleView != null) return START_STICKY
+ 
+-    // Read configuration from the Intent
++    // Read configuration from the Intent (use system icon to avoid missing resource)
+     val iconResId = intent?.getIntExtra("iconResId", android.R.drawable.ic_dialog_info)
+       ?: android.R.drawable.ic_dialog_info
+     val iconUri = intent?.getStringExtra("iconUri")
+     val bubbleColor = intent?.getIntExtra("bubbleColor", Color.WHITE) ?: Color.WHITE
+     val initialX = intent?.getIntExtra("initialX", 100) ?: 100
+     val initialY = intent?.getIntExtra("initialY", 300) ?: 300
++    android.util.Log.d("FloatingBubble", "onStartCommand: initialX=$initialX, initialY=$initialY, adding view...")
+ 
+     // Start foreground notification if required
+     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+@@ -76,7 +79,11 @@ class FloatingBubbleService : Service() {
+           .setSmallIcon(iconResId)
+           .build()
+ 
+-      startForeground(1, notification)
++      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
++        ServiceCompat.startForeground(this, 1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
++      } else {
++        startForeground(1, notification)
++      }
+     }
+ 
+     // Inflate the bubble view
+@@ -155,7 +162,10 @@ class FloatingBubbleService : Service() {
+           android.util.Log.d("FloatingBubble", "No iconUri provided, using resource ID: $iconResId")
+           setImageResource(iconResId)
+         }
+-        setBackgroundColor(bubbleColor)
++        background = android.graphics.drawable.GradientDrawable().apply {
++          shape = android.graphics.drawable.GradientDrawable.OVAL
++          setColor(bubbleColor)
++        }
+       }
+ 
+     // Measure the view to get its true width/height before layout
+@@ -240,7 +250,12 @@ class FloatingBubbleService : Service() {
+     }
+ 
+     // Finally, add the bubble to the window
+-    windowManager?.addView(bubbleView, params)
++    try {
++      windowManager?.addView(bubbleView, params)
++      android.util.Log.d("FloatingBubble", "addView succeeded, viewW=$viewW viewH=$viewH")
++    } catch (e: Exception) {
++      android.util.Log.e("FloatingBubble", "addView failed", e)
++    }
+     return START_STICKY
+   }  override fun onDestroy() {
+   super.onDestroy()
