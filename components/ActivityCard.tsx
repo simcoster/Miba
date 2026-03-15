@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
@@ -35,6 +36,7 @@ const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 type EventsFilter = 'upcoming' | 'invited' | 'past' | 'declined';
 
 const HIDE_ACTION_BG = '#6B7280';
+const UNHIDE_ACTION_BG = Colors.success;
 
 export function ActivityCard({
   activity,
@@ -201,7 +203,7 @@ export function ActivityCard({
           hasHideUnhide
             ? (_, __, swipeableMethods) => (
                 <TouchableOpacity
-                  style={styles.hideAction}
+                  style={[styles.hideAction, isHidden && styles.unhideAction]}
                   onPress={() => {
                     if (!triggeredBySwipeRef.current) {
                       (isHidden ? onUnhide : onHide)?.();
@@ -223,7 +225,8 @@ export function ActivityCard({
         leftThreshold={60}
         rightThreshold={60}
         onSwipeableOpen={hasHideUnhide ? (direction) => {
-          if (direction !== SwipeDirection.RIGHT) return;
+          // Only auto hide/unhide when swiping left (revealing hide button), not when swiping right (revealing delete)
+          if (direction !== SwipeDirection.LEFT) return;
           triggeredBySwipeRef.current = true;
           (isHidden ? onUnhide : onHide)?.();
           swipeableRef.current?.reset();
@@ -310,5 +313,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     alignSelf: 'stretch',
   },
+  unhideAction: { backgroundColor: UNHIDE_ACTION_BG },
   hideActionText: { fontSize: 14, fontWeight: '600', color: '#fff', marginTop: 4 },
 });
