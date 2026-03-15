@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Tabs, useRouter } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,28 +11,14 @@ import { TabHighlightProvider, useTabHighlight, type TabName } from '@/contexts/
 import { ContactImportModal } from '@/components/ContactImportModal';
 import { hasOfferedImport } from '@/lib/contactImport';
 import { useAuth } from '@/contexts/AuthContext';
-import { TutorialProvider, useTutorial } from '@/contexts/TutorialContext';
-import { TutorialOverlay } from '@/components/TutorialOverlay';
-import { hasTutorialCompleted } from '@/lib/tutorial';
-
-function TabIcon({ name, focused, label, tutorialTarget }: {
+function TabIcon({ name, focused, label }: {
   name: React.ComponentProps<typeof Ionicons>['name'];
   focused: boolean;
   label: string;
-  tutorialTarget?: string;
 }) {
-  const ref = useRef<View>(null);
-  const { registerTarget } = useTutorial();
-
-  useEffect(() => {
-    if (tutorialTarget && ref.current) {
-      registerTarget(tutorialTarget, ref);
-    }
-  }, [tutorialTarget, registerTarget]);
-
   return (
     <View style={styles.tabIconContainer}>
-      <View ref={ref} collapsable={false}>
+      <View>
         <Ionicons name={name} size={24} color={focused ? Colors.primary : Colors.textSecondary} />
       </View>
       <Text style={[styles.tabLabel, focused && styles.tabLabelActive]} numberOfLines={1} allowFontScaling={false}>{label}</Text>
@@ -65,19 +51,13 @@ function UpdatesTabIcon({ focused }: { focused: boolean }) {
 
 function MipoTabIcon({ focused }: { focused: boolean }) {
   const { visibleState } = useMipo();
-  const { registerTarget } = useTutorial();
-  const ref = useRef<View>(null);
   const isActive = visibleState.isVisible;
   const color = isActive ? Colors.success : (focused ? Colors.primary : Colors.textSecondary);
   const iconName = (isActive || focused ? 'location' : 'location-outline') as React.ComponentProps<typeof Ionicons>['name'];
 
-  useEffect(() => {
-    if (ref.current) registerTarget('tab-mipo', ref);
-  }, [registerTarget]);
-
   return (
     <View style={styles.tabIconContainer}>
-      <View ref={ref} collapsable={false}>
+      <View>
         <Ionicons name={iconName} size={24} color={color} />
       </View>
       <Text style={[styles.tabLabel, (focused || isActive) && styles.tabLabelActive, isActive && styles.tabLabelMipoActive]} numberOfLines={1} allowFontScaling={false}>Mipo</Text>
@@ -132,21 +112,6 @@ function ContactImportGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TutorialGate({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const { start } = useTutorial();
-
-  useEffect(() => {
-    if (!user) return;
-    hasTutorialCompleted().then(done => {
-      if (!done) setTimeout(() => start(), 800);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  return <>{children}</>;
-}
-
 function TabBarContent() {
   const insets = useSafeAreaInsets();
   return (
@@ -179,17 +144,7 @@ function TabBarContent() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIconWithHighlight tabName="circles" focused={focused}>
-              {(f) => <TabIcon name={f ? 'people' : 'people-outline'} focused={f} label="Circles" tutorialTarget="tab-circles" />}
-            </TabIconWithHighlight>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIconWithHighlight tabName="profile" focused={focused}>
-              {(f) => <TabIcon name={f ? 'person' : 'person-outline'} focused={f} label="Profile" />}
+              {(f) => <TabIcon name={f ? 'people' : 'people-outline'} focused={f} label="Circles" />}
             </TabIconWithHighlight>
           ),
         }}
@@ -214,6 +169,16 @@ function TabBarContent() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIconWithHighlight tabName="profile" focused={focused}>
+              {(f) => <TabIcon name={f ? 'person' : 'person-outline'} focused={f} label="Profile" />}
+            </TabIconWithHighlight>
+          ),
+        }}
+      />
       <Tabs.Screen name="circle/new"              options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/index"      options={{ href: null }} />
       <Tabs.Screen name="circle/[id]/invite"     options={{ href: null }} />
@@ -227,19 +192,14 @@ function TabBarContent() {
 
 export default function AppLayout() {
   return (
-    <TutorialProvider>
     <MipoProvider>
-    <TutorialGate>
     <ContactImportGate>
     <TabHighlightProvider>
     <NotificationHandler />
-    <TutorialOverlay />
     <TabBarContent />
     </TabHighlightProvider>
     </ContactImportGate>
-    </TutorialGate>
     </MipoProvider>
-    </TutorialProvider>
   );
 }
 

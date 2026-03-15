@@ -1,7 +1,24 @@
 import * as Application from 'expo-application';
 import * as Linking from 'expo-linking';
+import * as Updates from 'expo-updates';
 import { Alert, Platform } from 'react-native';
 import { supabase } from './supabase';
+
+/**
+ * Checks for OTA updates on app load. If a new update is available, fetches and reloads immediately.
+ * Fails silently in development or when expo-updates is disabled.
+ */
+export async function checkForOTAUpdate(): Promise<void> {
+  try {
+    if (!Updates.isEnabled) return;
+    const result = await Updates.fetchUpdateAsync();
+    if (result.isNew && !result.isRollBackToEmbedded) {
+      await Updates.reloadAsync();
+    }
+  } catch {
+    // Silently ignore — dev mode, network error, or expo-updates disabled
+  }
+}
 
 /**
  * Checks Supabase app_config for min_build_number and store URLs.

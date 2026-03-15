@@ -54,7 +54,11 @@ export function useClearTabHighlightOnFocus() {
   const { setEffectiveTab } = useTabHighlight();
   useFocusEffect(
     React.useCallback(() => {
-      setEffectiveTab(null);
+      // Defer clear so that when navigating to a child (e.g. circle/[id], activity/[id]),
+      // the child's useSetTabHighlight runs first. If we lose focus before the timeout,
+      // we cancel the clear so the highlight stays.
+      const id = setTimeout(() => setEffectiveTab(null), 0);
+      return () => clearTimeout(id);
     }, [setEffectiveTab])
   );
 }

@@ -11,8 +11,6 @@ import * as Application from 'expo-application';
 import * as Updates from 'expo-updates';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTutorial } from '@/contexts/TutorialContext';
-import { resetTutorial } from '@/lib/tutorial';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import Colors from '@/constants/Colors';
@@ -31,7 +29,6 @@ function AboutRow({ label, value }: { label: string; value: string }) {
 export default function ProfileScreen() {
   useClearTabHighlightOnFocus();
   const { user, profile, signOut, refreshProfile } = useAuth();
-  const { start } = useTutorial();
   const insets = useSafeAreaInsets();
 
   const [editing, setEditing] = useState(false);
@@ -162,17 +159,6 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
-
-        <TouchableOpacity
-          style={styles.aboutButton}
-          onPress={async () => {
-            await resetTutorial();
-            start();
-          }}
-        >
-          <Ionicons name="help-circle-outline" size={18} color={Colors.textSecondary} />
-          <Text style={styles.aboutButtonText}>Show tutorial again</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity style={styles.aboutButton} onPress={() => setShowAbout(true)}>
           <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} />

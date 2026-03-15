@@ -19,7 +19,6 @@ import { Button } from '@/components/Button';
 import { SplashArt } from '@/components/SplashArt';
 import type { SplashPreset } from '@/lib/splashArt';
 import Colors from '@/constants/Colors';
-import { useTutorial } from '@/contexts/TutorialContext';
 
 type PastActivity = { id: string; title: string; activity_time: string; description: string | null; location: string | null; splash_art: string | null };
 
@@ -139,8 +138,6 @@ export default function EventsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { tab } = useLocalSearchParams<{ tab?: string }>();
-  const { registerTarget } = useTutorial();
-  const newEventBtnRef = useRef<View>(null);
 
   const [allActivities, setAllActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,10 +150,6 @@ export default function EventsScreen() {
   const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
   const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [showClonePicker, setShowClonePicker] = useState(false);
-
-  useEffect(() => {
-    if (newEventBtnRef.current) registerTarget('btn-new-event', newEventBtnRef);
-  }, [registerTarget]);
 
   const fetchActivities = useCallback(async () => {
     if (!user) return;
@@ -321,11 +314,9 @@ export default function EventsScreen() {
           <Text style={styles.greeting}>{greeting}</Text>
           <Text style={styles.subtitle}>What are you doing today?</Text>
         </View>
-        <View ref={newEventBtnRef} collapsable={false}>
-          <TouchableOpacity style={styles.newButton} onPress={() => setShowAddDropdown(v => !v)}>
-            <Ionicons name="add" size={28} color={Colors.primary} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.newButton} onPress={() => setShowAddDropdown(v => !v)}>
+          <Ionicons name="add" size={28} color={Colors.primary} />
+        </TouchableOpacity>
         <Modal visible={showAddDropdown} transparent animationType="none">
           <Pressable style={[styles.dropdownBackdrop, { paddingTop: insets.top + 80 }]} onPress={() => setShowAddDropdown(false)}>
             <View style={styles.addDropdown}>

@@ -1,5 +1,5 @@
 import '@/lib/mipoLocationTask'; // Register background location task early
-import { checkForStoreUpdate } from '@/lib/versionCheck';
+import { checkForStoreUpdate, checkForOTAUpdate } from '@/lib/versionCheck';
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -38,6 +38,12 @@ function RootLayoutNav() {
   // Check for store update (Supabase: latest_version, store URLs) — runs after a short delay
   useEffect(() => {
     const t = setTimeout(() => checkForStoreUpdate(), 3000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Check for OTA update on load — fetches and reloads if new update available
+  useEffect(() => {
+    const t = setTimeout(() => checkForOTAUpdate(), 2000);
     return () => clearTimeout(t);
   }, []);
 
