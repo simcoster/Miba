@@ -28,12 +28,14 @@ export default function NewActivityScreen() {
   const router = useRouter();
   const {
     clone,
+    cloneFrom,
     title: paramTitle,
     description: paramDescription,
     location: paramLocation,
     splashArt: paramSplashArt,
   } = useLocalSearchParams<{
     clone?: string;
+    cloneFrom?: string;
     title?: string;
     description?: string;
     location?: string;
@@ -48,6 +50,58 @@ export default function NewActivityScreen() {
   const [splashArt, setSplashArt] = useState<SplashPreset>(
     (paramSplashArt as SplashPreset) || SPLASH_PRESETS[0].id
   );
+
+  // When cloning: always apply the cloned event's fields, replacing any current values
+  useEffect(() => {
+    if (!isClone) return;
+    if (paramTitle != null) setTitle(paramTitle);
+    if (paramDescription != null) setDescription(paramDescription);
+    if (paramLocation != null) setLocation(paramLocation);
+    if (paramSplashArt != null) setSplashArt(paramSplashArt as SplashPreset);
+    if (paramDescription) setShowDetailsInput(true);
+  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt]);
+
+  // When cloning: fetch and apply the invitee list from the source activity
+  useEffect(() => {
+    if (!isClone || !cloneFrom || !user) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('rsvps')
+        .select('user_id, profile:profiles(id, full_name, avatar_url)')
+        .eq('activity_id', cloneFrom)
+        .neq('user_id', user.id);
+      if (cancelled) return;
+      const profiles = new Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>();
+      (data ?? []).forEach((r: any) => {
+        const p = Array.isArray(r.profile) ? r.profile?.[0] : r.profile;
+        if (p && r.user_id !== user.id) profiles.set(r.user_id, p);
+      });
+      setInvitePool(profiles);
+      setIndividuallyAddedUserIds(new Set(profiles.keys()));
+      setExpandedCircleIds(new Set());
+      setCircleMembersMap(new Map());
+    })();
+    return () => { cancelled = true; };
+  }, [isClone, cloneFrom, user]);
+
+  // When navigating to New Event with no params: reset to defaults (empty name, empty invitees)
+  useEffect(() => {
+    const hasParams = isClone || cloneFrom || paramTitle || paramDescription || paramLocation || paramSplashArt;
+    if (!hasParams) {
+      setTitle('');
+      setDescription('');
+      setLocation('');
+      setSplashArt(SPLASH_PRESETS[0].id);
+      setShowDetailsInput(false);
+      setInvitePool(new Map());
+      setExpandedCircleIds(new Set());
+      setCircleMembersMap(new Map());
+      setIndividuallyAddedUserIds(new Set());
+      setSearchQuery('');
+      setSearchResults([]);
+    }
+  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt]);
   const [showSplashPicker, setShowSplashPicker] = useState(false);
   const [showDetailsInput, setShowDetailsInput] = useState(!!paramDescription);
   const [isLimited, setIsLimited] = useState(false);
@@ -254,18 +308,57 @@ export default function NewActivityScreen() {
     setExcludeUserProfiles(prev => { const m = new Map(prev); m.delete(userId); return m; });
   };
 
-  const removeExclusionCircle = (circleId: string) => {
+  const removeExclusionCircle = async (circleId: string) => {
     setExcludeCircleIds(prev => { const s = new Set(prev); s.delete(circleId); return s; });
+    // If this circle was expanded, add its members back to the invite pool
+    if (expandedCircleIds.has(circleId)) {
+      const { data } = await supabase
+        .from('circle_members')
+        .select('user_id, profile:profiles(id, full_name, avatar_url)')
+        .eq('circle_id', circleId)
+        .neq('user_id', user!.id);
+      const excluded = new Set(excludeUserIds);
+      if (excludeCircleIds.size > 1) {
+        const otherExcluded = [...excludeCircleIds].filter(cid => cid !== circleId);
+        const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', otherExcluded);
+        (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
+      }
+      setInvitePool(prev => {
+        const next = new Map(prev);
+        (data ?? []).forEach((m: any) => {
+          if (m.profile && !excluded.has(m.user_id)) next.set(m.user_id, m.profile);
+        });
+        return next;
+      });
+    }
   };
 
   const handleCreate = async () => {
     if (!user || title.trim().length < 2) return;
+    if (invitePool.size === 0) {
+      Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
+      return;
+    }
     if (activityTime <= new Date()) {
       Alert.alert('Past date', 'Please choose a future date and time.');
       return;
     }
     try {
       setLoading(true);
+
+      // Compute final invitees before creating — validate again in case state changed (e.g. unselect)
+      const excluded = new Set(excludeUserIds);
+      if (excludeCircleIds.size > 0) {
+        const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', [...excludeCircleIds]);
+        (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
+      }
+      const finalInviteIds = [...invitePool.keys()].filter(uid => !excluded.has(uid));
+
+      if (finalInviteIds.length === 0) {
+        Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
+        setLoading(false);
+        return;
+      }
 
       const activityId = Crypto.randomUUID();
 
@@ -281,14 +374,6 @@ export default function NewActivityScreen() {
         max_participants: isLimited ? maxParticipants : null,
       });
       if (activityError) throw activityError;
-
-      // Filter invite pool: exclude users in excludeUserIds + members of excludeCircleIds
-      const excluded = new Set(excludeUserIds);
-      if (excludeCircleIds.size > 0) {
-        const { data: cmData } = await supabase.from('circle_members').select('user_id').in('circle_id', [...excludeCircleIds]);
-        (cmData ?? []).forEach((m: { user_id: string }) => excluded.add(m.user_id));
-      }
-      const finalInviteIds = [...invitePool.keys()].filter(uid => !excluded.has(uid));
 
       // Build rsvp rows: creator gets 'in', everyone in filtered pool gets 'pending'
       const rsvpRows = [
@@ -728,7 +813,7 @@ export default function NewActivityScreen() {
           label="Post Activity 🚀"
           onPress={handleCreate}
           loading={loading}
-          disabled={title.trim().length < 2}
+          disabled={title.trim().length < 2 || invitePool.size === 0}
         />
       </ScrollView>
 

@@ -14,13 +14,22 @@ import { Activity } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
 import { ActivityCard } from '@/components/ActivityCard';
+import { Avatar } from '@/components/Avatar';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { SplashArt } from '@/components/SplashArt';
 import type { SplashPreset } from '@/lib/splashArt';
 import Colors from '@/constants/Colors';
 
-type PastActivity = { id: string; title: string; activity_time: string; description: string | null; location: string | null; splash_art: string | null };
+type PastActivity = {
+  id: string;
+  title: string;
+  activity_time: string;
+  description: string | null;
+  location: string | null;
+  splash_art: string | null;
+  rsvps?: Array<{ user_id: string; profile: { id: string; full_name: string | null; avatar_url: string | null } | null }>;
+};
 
 function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; onDismiss: () => void; userId: string }) {
   const router = useRouter();
@@ -33,7 +42,7 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
     Promise.all([
       supabase
         .from('activities')
-        .select('id, title, activity_time, description, location, splash_art')
+        .select('id, title, activity_time, description, location, splash_art, rsvps(id, user_id, profile:profiles(id, full_name, avatar_url))')
         .eq('created_by', userId)
         .lt('activity_time', new Date().toISOString())
         .order('activity_time', { ascending: false })
@@ -44,7 +53,7 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
         .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`),
     ]).then(([activitiesRes, mipoDmsRes]) => {
       const mipoIds = new Set((mipoDmsRes.data ?? []).map((d: any) => d.activity_id));
-      const items = ((activitiesRes.data ?? []) as PastActivity[])
+      const items = ((activitiesRes.data ?? []) as unknown as PastActivity[])
         .filter(a => !mipoIds.has(a.id))
         .slice(0, 20);
       setPastEvents(items);
@@ -54,7 +63,7 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
 
   const handleSelect = (event: PastActivity) => {
     onDismiss();
-    const parts = [`clone=1`, `title=${encodeURIComponent(event.title)}`];
+    const parts = [`clone=1`, `cloneFrom=${event.id}`, `title=${encodeURIComponent(event.title)}`];
     if (event.description) parts.push(`description=${encodeURIComponent(event.description)}`);
     if (event.location) parts.push(`location=${encodeURIComponent(event.location)}`);
     if (event.splash_art) parts.push(`splashArt=${encodeURIComponent(event.splash_art)}`);
@@ -72,18 +81,37 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
             <Text style={cloneStyles.empty}>No past events to copy.</Text>
           ) : (
             <ScrollView style={cloneStyles.list} showsVerticalScrollIndicator={false}>
-              {pastEvents.map(e => (
-                <TouchableOpacity key={e.id} style={cloneStyles.row} onPress={() => handleSelect(e)}>
-                  <View style={[cloneStyles.thumb, !e.splash_art && cloneStyles.thumbEmpty]}>
-                    {e.splash_art && <SplashArt preset={e.splash_art as SplashPreset} height={44} opacity={1} />}
-                  </View>
-                  <View style={cloneStyles.rowInfo}>
-                    <Text style={cloneStyles.rowTitle} numberOfLines={1}>{e.title}</Text>
-                    <Text style={cloneStyles.rowDate}>{format(new Date(e.activity_time), 'MMM d, yyyy')}</Text>
-                  </View>
-                  <Ionicons name="copy-outline" size={18} color={Colors.primary} />
-                </TouchableOpacity>
-              ))}
+              {pastEvents.map(e => {
+                const invitees = (e.rsvps ?? [])
+                  .filter((r: any) => {
+                    if (r.user_id === userId) return false;
+                    const p = Array.isArray(r.profile) ? r.profile?.[0] : r.profile;
+                    return !!p;
+                  })
+                  .slice(0, 2)
+                  .map((r: any) => ({ ...r, profile: Array.isArray(r.profile) ? r.profile?.[0] : r.profile }));
+                return (
+                  <TouchableOpacity key={e.id} style={cloneStyles.row} onPress={() => handleSelect(e)}>
+                    <View style={[cloneStyles.thumb, !e.splash_art && cloneStyles.thumbEmpty]}>
+                      {e.splash_art && <SplashArt preset={e.splash_art as SplashPreset} height={44} opacity={1} />}
+                    </View>
+                    <View style={cloneStyles.rowInfo}>
+                      <View style={cloneStyles.rowTitleRow}>
+                        <Text style={cloneStyles.rowTitle} numberOfLines={1}>{e.title}</Text>
+                        {invitees.length > 0 && (
+                          <View style={cloneStyles.inviteeIcons}>
+                            {invitees.map((r: any) => (
+                              <Avatar key={r.user_id} uri={r.profile?.avatar_url} name={r.profile?.full_name} size={20} />
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                      <Text style={cloneStyles.rowDate}>{format(new Date(e.activity_time), 'MMM d, yyyy')}</Text>
+                    </View>
+                    <Ionicons name="copy-outline" size={18} color={Colors.primary} />
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           )}
           <TouchableOpacity style={cloneStyles.cancelBtn} onPress={onDismiss}>
@@ -104,7 +132,9 @@ const cloneStyles = StyleSheet.create({
   thumb: { width: 56, height: 40, borderRadius: 8, overflow: 'hidden' },
   thumbEmpty: { backgroundColor: Colors.borderLight },
   rowInfo: { flex: 1 },
-  rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.text },
+  rowTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.text, flex: 1 },
+  inviteeIcons: { flexDirection: 'row', marginLeft: 6, gap: 2 },
   rowDate: { fontSize: 13, color: Colors.textSecondary, marginTop: 2 },
   empty: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginVertical: 24 },
   cancelBtn: { marginTop: 16, alignItems: 'center', paddingVertical: 10 },
