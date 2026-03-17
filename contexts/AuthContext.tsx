@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      console.log('[Auth] init — calling getSession');
+      console.log('[Auth] init — calling getSession (pre-login)');
       const { data: { session } } = await supabase.auth.getSession();
       if (cancelled) return;
       console.log('[Auth] getSession returned, user:', session?.user?.id ?? 'none');

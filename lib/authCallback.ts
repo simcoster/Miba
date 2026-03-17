@@ -39,6 +39,7 @@ export function isAuthCallbackUrl(url: string | null): boolean {
  * openAuthSessionAsync's promise was lost.
  */
 export async function processAuthCallbackUrl(url: string): Promise<boolean> {
+  console.log('[Auth:Callback] processAuthCallbackUrl called');
   const params = parseUrlParams(url);
   if (params.access_token && params.refresh_token) {
     const { error } = await supabase.auth.setSession({
@@ -49,6 +50,7 @@ export async function processAuthCallbackUrl(url: string): Promise<boolean> {
       console.warn('[Auth] processAuthCallbackUrl setSession error:', error.message);
       return false;
     }
+    console.log('[Auth:Callback] setSession success — session established');
     return true;
   }
   if (params.code) {
@@ -57,6 +59,7 @@ export async function processAuthCallbackUrl(url: string): Promise<boolean> {
       console.warn('[Auth] processAuthCallbackUrl exchangeCodeForSession error:', error.message);
       return false;
     }
+    console.log('[Auth:Callback] exchangeCodeForSession success — session established');
     return true;
   }
   return false;

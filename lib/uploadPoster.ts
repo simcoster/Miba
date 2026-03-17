@@ -9,42 +9,62 @@ import { supabase } from '@/lib/supabase';
 const BUCKET = 'posters';
 const MAX_WIDTH = 800;
 const COMPRESS = 0.6;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1500;
 
 /**
  * Resize and upload poster image. Returns public URL or null on failure.
+ * Retries up to MAX_RETRIES on network errors (common on mobile).
  */
 export async function uploadPosterImage(
   localUri: string,
   activityId: string
 ): Promise<string | null> {
+  let manipulated: Awaited<ReturnType<typeof ImageManipulator.manipulateAsync>>;
   try {
-    const manipulated = await ImageManipulator.manipulateAsync(
+    manipulated = await ImageManipulator.manipulateAsync(
       localUri,
       [{ resize: { width: MAX_WIDTH } }],
       { compress: COMPRESS, format: ImageManipulator.SaveFormat.JPEG }
     );
-
-    const response = await fetch(manipulated.uri);
-    const blob = await response.blob();
-
-    const path = `${activityId}.jpg`;
-
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .upload(path, blob, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
-
-    if (error) {
-      console.warn('[uploadPoster] Upload error:', error);
-      return null;
-    }
-
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
-    return urlData.publicUrl;
   } catch (e) {
-    console.warn('[uploadPoster] Error:', e);
+    console.warn('[uploadPoster] Resize error:', e);
     return null;
   }
+
+  const response = await fetch(manipulated.uri);
+  const blob = await response.blob();
+  const path = `${activityId}.jpg`;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (error) {
+        console.warn('[uploadPoster] Upload error:', error);
+        return null;
+      }
+
+      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+      return urlData.publicUrl;
+    } catch (e: any) {
+      const isNetworkError =
+        e?.message?.includes('Network request failed') ||
+        e?.message?.includes('Failed to fetch') ||
+        e?.name === 'AbortError';
+      if (isNetworkError && attempt < MAX_RETRIES) {
+        console.warn(`[uploadPoster] Attempt ${attempt}/${MAX_RETRIES} failed, retrying in ${RETRY_DELAY_MS}ms...`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      } else {
+        console.warn('[uploadPoster] Error:', e);
+        return null;
+      }
+    }
+  }
+  return null;
 }

@@ -30,6 +30,8 @@ import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl, getFullLocationImageUrl } from '@/lib/placesApi';
+import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
+import { uploadPosterImage } from '@/lib/uploadPoster';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -73,6 +75,7 @@ export default function ActivityDetailScreen() {
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
   const [saveLoading, setSaveLoading] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
+  const [posterUploading, setPosterUploading] = useState(false);
 
   // Menu / clone state
   const [showMenu, setShowMenu] = useState(false);
@@ -142,6 +145,23 @@ export default function ActivityDetailScreen() {
 
   useEffect(() => { setLoading(true); fetchActivity().finally(() => setLoading(false)); }, [fetchActivity]);
   const onRefresh = useCallback(async () => { setRefreshing(true); await fetchActivity(); setRefreshing(false); }, [fetchActivity]);
+
+  // Background poster upload: when arriving from "create from poster", upload in background
+  useEffect(() => {
+    if (!id || !activity) return;
+    const posterUri = getAndClearPendingPosterForActivity(id);
+    if (!posterUri) return;
+
+    setPosterUploading(true);
+    uploadPosterImage(posterUri, id)
+      .then(async (posterUrl) => {
+        if (posterUrl) {
+          await supabase.from('activities').update({ poster_image_url: posterUrl }).eq('id', id);
+          setActivity(prev => prev ? { ...prev, poster_image_url: posterUrl } : null);
+        }
+      })
+      .finally(() => setPosterUploading(false));
+  }, [id, activity?.id]);
 
   // Bug fix: reset edit mode when navigating to a different activity
   useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
@@ -574,9 +594,15 @@ export default function ActivityDetailScreen() {
 
   const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
+  const hasPoster = !!(activity.poster_image_url && String(activity.poster_image_url).trim());
+  const showPosterButton = hasPoster || posterUploading;
   const headerActions = [
-    ...(activity.poster_image_url
-      ? [{ icon: 'image-outline' as const, onPress: () => setShowPosterModal(true) }]
+    ...(showPosterButton
+      ? [{
+          icon: 'image-outline' as const,
+          onPress: () => setShowPosterModal(true),
+          loading: posterUploading,
+        }]
       : []),
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'events')}`), badge: hasUnread },
     ...(isCreator && activity.status === 'active' && !isEditing

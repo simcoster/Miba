@@ -20,8 +20,7 @@ import { Button } from '@/components/Button';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
-import { getAndClearPendingPosterUri, clearPendingPosterUri } from '@/lib/pendingPoster';
-import { uploadPosterImage } from '@/lib/uploadPoster';
+import { getAndClearPendingPosterUri, clearPendingPosterUri, setPendingPosterForActivity } from '@/lib/pendingPoster';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
@@ -397,10 +396,11 @@ export default function NewActivityScreen() {
 
   const handleCreate = async () => {
     if (!user || title.trim().length < 2) return;
-    if (invitePool.size === 0) {
-      Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
-      return;
-    }
+    // Invitee requirement temporarily disabled
+    // if (invitePool.size === 0) {
+    //   Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
+    //   return;
+    // }
     if (activityTime <= new Date()) {
       Alert.alert('Past date', 'Please choose a future date and time.');
       return;
@@ -416,11 +416,12 @@ export default function NewActivityScreen() {
       }
       const finalInviteIds = [...invitePool.keys()].filter(uid => !excluded.has(uid));
 
-      if (finalInviteIds.length === 0) {
-        Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
-        setLoading(false);
-        return;
-      }
+      // Invitee requirement temporarily disabled
+      // if (finalInviteIds.length === 0) {
+      //   Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
+      //   setLoading(false);
+      //   return;
+      // }
 
       const activityId = Crypto.randomUUID();
 
@@ -440,10 +441,7 @@ export default function NewActivityScreen() {
 
       const posterUri = getAndClearPendingPosterUri();
       if (posterUri) {
-        const posterUrl = await uploadPosterImage(posterUri, activityId);
-        if (posterUrl) {
-          await supabase.from('activities').update({ poster_image_url: posterUrl }).eq('id', activityId);
-        }
+        setPendingPosterForActivity(activityId, posterUri);
       }
 
       // Build rsvp rows: creator gets 'in', everyone in filtered pool gets 'pending'
@@ -900,7 +898,7 @@ export default function NewActivityScreen() {
           label="Post Activity 🚀"
           onPress={handleCreate}
           loading={loading}
-          disabled={title.trim().length < 2 || invitePool.size === 0}
+          disabled={title.trim().length < 2}
         />
       </ScrollView>
 

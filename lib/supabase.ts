@@ -15,19 +15,22 @@ const supabaseAnonKey =
 let _latestKnownSession: Session | null = null;
 
 /**
- * Wraps fetch with an 8-second abort timeout so any request silently dropped
+ * Wraps fetch with an abort timeout so any request silently dropped
  * by the OS / firewall fails with an error rather than hanging forever.
+ * Storage uploads use 30s (larger payloads); other requests use 8s.
  */
 const fetchWithTimeout: typeof fetch = (input, init) => {
   const url = typeof input === 'string' ? input : (input as Request).url;
   const short = url.replace(/^https:\/\/[^/]+/, '').split('?')[0];
-  console.log('[fetch] →', short);
+  const isStorageUpload = short.includes('/storage/v1/object/');
+  const timeoutMs = isStorageUpload ? 30_000 : 8_000;
+  console.log('[fetch] →', short, isStorageUpload ? '(storage, 30s)' : '');
 
   const controller = new AbortController();
   const timer = setTimeout(() => {
-    console.warn('[fetch] TIMEOUT (8 s):', short);
+    console.warn(`[fetch] TIMEOUT (${timeoutMs / 1000}s):`, short);
     controller.abort();
-  }, 8_000);
+  }, timeoutMs);
 
   return fetch(input, { ...init, signal: controller.signal })
     .then(r  => { console.log('[fetch] ✓', short, r.status); return r; })

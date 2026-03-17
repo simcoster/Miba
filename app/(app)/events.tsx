@@ -241,8 +241,18 @@ export default function EventsScreen() {
   }, [user]);
 
   useEffect(() => {
+    console.log('[Events:Tab] URL param tab changed:', tab);
     if (tab === 'upcoming') setFilter('upcoming');
   }, [tab]);
+
+  useEffect(() => {
+    console.log('[Events:Tab] filter state changed:', filter);
+  }, [filter]);
+
+  useEffect(() => {
+    console.log('[Events:Tab] EventsScreen mounted');
+    return () => console.log('[Events:Tab] EventsScreen unmounted');
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -276,12 +286,14 @@ export default function EventsScreen() {
   const skipFirstFocus = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      console.log('[Events:Tab] useFocusEffect — focus gained', { tab, user: !!user, skipFirst: skipFirstFocus.current });
       if (tab === 'upcoming') setFilter('upcoming');
       if (skipFirstFocus.current) { skipFirstFocus.current = false; return; }
       if (!user) return;
       fetchActivities();
       loadHiddenIds();
       loadPosterUsesRemaining();
+      return () => console.log('[Events:Tab] useFocusEffect — focus lost');
     }, [fetchActivities, loadHiddenIds, loadPosterUsesRemaining, user, tab])
   );
 
@@ -498,17 +510,20 @@ export default function EventsScreen() {
 
       <View style={styles.tabRowWrap}>
         <View style={styles.tabRow}>
-        {TABS.map(tab => (
+        {TABS.map(t => (
           <TouchableOpacity
-            key={tab.id}
-            style={[styles.filterTab, filter === tab.id && styles.filterTabActive]}
-            onPress={() => setFilter(tab.id)}
+            key={t.id}
+            style={[styles.filterTab, filter === t.id && styles.filterTabActive]}
+            onPress={() => {
+              console.log('[Events:Tab] Tab pressed:', t.id, '-> setFilter');
+              setFilter(t.id);
+            }}
           >
-            <Text style={[styles.filterText, filter === tab.id && styles.filterTextActive]}>
-              {tab.label}
+            <Text style={[styles.filterText, filter === t.id && styles.filterTextActive]}>
+              {t.label}
             </Text>
-            {tab.id === 'invited' && invitedCount > 0 && (
-              <View style={[styles.badge, filter === tab.id && styles.badgeOnActive]}>
+            {t.id === 'invited' && invitedCount > 0 && (
+              <View style={[styles.badge, filter === t.id && styles.badgeOnActive]}>
                 <Text style={styles.badgeText}>{invitedCount}</Text>
               </View>
             )}

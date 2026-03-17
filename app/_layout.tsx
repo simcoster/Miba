@@ -19,12 +19,15 @@ function RootLayoutNav() {
   const router = useRouter();
 
   useEffect(() => {
+    console.log('[Layout:Auth] effect', { loading, hasSession: !!session, segments: segments.join('/') });
     if (loading) return;
     SplashScreen.hideAsync();
     const inAuthGroup = segments[0] === '(auth)';
     if (!session && !inAuthGroup) {
+      console.log('[Layout:Auth] No session, redirecting to login');
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
+      console.log('[Layout:Auth] Session present in auth group, redirecting to app');
       router.replace('/(app)');
     }
   }, [session, loading, segments]);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,8 @@ type RightAction = {
   onPress: () => void;
   label?: string;
   badge?: boolean;
+  /** When true, shows spinner and disables press */
+  loading?: boolean;
 };
 
 type RightActionPeek = {
@@ -65,10 +67,17 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitl
         {hasRightContent ? (
           <View style={styles.rightActions}>
             {actions.map((a, i) => (
-              <TouchableOpacity key={i} onPress={a.onPress} style={styles.rightButton}>
+              <TouchableOpacity
+                key={i}
+                onPress={a.loading ? undefined : a.onPress}
+                disabled={a.loading}
+                style={styles.rightButton}
+              >
                 {a.label
                   ? <Text style={styles.rightButtonLabel}>{a.label}</Text>
-                  : (
+                  : a.loading ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
                     <View>
                       <Ionicons name={a.icon} size={24} color={Colors.primary} />
                       {a.badge && <View style={styles.badge} />}
