@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    console.log('[Auth] AuthProvider init — starting');
 
     const init = async () => {
       // Linking.getInitialURL() can hang on Android — cap at 2s
@@ -59,8 +60,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         Linking.getInitialURL(),
         new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
       ]);
+      console.log('[Auth] getInitialURL:', initialUrl ? initialUrl.slice(0, 50) + '...' : 'null');
       if (initialUrl && isAuthCallbackUrl(initialUrl)) {
-        console.log('[Auth] Processing initial URL (OAuth callback from cold start)');
+        console.warn('[Auth] Processing initial URL (OAuth callback — app opened from redirect)');
         await processAuthCallbackUrl(initialUrl);
         if (!cancelled) setLoading(false);
         return;
@@ -96,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        console.log('[Auth] onAuthStateChange event:', _event, 'user:', session?.user?.id ?? 'none');
+        console.warn('[Auth] onAuthStateChange:', _event, 'user:', session?.user?.id ?? 'none');
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -110,8 +112,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     const linkSub = Linking.addEventListener('url', ({ url }) => {
+      console.warn('[Auth] Linking url event (warn=visible after OAuth):', url?.slice(0, 60) + (url && url.length > 60 ? '...' : ''));
       if (isAuthCallbackUrl(url)) {
-        console.log('[Auth] Processing URL from Linking event (app brought to foreground)');
+        console.warn('[Auth] Processing OAuth callback from Linking');
         processAuthCallbackUrl(url);
       }
     });

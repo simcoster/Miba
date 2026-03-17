@@ -1,4 +1,10 @@
 import '@/lib/mipoLocationTask'; // Register background location task early
+
+// Log when bundle loads (helps trace OAuth redirect — Metro may disconnect when app is backgrounded)
+if (__DEV__) {
+  const loadTime = new Date().toISOString();
+  console.warn('[App] Bundle loaded at', loadTime);
+}
 import { checkForStoreUpdate, checkForOTAUpdate } from '@/lib/versionCheck';
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -27,7 +33,7 @@ function RootLayoutNav() {
       console.log('[Layout:Auth] No session, redirecting to login');
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
-      console.log('[Layout:Auth] Session present in auth group, redirecting to app');
+      console.warn('[Layout:Auth] Post-login redirect to app');
       router.replace('/(app)');
     }
   }, [session, loading, segments]);

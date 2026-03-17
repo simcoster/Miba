@@ -13,6 +13,7 @@
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ?? '';
 const AUTocomplete_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const PLACE_DETAILS_URL = 'https://places.googleapis.com/v1/places';
+const NEARBY_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchNearby';
 
 export interface PlacePrediction {
   placeId: string;
@@ -20,6 +21,11 @@ export interface PlacePrediction {
   mainText: string;
   secondaryText: string;
   fullText: string;
+}
+
+export interface SubDestination {
+  id: string;
+  name: string;
 }
 
 export interface PlaceDetails {
@@ -30,6 +36,8 @@ export interface PlaceDetails {
   placePhotoName?: string;
   /** Lat/lng for Street View fallback when no place photo */
   location?: { latitude: number; longitude: number };
+  /** Sub-destinations (e.g. Hangar 11, Terminal 2) — each has its own place_id for details */
+  subDestinations?: SubDestination[];
 }
 
 function isApiConfigured(): boolean {
@@ -121,7 +129,7 @@ export async function fetchPlaceDetails(
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': API_KEY,
-      'X-Goog-FieldMask': 'displayName,formattedAddress,photos,location',
+      'X-Goog-FieldMask': 'displayName,formattedAddress,photos,location,subDestinations',
     },
   });
 
@@ -147,13 +155,104 @@ export async function fetchPlaceDetails(
       ? { latitude: loc.latitude, longitude: loc.longitude }
       : undefined;
 
+  const rawSubs = data.subDestinations ?? [];
+  const subDestinations: SubDestination[] = Array.isArray(rawSubs)
+    ? rawSubs
+        .filter((s: any) => s?.id)
+        .map((s: any) => ({
+          id: String(s.id).replace(/^places\//, ''),
+          name: typeof s.name === 'string' ? s.name : '',
+        }))
+    : [];
+
   return {
     placeId: id,
     displayName,
     formattedAddress: text,
     placePhotoName,
     location,
+    subDestinations: subDestinations.length > 0 ? subDestinations : undefined,
   };
+}
+
+export interface NearbyPlace {
+  placeId: string;
+  displayName: string;
+  formattedAddress?: string;
+  placePhotoName?: string;
+  location?: { latitude: number; longitude: number };
+}
+
+/**
+ * Nearby Search (New) — find places within a radius of a center point.
+ * Used as fallback when main place has no photo and no sub-destinations.
+ */
+export async function fetchNearbySearch(
+  latitude: number,
+  longitude: number,
+  radiusMeters: number = 5
+): Promise<NearbyPlace[]> {
+  if (!isApiConfigured()) {
+    console.log('[Places] Nearby Search skipped: API key not configured');
+    return [];
+  }
+  const radius = Math.max(1, Math.min(50000, radiusMeters));
+  console.log('[Places] Nearby Search request:', { lat: latitude, lng: longitude, radius });
+
+  const res = await fetch(NEARBY_SEARCH_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': API_KEY,
+      'X-Goog-FieldMask':
+        'places.displayName,places.formattedAddress,places.photos,places.location,places.name',
+    },
+    body: JSON.stringify({
+      locationRestriction: {
+        circle: {
+          center: { latitude, longitude },
+          radius,
+        },
+      },
+      maxResultCount: 20,
+    }),
+  });
+
+  if (!res.ok) {
+    console.warn('[Places] Nearby Search error:', res.status, await res.text());
+    return [];
+  }
+
+  const data = await res.json();
+  const places = data.places ?? [];
+  const results: NearbyPlace[] = [];
+
+  for (const p of places) {
+    const placeId = (p.name ?? '').replace(/^places\//, '');
+    const displayName = p.displayName?.text ?? '';
+    const formattedAddress = p.formattedAddress ?? '';
+    const photos = p.photos ?? [];
+    const firstPhoto = Array.isArray(photos) ? photos[0] : null;
+    const placePhotoName = firstPhoto?.name ?? undefined;
+    const loc = p.location;
+    const location =
+      loc != null && typeof loc.latitude === 'number' && typeof loc.longitude === 'number'
+        ? { latitude: loc.latitude, longitude: loc.longitude }
+        : undefined;
+
+    if (placeId && displayName) {
+      results.push({
+        placeId,
+        displayName,
+        formattedAddress: formattedAddress || undefined,
+        placePhotoName,
+        location,
+      });
+    }
+  }
+
+  console.log('[Places] Nearby Search response:', results.length, 'places');
+  return results;
 }
 
 /**

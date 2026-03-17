@@ -194,6 +194,9 @@ function TabBarContent() {
 }
 
 export default function AppLayout() {
+  useEffect(() => {
+    console.warn('[App] Main app layout mounted (post-login)');
+  }, []);
   return (
     <MipoProvider>
     <ContactImportGate>

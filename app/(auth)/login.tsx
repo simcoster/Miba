@@ -34,9 +34,10 @@ export default function LoginScreen() {
       if (!data.url) throw new Error('No OAuth URL returned');
 
       console.log('[OAuth] data.url:', data.url);
+      console.log('[OAuth] Opening browser, waiting for redirect...');
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
-      console.log('[OAuth] result type:', result.type);
+      console.warn('[OAuth] Browser returned, result.type:', result.type);
       if (result.type !== 'success') {
         // User cancelled or something went wrong — just stop loading, no error
         return;
@@ -81,6 +82,7 @@ export default function LoginScreen() {
         throw new Error('No tokens or code found in redirect URL. Check Supabase redirect URL settings.');
       }
 
+      console.warn('[OAuth] Session set, redirecting to app');
       router.replace('/(app)');
     } catch (error: any) {
       Alert.alert('Sign-in failed', error.message ?? 'Something went wrong. Please try again.');

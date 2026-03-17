@@ -5,13 +5,13 @@
 import { parse } from 'date-fns';
 
 const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
 
 const PROMPT = `I am attaching an image. First, determine if this image is actually a poster or advertisement for an event (concert, meetup, party, workshop, etc.). It should clearly promote a specific event with details like date, time, or location.
 
 If the image is NOT an event poster (e.g. a random photo, meme, screenshot of a chat, generic image, or unrelated content), set is_event_poster to false and use null for other fields.
 
-If it IS an event poster, set is_event_poster to true and extract: event_name, event_type, date or dates, start_time, location or locations, and description.
+If it IS an event poster, set is_event_poster to true and extract: event_name, event_type, date or dates, start_time, location or locations, venue name, and description.
 
 Keep the original language of the poster. If the poster is in Hebrew (or any other language), do NOT translate to English — preserve the text as written, including the location.
 
@@ -29,6 +29,7 @@ export interface ExtractedEvent {
   location?: string | null;
   locations?: string | string[] | null;
   location_or_locations?: string | string[] | null;
+  venue_name?: string | null;
   description?: string | null;
 }
 
@@ -116,6 +117,36 @@ function parseActivityTime(extracted: ExtractedEvent): Date {
     date.setDate(date.getDate() + 1);
   }
   return date;
+}
+
+/** Cached model output for testing sub-destinations without calling Gemini */
+export const TEST_CACHED_EXTRACTED_EVENT: ExtractedEvent = {
+  is_event_poster: true,
+  event_name: 'Fetish Social',
+  event_type: 'Social event, Karaoke Night, Darkroom',
+  date: '20/3/2026',
+  start_time: '21:00',
+  location: 'ALENBY 38, TLV',
+  venue_name: 'MASH central',
+  description:
+    'IM*FC\nמג"ף מועדון גברים בפטיש ISRAEL MEN\'S FETISH CLUB\nDarkroom\nחדר חושך\nKaraoke Night!\nקריוקי!\nלבוש פטיש על כל סוגיו\nwear your fetish gear\nHAPPY HOUR 21:00-23:00\n45NIS COCKTAILS\nMASH central',
+};
+
+/** Parse cached event into ParsedPosterResult — for testing sub-destinations without Gemini */
+export function getTestCachedParsedResult(): ParsedPosterResult {
+  const e = TEST_CACHED_EXTRACTED_EVENT;
+  const title = (e.event_name ?? '').trim() || 'Untitled Event';
+  const eventType = (e.event_type ?? '').trim();
+  const desc = (e.description ?? '').trim();
+  const description = eventType && desc ? `${eventType} - ${desc}` : eventType || desc;
+  const location = typeof e.location === 'string' ? e.location.trim() : '';
+  return {
+    isEventPoster: true,
+    title,
+    description,
+    location,
+    activityTime: parseActivityTime(e),
+  };
 }
 
 export async function extractEventFromPoster(

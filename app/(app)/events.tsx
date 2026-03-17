@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Activity } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
-import { extractEventFromPoster } from '@/lib/geminiPosterExtract';
+import { extractEventFromPoster, getTestCachedParsedResult } from '@/lib/geminiPosterExtract';
 import { resolveLocationFromText } from '@/lib/resolveLocationFromText';
 import { getPosterUsesRemaining, recordPosterExtraction } from '@/lib/posterExtractionUsage';
 import { setPendingPosterUri } from '@/lib/pendingPoster';
@@ -362,6 +362,40 @@ export default function EventsScreen() {
     }
   }, [user, posterUsesLeft, router]);
 
+  const handleTestSubDestinations = useCallback(async () => {
+    if (!user) return;
+    setShowAddDropdown(false);
+    setFromPosterLoading(true);
+    try {
+      const parsed = getTestCachedParsedResult();
+      console.log('[FromPoster] Test mode — using cached output, location:', parsed.location);
+      const resolved = parsed.location
+        ? await resolveLocationFromText(parsed.location)
+        : { location: '', placePhotoName: undefined };
+      console.log('[FromPoster] Test mode — resolved:', resolved.location, resolved.placePhotoName ? 'has photo' : 'no photo');
+
+      const parts = [
+        'fromPoster=1',
+        `title=${encodeURIComponent(parsed.title)}`,
+        `activityTime=${encodeURIComponent(parsed.activityTime.toISOString())}`,
+      ];
+      if (parsed.description) parts.push(`description=${encodeURIComponent(parsed.description)}`);
+      if (resolved.location) parts.push(`location=${encodeURIComponent(resolved.location)}`);
+      if (resolved.placePhotoName) {
+        parts.push(`placePhotoName=${encodeURIComponent(resolved.placePhotoName)}`);
+      } else {
+        parts.push(`splashArt=${encodeURIComponent('banner_1')}`);
+      }
+
+      router.push(`/(app)/activity/new?${parts.join('&')}` as any);
+    } catch (err: any) {
+      console.log('[FromPoster] Test error:', err?.message, err);
+      Alert.alert('Test failed', err?.message ?? 'Could not resolve location.');
+    } finally {
+      setFromPosterLoading(false);
+    }
+  }, [user, router]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchActivities();
@@ -488,6 +522,18 @@ export default function EventsScreen() {
                   <Text style={styles.posterUsesLeft}>({posterUsesLeft} left today)</Text>
                 )}
               </TouchableOpacity>
+              {__DEV__ && (
+                <>
+                  <View style={styles.addDropdownDivider} />
+                  <TouchableOpacity
+                    style={styles.addDropdownRow}
+                    onPress={() => { setShowAddDropdown(false); handleTestSubDestinations(); }}
+                  >
+                    <Ionicons name="flask-outline" size={18} color={Colors.primary} />
+                    <Text style={styles.addDropdownText}>Test sub-destinations</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </Pressable>
         </Modal>
