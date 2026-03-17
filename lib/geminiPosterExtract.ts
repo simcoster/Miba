@@ -15,6 +15,8 @@ If it IS an event poster, set is_event_poster to true and extract: event_name, e
 
 Keep the original language of the poster. If the poster is in Hebrew (or any other language), do NOT translate to English — preserve the text as written, including the location.
 
+For the description field: format it nicely with clear line breaks. Put each fact, sentence, or bullet point on its own line (use \\n to separate lines). If the poster mixes Hebrew and English, put each language block on a separate line. Do NOT concatenate everything into one long unformatted string — preserve the structure and readability of the original poster.
+
 Return ONLY valid JSON, no markdown or explanation. Use null for missing fields. Include is_event_poster (boolean) in the response.`;
 
 export interface ExtractedEvent {
