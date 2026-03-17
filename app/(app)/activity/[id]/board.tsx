@@ -932,14 +932,14 @@ const styles = StyleSheet.create({
   },
   postEditCancelText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
 
-  commentsSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  commentsSection: { marginTop: 16 },
   commentsToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
   commentsToggleText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
-  commentsExpanded: { marginTop: 12 },
+  commentsExpanded: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight },
   commentRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   commentContent: { flex: 1, marginLeft: 10 },
   commentAuthor: { fontSize: 14, fontWeight: '600', color: Colors.text },
