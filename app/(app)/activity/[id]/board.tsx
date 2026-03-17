@@ -28,6 +28,8 @@ import type { Post, PostComment } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { LocationDisplay } from '@/components/LocationDisplay';
+import { SplashArt } from '@/components/SplashArt';
+import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
 
 const DROPDOWN_WIDTH = 110;
@@ -55,6 +57,8 @@ export default function ActivityBoardScreen() {
     activity_time: string;
     location: string | null;
     description: string | null;
+    splash_art?: string | null;
+    place_photo_name?: string | null;
     going: Array<{ user_id: string; profile?: { full_name: string | null; avatar_url: string | null } | null }>;
   } | null>(null);
   const [showPeek, setShowPeek] = useState(false);
@@ -78,11 +82,13 @@ export default function ActivityBoardScreen() {
   const postButtonRefs = useRef<Record<string, View | null>>({});
   const commentButtonRefs = useRef<Record<string, View | null>>({});
 
+  const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
+
   const fetchActivity = useCallback(async () => {
     if (!id) return;
     const { data } = await supabase
       .from('activities')
-      .select('title, activity_time, location, description, rsvps(*, profile:profiles(id, full_name, avatar_url))')
+      .select('title, activity_time, location, description, splash_art, place_photo_name, rsvps(*, profile:profiles(id, full_name, avatar_url))')
       .eq('id', id)
       .single();
     if (data) {
@@ -94,6 +100,8 @@ export default function ActivityBoardScreen() {
         activity_time: data.activity_time,
         location: data.location,
         description: data.description,
+        splash_art: data.splash_art ?? null,
+        place_photo_name: data.place_photo_name ?? null,
         going,
       });
     }
@@ -478,17 +486,8 @@ export default function ActivityBoardScreen() {
       keyboardVerticalOffset={0}
     >
       <ScreenHeader
-        title={activityTitle || 'Board'}
-        subtitle="Posts and comments"
+        title=""
         showBack
-        onTitlePress={
-          id
-            ? () =>
-                router.push(
-                  `/(app)/activity/${id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`
-                )
-            : undefined
-        }
         rightActionPeek={
           id
             ? {
@@ -499,6 +498,48 @@ export default function ActivityBoardScreen() {
             : undefined
         }
       />
+
+      {/* Title section with optional splash behind */}
+      <TouchableOpacity
+        style={[
+          styles.titleSection,
+          activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.titleSectionWithSplash,
+        ]}
+        activeOpacity={id ? 0.7 : 1}
+        onPress={
+          id
+            ? () =>
+                router.push(
+                  `/(app)/activity/${id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`
+                )
+            : undefined
+        }
+        disabled={!id}
+      >
+        {(activityDetails?.place_photo_name || activityDetails?.splash_art) && (
+          <View style={styles.splashBackground}>
+            <SplashArt
+              preset={getActivityCoverProps(activityDetails)?.preset}
+              imageUri={getActivityCoverProps(activityDetails)?.imageUri}
+              height={105}
+              opacity={0.4}
+            />
+          </View>
+        )}
+        <View
+          style={[
+            styles.titleSectionOverlay,
+            activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.titleSectionOverlayWithSplash,
+          ]}
+        >
+          <Text style={[styles.boardTitle, isHebrew(activityTitle || '') && styles.boardTitleRtl]} numberOfLines={2}>
+            {activityTitle || 'Board'}
+          </Text>
+        </View>
+        <Text style={[styles.boardSubtitle, activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.boardSubtitleBelowSplash]}>
+          Posts and comments
+        </Text>
+      </TouchableOpacity>
 
       <Modal visible={showPeek} transparent animationType="fade">
         <Pressable style={styles.peekOverlay} onPress={() => setShowPeek(false)}>
@@ -799,6 +840,25 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginTop: 8 },
   emptySubtitle: { fontSize: 14, color: Colors.textSecondary },
+
+  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, position: 'relative' as const },
+  titleSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
+  splashBackground: { position: 'absolute' as const, top: 0, left: 20, right: 20, height: 105, overflow: 'hidden', borderRadius: 16 },
+  titleSectionOverlay: { paddingTop: 8, paddingBottom: 4 },
+  titleSectionOverlayWithSplash: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 20,
+    right: 20,
+    height: 105,
+    paddingTop: 35,
+    paddingHorizontal: 16,
+    justifyContent: 'flex-start',
+  },
+  boardTitle: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 4, paddingVertical: 8, paddingHorizontal: 4 },
+  boardTitleRtl: { textAlign: 'right' },
+  boardSubtitle: { fontSize: 14, color: Colors.textSecondary },
+  boardSubtitleBelowSplash: { marginTop: 113 },
 
   composer: {
     paddingHorizontal: 16,
