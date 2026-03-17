@@ -32,15 +32,16 @@ export async function uploadPosterImage(
     return null;
   }
 
+  // Use ArrayBuffer instead of Blob — Blob can cause "Network request failed" in React Native/Expo Go
   const response = await fetch(manipulated.uri);
-  const blob = await response.blob();
+  const arrayBuffer = await response.arrayBuffer();
   const path = `${activityId}.jpg`;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const { data, error } = await supabase.storage
         .from(BUCKET)
-        .upload(path, blob, {
+        .upload(path, arrayBuffer, {
           contentType: 'image/jpeg',
           upsert: true,
         });

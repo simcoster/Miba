@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
   TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView, BackHandler, Keyboard,
-  Modal, Image, Pressable, Dimensions,
+  Modal, Image, Pressable, Dimensions, useWindowDimensions,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ZoomableImage } from '@/components/ZoomableImage';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
 import { useLocalSearchParams, useGlobalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -76,6 +78,8 @@ export default function ActivityDetailScreen() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [posterUploading, setPosterUploading] = useState(false);
+  const [posterScale, setPosterScale] = useState(1);
+  const { width: screenWidth } = useWindowDimensions();
 
   // Menu / clone state
   const [showMenu, setShowMenu] = useState(false);
@@ -166,6 +170,7 @@ export default function ActivityDetailScreen() {
   // Bug fix: reset edit mode when navigating to a different activity
   useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
   useEffect(() => { if (!isEditing) setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [isEditing]);
+  useEffect(() => { if (!showPosterModal) setPosterScale(1); }, [showPosterModal]);
 
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
@@ -797,25 +802,37 @@ export default function ActivityDetailScreen() {
           </Pressable>
         </Modal>
 
-        {/* Original poster popup (from "From Poster" events) */}
+        {/* Original poster popup (from "From Poster" events) — pinch to zoom */}
         <Modal visible={showPosterModal} transparent animationType="fade" onRequestClose={() => setShowPosterModal(false)}>
-          <Pressable style={styles.locationImageModalOverlay} onPress={() => setShowPosterModal(false)}>
-            <Pressable style={styles.locationImageModalContent} onPress={() => {}}>
-              {activity?.poster_image_url && (
-                <Image
-                  source={{ uri: activity.poster_image_url }}
-                  style={styles.locationImageFull}
-                  resizeMode="contain"
-                />
-              )}
-              <TouchableOpacity
-                style={styles.locationImageModalClose}
-                onPress={() => setShowPosterModal(false)}
-              >
-                <Text style={styles.locationImageModalCloseText}>Close</Text>
-              </TouchableOpacity>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <Pressable style={styles.locationImageModalOverlay} onPress={() => setShowPosterModal(false)}>
+              <Pressable style={[styles.locationImageModalContent, { maxWidth: 750 }]} onPress={() => {}}>
+                {activity?.poster_image_url && (
+                  <ScrollView
+                    style={{ maxHeight: Dimensions.get('window').height * 0.85 }}
+                    contentContainerStyle={styles.posterScrollContent}
+                    showsVerticalScrollIndicator={false}
+                    scrollEnabled={posterScale <= 1}
+                  >
+                    <ZoomableImage
+                      source={{ uri: activity.poster_image_url }}
+                      style={{
+                        width: Math.min(750, screenWidth - 24),
+                        height: Math.min(600, Dimensions.get('window').height * 0.75),
+                      }}
+                      onScaleChange={setPosterScale}
+                    />
+                  </ScrollView>
+                )}
+                <TouchableOpacity
+                  style={styles.locationImageModalClose}
+                  onPress={() => setShowPosterModal(false)}
+                >
+                  <Text style={styles.locationImageModalCloseText}>Close</Text>
+                </TouchableOpacity>
+              </Pressable>
             </Pressable>
-          </Pressable>
+          </GestureHandlerRootView>
         </Modal>
 
         {/* Description (edit: hidden until button tapped) */}
@@ -1371,6 +1388,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 500,
     alignItems: 'center',
+  },
+  posterScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 8,
   },
   locationImageFull: {
     width: Math.min(500, Dimensions.get('window').width - 48),
