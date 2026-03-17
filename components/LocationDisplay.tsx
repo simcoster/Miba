@@ -10,9 +10,11 @@ interface LocationDisplayProps {
   variant?: 'card' | 'detail' | 'inline';
   /** Show the location icon (default true for card, false when parent provides icon) */
   showIcon?: boolean;
+  /** When true, allow full text wrap without line limit */
+  allowFullWrap?: boolean;
 }
 
-export function LocationDisplay({ location, variant = 'card', showIcon = true }: LocationDisplayProps) {
+export function LocationDisplay({ location, variant = 'card', showIcon = true, allowFullWrap = false }: LocationDisplayProps) {
   const parsed = parseLocation(location);
   if (!parsed) return null;
 
@@ -23,6 +25,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true }:
   };
 
   const isCompact = variant === 'card' || variant === 'inline';
+  const lines = isCompact ? 1 : 2;
 
   return (
     <View style={[styles.container, isCompact && styles.compact]}>
@@ -34,7 +37,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true }:
         />
       )}
       <View style={styles.textBlock}>
-        <Text style={[styles.address, variant === 'detail' && styles.addressDetail]} numberOfLines={isCompact ? 1 : 2}>
+        <Text style={[styles.address, variant === 'detail' && styles.addressDetail]} {...(!allowFullWrap && { numberOfLines: lines })}>
           {parsed.address}
         </Text>
         {parsed.placeId && parsed.displayName && (

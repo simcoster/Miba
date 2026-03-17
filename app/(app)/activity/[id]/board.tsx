@@ -510,14 +510,14 @@ export default function ActivityBoardScreen() {
             onPress={(e) => e.stopPropagation()}
           >
             {activityDetails ? (
-              <ScrollView style={styles.peekContent} showsVerticalScrollIndicator={false}>
+              <ScrollView style={styles.peekContent} contentContainerStyle={styles.peekContentContainer} showsVerticalScrollIndicator={false}>
                 <Text style={styles.peekTitle}>{activityDetails.title}</Text>
                 <View style={styles.peekMeta}>
                   <View style={styles.peekMetaRow}>
                     <View style={styles.peekMetaIcon}>
                       <Ionicons name="calendar" size={20} color={Colors.primary} />
                     </View>
-                    <View>
+                    <View style={styles.peekMetaValueWrap}>
                       <Text style={styles.peekMetaLabel}>When</Text>
                       <Text style={styles.peekMetaValue}>
                         {(() => {
@@ -536,12 +536,13 @@ export default function ActivityBoardScreen() {
                       <View style={styles.peekMetaIcon}>
                         <Ionicons name="location" size={20} color={Colors.primary} />
                       </View>
-                      <View>
+                      <View style={styles.peekMetaValueWrap}>
                         <Text style={styles.peekMetaLabel}>Where</Text>
                         <LocationDisplay
                           location={activityDetails.location}
                           variant="detail"
                           showIcon={false}
+                          allowFullWrap
                         />
                       </View>
                     </View>
@@ -551,7 +552,7 @@ export default function ActivityBoardScreen() {
                       <View style={styles.peekMetaIcon}>
                         <Ionicons name="document-text" size={20} color={Colors.primary} />
                       </View>
-                      <View style={styles.peekDescWrap}>
+                      <View style={[styles.peekMetaValueWrap, styles.peekDescWrap]}>
                         <Text style={styles.peekMetaLabel}>About</Text>
                         <Text style={styles.peekDescText}>{activityDetails.description}</Text>
                       </View>
@@ -848,10 +849,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
     overflow: 'hidden',
   },
-  peekContent: { flex: 1, padding: 16 },
+  peekContent: { flex: 1 },
+  peekContentContainer: { padding: 16, paddingBottom: 24 },
   peekTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 12 },
   peekMeta: { gap: 14 },
-  peekMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  peekMetaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   peekMetaIcon: {
     width: 36,
     height: 36,
@@ -862,7 +864,8 @@ const styles = StyleSheet.create({
   },
   peekMetaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   peekMetaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
-  peekDescWrap: { flex: 1 },
+  peekMetaValueWrap: { flex: 1, minWidth: 0 },
+  peekDescWrap: {},
   peekDescText: { fontSize: 15, color: Colors.text, lineHeight: 22, marginTop: 1 },
 
   dropdownOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
