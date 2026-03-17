@@ -55,6 +55,7 @@ export default function ActivityBoardScreen() {
     activity_time: string;
     location: string | null;
     description: string | null;
+    going: Array<{ user_id: string; profile?: { full_name: string | null; avatar_url: string | null } | null }>;
   } | null>(null);
   const [showPeek, setShowPeek] = useState(false);
   const [posts, setPosts] = useState<PostWithComments[]>([]);
@@ -81,16 +82,19 @@ export default function ActivityBoardScreen() {
     if (!id) return;
     const { data } = await supabase
       .from('activities')
-      .select('title, activity_time, location, description')
+      .select('title, activity_time, location, description, rsvps(*, profile:profiles(id, full_name, avatar_url))')
       .eq('id', id)
       .single();
     if (data) {
+      const rsvps = (data.rsvps ?? []) as Array<{ user_id: string; status: string; profile?: { full_name: string | null; avatar_url: string | null } | null }>;
+      const going = rsvps.filter((r) => r.status === 'in');
       setActivityTitle(data.title);
       setActivityDetails({
         title: data.title,
         activity_time: data.activity_time,
         location: data.location,
         description: data.description,
+        going,
       });
     }
   }, [id]);
@@ -504,14 +508,13 @@ export default function ActivityBoardScreen() {
               {
                 marginTop: insets.top + 56,
                 width: SCREEN_WIDTH,
-                height: SCREEN_HEIGHT * (2 / 3),
+                maxHeight: SCREEN_HEIGHT * 0.85,
               },
             ]}
             onPress={(e) => e.stopPropagation()}
           >
             {activityDetails ? (
               <ScrollView style={styles.peekContent} contentContainerStyle={styles.peekContentContainer} showsVerticalScrollIndicator={false}>
-                <Text style={styles.peekTitle}>{activityDetails.title}</Text>
                 <View style={styles.peekMeta}>
                   <View style={styles.peekMetaRow}>
                     <View style={styles.peekMetaIcon}>
@@ -558,6 +561,26 @@ export default function ActivityBoardScreen() {
                       </View>
                     </View>
                   ) : null}
+                  {activityDetails.going.length > 0 && (
+                    <View style={styles.peekMetaRow}>
+                      <View style={styles.peekMetaIcon}>
+                        <Ionicons name="people" size={20} color={Colors.primary} />
+                      </View>
+                      <View style={styles.peekMetaValueWrap}>
+                        <Text style={styles.peekMetaLabel}>Going</Text>
+                        <View style={styles.peekGoingRow}>
+                          {activityDetails.going.map((r) => (
+                            <View key={r.user_id} style={styles.peekGoingItem}>
+                              <Avatar uri={r.profile?.avatar_url} name={r.profile?.full_name} size={28} />
+                              <Text style={styles.peekGoingName} numberOfLines={1}>
+                                {r.profile?.full_name ?? 'Someone'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
               </ScrollView>
             ) : (
@@ -849,8 +872,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
     overflow: 'hidden',
   },
-  peekContent: { flex: 1 },
-  peekContentContainer: { padding: 16, paddingBottom: 24 },
+  peekContent: {},
+  peekContentContainer: { padding: 16, paddingBottom: 24, flexGrow: 0 },
   peekTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 12 },
   peekMeta: { gap: 14 },
   peekMetaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -867,6 +890,9 @@ const styles = StyleSheet.create({
   peekMetaValueWrap: { flex: 1, minWidth: 0 },
   peekDescWrap: {},
   peekDescText: { fontSize: 15, color: Colors.text, lineHeight: 22, marginTop: 1 },
+  peekGoingRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
+  peekGoingItem: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' },
+  peekGoingName: { fontSize: 14, color: Colors.text, fontWeight: '500', flex: 1, minWidth: 0 },
 
   dropdownOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
   dropdownMenu: {
