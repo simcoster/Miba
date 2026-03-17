@@ -5,7 +5,7 @@
 import { parse } from 'date-fns';
 
 const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
+const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 const PROMPT = `I am attaching an image. First, determine if this image is actually a poster or advertisement for an event (concert, meetup, party, workshop, etc.). It should clearly promote a specific event with details like date, time, or location.
 
