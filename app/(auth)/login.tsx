@@ -191,5 +191,7 @@ const styles = StyleSheet.create({
   },
   googleIconText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   googleButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
-  disclaimer: { marginTop: 16, fontSize: 11, color: Colors.textSecondary, textAlign: 'center', lineHeight: 16 },
+  disclaimerTouchable: { marginTop: 16 },
+  disclaimer: { fontSize: 11, color: Colors.textSecondary, textAlign: 'center', lineHeight: 16 },
+  disclaimerLink: { color: Colors.primary, textDecorationLine: 'underline', fontWeight: '600' },
 });

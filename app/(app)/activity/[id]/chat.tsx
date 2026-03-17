@@ -114,7 +114,7 @@ export default function ActivityChatScreen() {
     fetchInitial().finally(() => { setLoading(false); markRead(); });
   }, [fetchInitial, markRead]);
 
-  // Detect Mipo DM and fetch other user's name for header
+  // Detect Mipo DM and fetch other user's name for header. Redirect to board if normal event.
   useEffect(() => {
     if (!id || !user) return;
     supabase
@@ -126,6 +126,7 @@ export default function ActivityChatScreen() {
         if (!data) {
           setIsMipoDm(false);
           setOtherUserName(null);
+          router.replace(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`);
           return;
         }
         setIsMipoDm(true);
@@ -133,7 +134,7 @@ export default function ActivityChatScreen() {
         const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', otherId).single();
         setOtherUserName(profile?.full_name ?? 'Someone');
       });
-  }, [id, user]);
+  }, [id, user, fromTab, router]);
 
   // Fetch location shares and subscribe to realtime
   const fetchLocationShares = useCallback(async () => {

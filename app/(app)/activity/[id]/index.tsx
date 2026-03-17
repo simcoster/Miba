@@ -114,10 +114,9 @@ export default function ActivityDetailScreen() {
         going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
       } as Activity;
       setActivity(act);
-      // Mark chat/RSVP as seen for badge clearing. Do NOT set miba_activity_last_seen here —
-      // that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
+      // Mark RSVP as seen for badge clearing. Board read is set when user opens the board.
+      // Do NOT set miba_activity_last_seen here — that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
-      AsyncStorage.setItem(`miba_chat_last_read_${id}`, now).catch(() => {});
       AsyncStorage.setItem(`miba_rsvp_changes_seen_${id}`, now).catch(() => {});
 
       // Auto-enter edit mode when cloned (navigated with ?edit=1)
@@ -143,15 +142,25 @@ export default function ActivityDetailScreen() {
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
     try {
-      const stored = await AsyncStorage.getItem(`miba_chat_last_read_${id}`);
+      const stored = await AsyncStorage.getItem(`miba_board_last_read_${id}`);
       const since = stored ?? '1970-01-01T00:00:00Z';
-      const { count } = await supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('activity_id', id)
-        .neq('user_id', user.id)
-        .gt('created_at', since);
-      setHasUnread((count ?? 0) > 0);
+      const [postsRes, commentsRes] = await Promise.all([
+        supabase
+          .from('posts')
+          .select('*', { count: 'exact', head: true })
+          .eq('activity_id', id)
+          .neq('user_id', user.id)
+          .gt('created_at', since),
+        supabase
+          .from('post_comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('activity_id', id)
+          .neq('user_id', user.id)
+          .gt('created_at', since),
+      ]);
+      const postsCount = postsRes.count ?? 0;
+      const commentsCount = commentsRes.count ?? 0;
+      setHasUnread(postsCount + commentsCount > 0);
     } catch {
       // non-critical — silently ignore
     }
@@ -554,7 +563,7 @@ export default function ActivityDetailScreen() {
   const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
   const headerActions = [
-    { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/chat?fromTab=${encodeURIComponent(fromTab ?? 'events')}`), badge: hasUnread },
+    { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'events')}`), badge: hasUnread },
     ...(isCreator && activity.status === 'active' && !isEditing
       ? [{ icon: 'ellipsis-vertical' as const, onPress: () => setShowMenu(true) }]
       : []),

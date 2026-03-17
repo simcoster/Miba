@@ -71,69 +71,141 @@ export default function ChatsScreen() {
       return;
     }
 
-    const { data: messages } = await supabase
-      .from('messages')
-      .select('activity_id, content, type, created_at')
-      .in('activity_id', activityIds)
-      .order('created_at', { ascending: false });
+    const [messagesRes, postsRes, mipoDmsRes] = await Promise.all([
+      supabase
+        .from('messages')
+        .select('activity_id, content, type, created_at')
+        .in('activity_id', activityIds)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('posts')
+        .select('activity_id, content, created_at')
+        .in('activity_id', activityIds)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('mipo_dm_activities')
+        .select('activity_id, user_a_id, user_b_id')
+        .in('activity_id', activityIds),
+    ]);
 
-    const latestByActivity = new Map<string, { content: string; type: string; created_at: string }>();
-    for (const m of messages ?? []) {
-      if (!latestByActivity.has(m.activity_id)) {
-        latestByActivity.set(m.activity_id, m);
+    const mipoDms = new Map(
+      (mipoDmsRes.data ?? []).map((d: { activity_id: string; user_a_id: string; user_b_id: string }) => [
+        d.activity_id,
+        d,
+      ])
+    );
+    const mipoActivityIds = new Set(mipoDms.keys());
+
+    // Mipo: latest from messages
+    const latestMessageByActivity = new Map<
+      string,
+      { content: string; type: string; created_at: string }
+    >();
+    for (const m of messagesRes.data ?? []) {
+      if (!latestMessageByActivity.has(m.activity_id)) {
+        latestMessageByActivity.set(m.activity_id, m);
       }
     }
-    const activityIdsWithMessages = [...latestByActivity.keys()];
-    if (activityIdsWithMessages.length === 0) {
+
+    // Events (board): latest from posts
+    const latestPostByActivity = new Map<string, { content: string; created_at: string }>();
+    for (const p of postsRes.data ?? []) {
+      if (!latestPostByActivity.has(p.activity_id)) {
+        latestPostByActivity.set(p.activity_id, p);
+      }
+    }
+
+    const mipoItems: { activityId: string; subtitle: string; lastMessageAt: string }[] = [
+      ...mipoActivityIds,
+    ]
+      .filter((aid) => latestMessageByActivity.has(aid))
+      .map((aid) => {
+        const latest = latestMessageByActivity.get(aid)!;
+        return {
+          activityId: aid,
+          subtitle: formatLastMessage({ type: latest.type, content: latest.content }),
+          lastMessageAt: latest.created_at,
+        };
+      });
+
+    const eventItems: { activityId: string; subtitle: string; lastMessageAt: string }[] = [
+      ...latestPostByActivity.keys(),
+    ]
+      .filter((aid) => !mipoActivityIds.has(aid))
+      .map((aid) => {
+        const latest = latestPostByActivity.get(aid)!;
+        const preview =
+          latest.content.length > 60 ? `${latest.content.slice(0, 57)}...` : latest.content;
+        return {
+          activityId: aid,
+          subtitle: preview,
+          lastMessageAt: latest.created_at,
+        };
+      });
+
+    const allActivityIds = [
+      ...mipoItems.map((i) => i.activityId),
+      ...eventItems.map((i) => i.activityId),
+    ];
+    if (allActivityIds.length === 0) {
       setChats([]);
       return;
     }
 
-    const [activitiesRes, mipoDmsRes] = await Promise.all([
-      supabase.from('activities').select('id, title, splash_art').in('id', activityIdsWithMessages),
-      supabase
-        .from('mipo_dm_activities')
-        .select('activity_id, user_a_id, user_b_id')
-        .in('activity_id', activityIdsWithMessages),
+    const otherUserIds = [...mipoDms.values()].map((d) =>
+      d.user_a_id === user.id ? d.user_b_id : d.user_a_id
+    );
+
+    const [activitiesRes, profilesRes] = await Promise.all([
+      supabase.from('activities').select('id, title, splash_art').in('id', allActivityIds),
+      supabase.from('profiles').select('id, full_name, avatar_url').in('id', otherUserIds),
     ]);
 
-    const activities = new Map((activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null }) => [a.id, a]));
-    const mipoDms = new Map((mipoDmsRes.data ?? []).map((d: { activity_id: string; user_a_id: string; user_b_id: string }) => [d.activity_id, d]));
+    const activities = new Map(
+      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null }) => [
+        a.id,
+        a,
+      ])
+    );
+    const profileMap = new Map(
+      (profilesRes.data ?? []).map((p: { id: string; full_name: string | null; avatar_url: string | null }) => [
+        p.id,
+        p,
+      ])
+    );
 
-    const otherUserIds = new Set<string>();
-    for (const dm of mipoDms.values()) {
-      otherUserIds.add(dm.user_a_id === user.id ? dm.user_b_id : dm.user_a_id);
-    }
-
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, avatar_url')
-      .in('id', [...otherUserIds]);
-    const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string | null; avatar_url: string | null }) => [p.id, p]));
-
-    const items: ChatItem[] = activityIdsWithMessages.map((aid) => {
-      const activity = activities.get(aid);
-      const latest = latestByActivity.get(aid);
-      const dm = mipoDms.get(aid);
-      const otherProfile = dm ? profileMap.get(dm.user_a_id === user.id ? dm.user_b_id : dm.user_a_id) : null;
-      const displayTitle = dm
-        ? (otherProfile?.full_name ?? 'Someone')
-        : (activity?.title ?? 'Chat');
-      const subtitle = formatLastMessage(latest ? { type: latest.type, content: latest.content } : null);
-      const truncatedSubtitle = subtitle.length > 60 ? `${subtitle.slice(0, 57)}...` : subtitle;
-
+    const mipoChatItems: ChatItem[] = mipoItems.map((i) => {
+      const dm = mipoDms.get(i.activityId)!;
+      const otherId = dm.user_a_id === user.id ? dm.user_b_id : dm.user_a_id;
+      const profile = profileMap.get(otherId);
+      const activity = activities.get(i.activityId);
       return {
-        activityId: aid,
-        title: displayTitle,
-        subtitle: truncatedSubtitle,
-        lastMessageAt: latest?.created_at ?? '',
-        isMipoDm: !!dm,
-        splashArt: dm ? undefined : (activity?.splash_art as SplashPreset | null | undefined),
-        avatarUri: dm ? otherProfile?.avatar_url : undefined,
-        avatarName: dm ? (otherProfile?.full_name ?? 'Someone') : undefined,
+        activityId: i.activityId,
+        title: profile?.full_name ?? 'Someone',
+        subtitle: i.subtitle.length > 60 ? `${i.subtitle.slice(0, 57)}...` : i.subtitle,
+        lastMessageAt: i.lastMessageAt,
+        isMipoDm: true,
+        splashArt: undefined,
+        avatarUri: profile?.avatar_url ?? null,
+        avatarName: profile?.full_name ?? 'Someone',
       };
     });
 
+    const eventChatItems: ChatItem[] = eventItems.map((i) => {
+      const activity = activities.get(i.activityId);
+      return {
+        activityId: i.activityId,
+        title: activity?.title ?? 'Event',
+        subtitle: i.subtitle,
+        lastMessageAt: i.lastMessageAt,
+        isMipoDm: false,
+        splashArt: activity?.splash_art as SplashPreset | null | undefined,
+        avatarUri: undefined,
+        avatarName: undefined,
+      };
+    });
+
+    const items = [...mipoChatItems, ...eventChatItems];
     items.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
     setChats(items);
   }, [user]);
@@ -163,7 +235,13 @@ export default function ChatsScreen() {
     <TouchableOpacity
       style={styles.chatRow}
       activeOpacity={0.7}
-      onPress={() => router.push(`/(app)/activity/${item.activityId}/chat?fromTab=chats`)}
+      onPress={() =>
+        router.push(
+          item.isMipoDm
+            ? `/(app)/activity/${item.activityId}/chat?fromTab=chats`
+            : `/(app)/activity/${item.activityId}/board?fromTab=chats`
+        )
+      }
     >
       {item.splashArt ? (
         <View style={styles.splashCircle}>
@@ -215,8 +293,8 @@ export default function ChatsScreen() {
       ) : visibleChats.length === 0 ? (
         <EmptyState
           emoji="💬"
-          title={activeTab === 'events' ? 'No event chats yet' : 'No Mipo conversations yet'}
-          subtitle={activeTab === 'events' ? 'Open an event and start chatting.' : 'Start a conversation from Mipo.'}
+          title={activeTab === 'events' ? 'No event boards yet' : 'No Mipo conversations yet'}
+          subtitle={activeTab === 'events' ? 'Open an event and start posting.' : 'Start a conversation from Mipo.'}
         />
       ) : (
         <FlatList

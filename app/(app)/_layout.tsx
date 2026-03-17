@@ -72,9 +72,11 @@ function NotificationHandler() {
       const data = response.notification.request.content.data as { type?: string; activityId?: string };
       if (data?.type === 'mipo_proximity') {
         router.push('/(app)/mipo');
-      } else if (data?.activityId && ['chat', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled'].includes(data.type ?? '')) {
+      } else if (data?.activityId && ['chat', 'new_post', 'new_comment', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled'].includes(data.type ?? '')) {
         if (data.type === 'chat') {
           router.push(`/(app)/activity/${data.activityId}/chat?fromTab=chats`);
+        } else if (data.type === 'new_post' || data.type === 'new_comment') {
+          router.push(`/(app)/activity/${data.activityId}/board?fromTab=chats`);
         } else {
           router.push(`/(app)/activity/${data.activityId}?fromTab=events`);
         }
@@ -185,6 +187,7 @@ function TabBarContent() {
       <Tabs.Screen name="activity/new"                    options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/index"            options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/chat"             options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/board"            options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>
   );
