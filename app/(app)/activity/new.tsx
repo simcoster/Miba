@@ -19,7 +19,9 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
-import { buildPlacePhotoUrl } from '@/lib/placesApi';
+import { getCoverImageUrl } from '@/lib/placesApi';
+import { getAndClearPendingPosterUri, clearPendingPosterUri } from '@/lib/pendingPoster';
+import { uploadPosterImage } from '@/lib/uploadPoster';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
@@ -30,22 +32,27 @@ export default function NewActivityScreen() {
   const {
     clone,
     cloneFrom,
+    fromPoster,
     title: paramTitle,
     description: paramDescription,
     location: paramLocation,
     splashArt: paramSplashArt,
     placePhotoName: paramPlacePhotoName,
+    activityTime: paramActivityTime,
   } = useLocalSearchParams() as {
     clone?: string;
     cloneFrom?: string;
+    fromPoster?: string;
     title?: string;
     description?: string;
     location?: string;
     splashArt?: string;
     placePhotoName?: string;
+    activityTime?: string;
   };
 
   const isClone = clone === '1';
+  const isFromPoster = fromPoster === '1';
 
   const [title, setTitle] = useState(paramTitle ?? '');
   const [description, setDescription] = useState(paramDescription ?? '');
@@ -68,6 +75,42 @@ export default function NewActivityScreen() {
     }
     if (paramDescription) setShowDetailsInput(true);
   }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName]);
+
+  // When from poster: reset form to defaults first, then apply extracted fields
+  useEffect(() => {
+    if (!isFromPoster) return;
+    // Reset to defaults (as if clicking "New")
+    setTitle('');
+    setDescription('');
+    setLocation('');
+    setSplashArt(SPLASH_PRESETS[0].id);
+    setPlacePhotoName(null);
+    setShowDetailsInput(false);
+    setInvitePool(new Map());
+    setExpandedCircleIds(new Set());
+    setCircleMembersMap(new Map());
+    setIndividuallyAddedUserIds(new Set());
+    setSearchQuery('');
+    setSearchResults([]);
+    setActivityTime(addHours(new Date(), 1));
+    // Apply extracted params
+    if (paramTitle != null) setTitle(paramTitle);
+    if (paramDescription != null) {
+      setDescription(paramDescription);
+      setShowDetailsInput(true);
+    }
+    if (paramLocation != null) setLocation(paramLocation);
+    if (paramPlacePhotoName != null) {
+      setPlacePhotoName(paramPlacePhotoName);
+      setSplashArt(null);
+    } else if (paramSplashArt != null) {
+      setSplashArt(paramSplashArt as SplashPreset);
+    }
+    if (paramActivityTime != null) {
+      const parsed = new Date(paramActivityTime);
+      if (!isNaN(parsed.getTime())) setActivityTime(parsed);
+    }
+  }, [isFromPoster, paramTitle, paramDescription, paramLocation, paramPlacePhotoName, paramSplashArt, paramActivityTime]);
 
   // When cloning: fetch and apply the invitee list from the source activity
   useEffect(() => {
@@ -95,7 +138,16 @@ export default function NewActivityScreen() {
 
   // When navigating to New Event with no params: reset to defaults (empty name, empty invitees)
   useEffect(() => {
-    const hasParams = isClone || cloneFrom || paramTitle || paramDescription || paramLocation || paramSplashArt || paramPlacePhotoName;
+    const hasParams =
+      isClone ||
+      isFromPoster ||
+      cloneFrom ||
+      paramTitle ||
+      paramDescription ||
+      paramLocation ||
+      paramSplashArt ||
+      paramPlacePhotoName ||
+      paramActivityTime;
     if (!hasParams) {
       setTitle('');
       setDescription('');
@@ -110,7 +162,7 @@ export default function NewActivityScreen() {
       setSearchQuery('');
       setSearchResults([]);
     }
-  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName]);
+  }, [isClone, isFromPoster, cloneFrom, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName, paramActivityTime]);
   const [showSplashPicker, setShowSplashPicker] = useState(false);
   const [showDetailsInput, setShowDetailsInput] = useState(!!paramDescription);
   const [isLimited, setIsLimited] = useState(false);
@@ -183,10 +235,11 @@ export default function NewActivityScreen() {
     useCallback(() => {
       if (skipFirstFocus.current) {
         skipFirstFocus.current = false;
-        return;
+        return () => clearPendingPosterUri();
       }
-      if (!user) return;
+      if (!user) return () => clearPendingPosterUri();
       fetchCircles();
+      return () => clearPendingPosterUri();
     }, [fetchCircles, user])
   );
 
@@ -385,6 +438,14 @@ export default function NewActivityScreen() {
       });
       if (activityError) throw activityError;
 
+      const posterUri = getAndClearPendingPosterUri();
+      if (posterUri) {
+        const posterUrl = await uploadPosterImage(posterUri, activityId);
+        if (posterUrl) {
+          await supabase.from('activities').update({ poster_image_url: posterUrl }).eq('id', activityId);
+        }
+      }
+
       // Build rsvp rows: creator gets 'in', everyone in filtered pool gets 'pending'
       const rsvpRows = [
         { activity_id: activityId, user_id: user.id, status: 'in' as const },
@@ -428,7 +489,7 @@ export default function NewActivityScreen() {
             <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}>
               <SplashArt
                 preset={splashArt}
-                imageUri={placePhotoName ? buildPlacePhotoUrl(placePhotoName) : undefined}
+                imageUri={placePhotoName ? getCoverImageUrl(placePhotoName) : undefined}
                 height={300}
                 opacity={0.35}
               />

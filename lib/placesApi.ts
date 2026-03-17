@@ -28,6 +28,8 @@ export interface PlaceDetails {
   formattedAddress: string;
   /** Google Places API photo resource name (places/PLACE_ID/photos/PHOTO_ID) for first photo */
   placePhotoName?: string;
+  /** Lat/lng for Street View fallback when no place photo */
+  location?: { latitude: number; longitude: number };
 }
 
 function isApiConfigured(): boolean {
@@ -119,7 +121,7 @@ export async function fetchPlaceDetails(
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': API_KEY,
-      'X-Goog-FieldMask': 'displayName,formattedAddress,photos',
+      'X-Goog-FieldMask': 'displayName,formattedAddress,photos,location',
     },
   });
 
@@ -139,12 +141,18 @@ export async function fetchPlaceDetails(
   const photos = data.photos ?? [];
   const firstPhoto = Array.isArray(photos) ? photos[0] : null;
   const placePhotoName = firstPhoto?.name ?? undefined;
+  const loc = data.location;
+  const location =
+    loc != null && typeof loc.latitude === 'number' && typeof loc.longitude === 'number'
+      ? { latitude: loc.latitude, longitude: loc.longitude }
+      : undefined;
 
   return {
     placeId: id,
     displayName,
     formattedAddress: text,
     placePhotoName,
+    location,
   };
 }
 
@@ -154,6 +162,45 @@ export async function fetchPlaceDetails(
 export function buildPlacePhotoUrl(placePhotoName: string, maxWidthPx = 800): string {
   if (!API_KEY) return '';
   return `https://places.googleapis.com/v1/${placePhotoName}/media?key=${API_KEY}&maxWidthPx=${maxWidthPx}`;
+}
+
+const STREETVIEW_PREFIX = 'streetview:';
+
+/**
+ * Build cover image URL. Handles both Places API photos and Street View fallback.
+ * For addresses with no place photo, placePhotoName may be "streetview:lat,lng" or "streetview:address".
+ */
+export function getCoverImageUrl(placePhotoName: string, maxWidthPx = 800): string {
+  if (!placePhotoName || !API_KEY) return '';
+  if (placePhotoName.startsWith(STREETVIEW_PREFIX)) {
+    const location = placePhotoName.slice(STREETVIEW_PREFIX.length).trim();
+    if (!location) return '';
+    const params = new URLSearchParams({
+      size: `${maxWidthPx}x400`,
+      location,
+      key: API_KEY,
+    });
+    return `https://maps.googleapis.com/maps/api/streetview?${params.toString()}`;
+  }
+  return buildPlacePhotoUrl(placePhotoName, maxWidthPx);
+}
+
+/**
+ * Build full-size (uncropped) location image URL for popup display.
+ */
+export function getFullLocationImageUrl(placePhotoName: string): string {
+  if (!placePhotoName || !API_KEY) return '';
+  if (placePhotoName.startsWith(STREETVIEW_PREFIX)) {
+    const location = placePhotoName.slice(STREETVIEW_PREFIX.length).trim();
+    if (!location) return '';
+    const params = new URLSearchParams({
+      size: '1920x1080',
+      location,
+      key: API_KEY,
+    });
+    return `https://maps.googleapis.com/maps/api/streetview?${params.toString()}`;
+  }
+  return buildPlacePhotoUrl(placePhotoName, 1920);
 }
 
 export { isApiConfigured };

@@ -1,4 +1,4 @@
-import { buildPlacePhotoUrl } from '@/lib/placesApi';
+import { getCoverImageUrl } from '@/lib/placesApi';
 import type { SplashPreset } from '@/lib/splashArt';
 
 type ActivityCover = {
@@ -13,7 +13,7 @@ export function getActivityCoverProps(activity: ActivityCover | null | undefined
 } | null {
   if (!activity) return null;
   if (activity.place_photo_name) {
-    const uri = buildPlacePhotoUrl(activity.place_photo_name);
+    const uri = getCoverImageUrl(activity.place_photo_name);
     return uri ? { imageUri: uri } : null;
   }
   if (activity.splash_art) {

@@ -132,11 +132,20 @@ export function LocationAutocomplete({
         const details = await fetchPlaceDetails(prediction.placeId, sessionToken);
         if (details) {
           onChangeText(details.formattedAddress);
+          // Use Place photo when available; otherwise Street View for addresses
+          let placePhotoName = details.placePhotoName;
+          if (!placePhotoName && (details.location || details.formattedAddress)) {
+            if (details.location) {
+              placePhotoName = `streetview:${details.location.latitude},${details.location.longitude}`;
+            } else {
+              placePhotoName = `streetview:${details.formattedAddress}`;
+            }
+          }
           onResolvedPlace?.({
             address: details.formattedAddress,
             placeId: details.placeId,
             displayName: details.displayName,
-            placePhotoName: details.placePhotoName,
+            placePhotoName,
           });
         } else {
           onChangeText(prediction.fullText);

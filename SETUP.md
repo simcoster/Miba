@@ -58,7 +58,7 @@ npm install
 
 When creating or editing an activity, the location field supports Google Places autocomplete. To enable it:
 
-1. In [Google Cloud Console](https://console.cloud.google.com), enable **Places API (New)**
+1. In [Google Cloud Console](https://console.cloud.google.com), enable **Places API (New)** and **Street View Static API** (for address cover images when no place photo exists)
 2. Create an API key (or use an existing one) under **APIs & Services → Credentials**
 3. Add to your environment (e.g. `.env` or `app.config.js`):
    ```

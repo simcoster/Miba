@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl,
   TextInput, ActivityIndicator, Linking, Platform, KeyboardAvoidingView, BackHandler, Keyboard,
-  Modal,
+  Modal, Image, Pressable, Dimensions,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
@@ -29,7 +29,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
-import { buildPlacePhotoUrl } from '@/lib/placesApi';
+import { getCoverImageUrl, getFullLocationImageUrl } from '@/lib/placesApi';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -67,10 +67,12 @@ export default function ActivityDetailScreen() {
   const [editSplashArt, setEditSplashArt] = useState<SplashPreset | null>(null);
   const [editPlacePhotoName, setEditPlacePhotoName] = useState<string | null>(null);
   const [showEditSplashPicker, setShowEditSplashPicker] = useState(false);
+  const [showLocationImageModal, setShowLocationImageModal] = useState(false);
   const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
   const [saveLoading, setSaveLoading] = useState(false);
+  const [showPosterModal, setShowPosterModal] = useState(false);
 
   // Menu / clone state
   const [showMenu, setShowMenu] = useState(false);
@@ -573,6 +575,9 @@ export default function ActivityDetailScreen() {
   const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
   const headerActions = [
+    ...(activity.poster_image_url
+      ? [{ icon: 'image-outline' as const, onPress: () => setShowPosterModal(true) }]
+      : []),
     { icon: 'chatbubble-ellipses-outline' as const, onPress: () => router.push(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'events')}`), badge: hasUnread },
     ...(isCreator && activity.status === 'active' && !isEditing
       ? [{ icon: 'ellipsis-vertical' as const, onPress: () => setShowMenu(true) }]
@@ -590,9 +595,9 @@ export default function ActivityDetailScreen() {
               preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
               imageUri={
                 isEditing && editPlacePhotoName
-                  ? buildPlacePhotoUrl(editPlacePhotoName)
+                  ? getCoverImageUrl(editPlacePhotoName)
                   : activity.place_photo_name
-                    ? buildPlacePhotoUrl(activity.place_photo_name)
+                    ? getCoverImageUrl(activity.place_photo_name)
                     : undefined
               }
               height={105}
@@ -704,9 +709,20 @@ export default function ActivityDetailScreen() {
                 />
               </View>
             ) : activity.location ? (
-              <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Where</Text>
-                <LocationDisplay location={activity.location} variant="detail" showIcon={false} />
+              <View style={[styles.metaRowInner, { flex: 1 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.metaLabel}>Where</Text>
+                  <LocationDisplay location={activity.location} variant="detail" showIcon={false} />
+                </View>
+                {activity.place_photo_name ? (
+                  <TouchableOpacity
+                    style={styles.locationImageBtn}
+                    onPress={() => setShowLocationImageModal(true)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="image" size={20} color={Colors.primary} />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -733,6 +749,48 @@ export default function ActivityDetailScreen() {
             onChange={(_, date) => { setShowEditPicker(false); if (date) setEditTime(date); }}
           />
         )}
+
+        {/* Location image popup (full uncropped) */}
+        <Modal visible={showLocationImageModal} transparent animationType="fade">
+          <Pressable style={styles.locationImageModalOverlay} onPress={() => setShowLocationImageModal(false)}>
+            <Pressable style={styles.locationImageModalContent} onPress={() => {}}>
+              {activity?.place_photo_name && (
+                <Image
+                  source={{ uri: getFullLocationImageUrl(activity.place_photo_name) }}
+                  style={styles.locationImageFull}
+                  resizeMode="contain"
+                />
+              )}
+              <TouchableOpacity
+                style={styles.locationImageModalClose}
+                onPress={() => setShowLocationImageModal(false)}
+              >
+                <Text style={styles.locationImageModalCloseText}>Close</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* Original poster popup (from "From Poster" events) */}
+        <Modal visible={showPosterModal} transparent animationType="fade" onRequestClose={() => setShowPosterModal(false)}>
+          <Pressable style={styles.locationImageModalOverlay} onPress={() => setShowPosterModal(false)}>
+            <Pressable style={styles.locationImageModalContent} onPress={() => {}}>
+              {activity?.poster_image_url && (
+                <Image
+                  source={{ uri: activity.poster_image_url }}
+                  style={styles.locationImageFull}
+                  resizeMode="contain"
+                />
+              )}
+              <TouchableOpacity
+                style={styles.locationImageModalClose}
+                onPress={() => setShowPosterModal(false)}
+              >
+                <Text style={styles.locationImageModalCloseText}>Close</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         {/* Description (edit: hidden until button tapped) */}
         {isEditing ? (
@@ -1273,7 +1331,35 @@ const styles = StyleSheet.create({
   suggestionSubmitDisabled: { opacity: 0.5 },
   suggestionSubmitText: { fontSize: 15, fontWeight: '700', color: '#fff' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  metaRowInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metaIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
+  locationImageBtn: { padding: 8, marginLeft: 4 },
+  locationImageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  locationImageModalContent: {
+    width: '100%',
+    maxWidth: 500,
+    alignItems: 'center',
+  },
+  locationImageFull: {
+    width: Math.min(500, Dimensions.get('window').width - 48),
+    height: Math.min(400, Dimensions.get('window').height * 0.5),
+    borderRadius: 12,
+    backgroundColor: Colors.borderLight,
+  },
+  locationImageModalClose: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+  },
+  locationImageModalCloseText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
   metaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   metaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
   descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },

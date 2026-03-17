@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isPast } from 'date-fns';
@@ -13,6 +14,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Activity } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
+import { extractEventFromPoster } from '@/lib/geminiPosterExtract';
+import { resolveLocationFromText } from '@/lib/resolveLocationFromText';
+import { getPosterUsesRemaining, recordPosterExtraction } from '@/lib/posterExtractionUsage';
+import { setPendingPosterUri } from '@/lib/pendingPoster';
 import { ActivityCard } from '@/components/ActivityCard';
 import { Avatar } from '@/components/Avatar';
 import { EmptyState } from '@/components/EmptyState';
@@ -185,6 +190,14 @@ export default function EventsScreen() {
   const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
   const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [showClonePicker, setShowClonePicker] = useState(false);
+  const [posterUsesLeft, setPosterUsesLeft] = useState(5);
+  const [fromPosterLoading, setFromPosterLoading] = useState(false);
+
+  const loadPosterUsesRemaining = useCallback(async () => {
+    if (!user) return;
+    const remaining = await getPosterUsesRemaining(user.id);
+    setPosterUsesLeft(remaining);
+  }, [user]);
 
   const fetchActivities = useCallback(async () => {
     if (!user) return;
@@ -237,6 +250,10 @@ export default function EventsScreen() {
     fetchActivities().finally(() => setLoading(false));
   }, [fetchActivities]);
 
+  useEffect(() => {
+    if (user) loadPosterUsesRemaining();
+  }, [user, loadPosterUsesRemaining]);
+
   const loadHiddenIds = useCallback(async () => {
     const ids = await getHiddenActivityIds();
     setHiddenIds(ids);
@@ -264,8 +281,74 @@ export default function EventsScreen() {
       if (!user) return;
       fetchActivities();
       loadHiddenIds();
-    }, [fetchActivities, loadHiddenIds, user, tab])
+      loadPosterUsesRemaining();
+    }, [fetchActivities, loadHiddenIds, loadPosterUsesRemaining, user, tab])
   );
+
+  const handleFromPoster = useCallback(async () => {
+    if (!user || posterUsesLeft <= 0) return;
+    setShowAddDropdown(false);
+
+    console.log('[FromPoster] Opening image picker...');
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      base64: true,
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.base64) {
+      console.log('[FromPoster] Cancelled or no image');
+      return;
+    }
+
+    const asset = result.assets[0];
+    const base64 = asset.base64;
+    if (!base64) return;
+    const mimeType = asset.mimeType ?? 'image/jpeg';
+    setFromPosterLoading(true);
+    console.log('[FromPoster] Image selected, calling Gemini...');
+
+    try {
+      const parsed = await extractEventFromPoster(base64, mimeType);
+      if (!parsed.isEventPoster) {
+        setFromPosterLoading(false);
+        Alert.alert(
+          'Not an event poster',
+          'This image doesn\'t appear to be a poster or ad for an event. Please try another image.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      console.log('[FromPoster] Gemini done, parsed:', parsed.title, parsed.location);
+      const resolved = parsed.location
+        ? await resolveLocationFromText(parsed.location)
+        : { location: '', placePhotoName: undefined };
+
+      await recordPosterExtraction(user.id);
+      setPosterUsesLeft(prev => Math.max(0, prev - 1));
+
+      const parts = [
+        'fromPoster=1',
+        `title=${encodeURIComponent(parsed.title)}`,
+        `activityTime=${encodeURIComponent(parsed.activityTime.toISOString())}`,
+      ];
+      if (parsed.description) parts.push(`description=${encodeURIComponent(parsed.description)}`);
+      if (resolved.location) parts.push(`location=${encodeURIComponent(resolved.location)}`);
+      if (resolved.placePhotoName) {
+        parts.push(`placePhotoName=${encodeURIComponent(resolved.placePhotoName)}`);
+      } else {
+        parts.push(`splashArt=${encodeURIComponent('banner_1')}`);
+      }
+
+      setPendingPosterUri(asset.uri);
+      router.push(`/(app)/activity/new?${parts.join('&')}` as any);
+    } catch (err: any) {
+      console.log('[FromPoster] Error:', err?.message, err);
+      Alert.alert('Could not read event from image', err?.message ?? 'Please try another image.');
+    } finally {
+      setFromPosterLoading(false);
+    }
+  }, [user, posterUsesLeft, router]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -370,9 +453,40 @@ export default function EventsScreen() {
                 <Ionicons name="copy-outline" size={18} color={Colors.primary} />
                 <Text style={styles.addDropdownText}>Clone Past Event</Text>
               </TouchableOpacity>
+              <View style={styles.addDropdownDivider} />
+              <TouchableOpacity
+                style={[styles.addDropdownRow, posterUsesLeft === 0 && styles.addDropdownRowDisabled]}
+                onPress={() => posterUsesLeft > 0 && handleFromPoster()}
+                disabled={posterUsesLeft === 0}
+              >
+                <Ionicons
+                  name="sparkles"
+                  size={18}
+                  color={posterUsesLeft === 0 ? Colors.textSecondary : Colors.primary}
+                />
+                <View style={styles.addDropdownTextRow}>
+                  <Text style={[styles.addDropdownText, posterUsesLeft === 0 && styles.addDropdownTextDisabled]}>
+                    From Poster
+                  </Text>
+                  <View style={styles.aiTag}>
+                    <Text style={styles.aiTagText}>AI</Text>
+                  </View>
+                </View>
+                {posterUsesLeft > 0 && posterUsesLeft < 5 && (
+                  <Text style={styles.posterUsesLeft}>({posterUsesLeft} left today)</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Modal>
+        {fromPosterLoading && (
+          <Modal visible transparent animationType="fade">
+            <View style={styles.fromPosterLoadingOverlay}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={styles.fromPosterLoadingText}>Reading poster…</Text>
+            </View>
+          </Modal>
+        )}
         {user && (
           <ClonePickerModal
             visible={showClonePicker}
@@ -539,6 +653,25 @@ const styles = StyleSheet.create({
   },
   addDropdownText: { fontSize: 15, fontWeight: '600', color: Colors.text },
   addDropdownDivider: { height: 1, backgroundColor: Colors.borderLight },
+  addDropdownRowDisabled: { opacity: 0.6 },
+  addDropdownTextRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  aiTag: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  aiTagText: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  posterUsesLeft: { fontSize: 12, color: Colors.textSecondary, marginLeft: 4 },
+  addDropdownTextDisabled: { color: Colors.textSecondary },
+  fromPosterLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fromPosterLoadingText: { fontSize: 16, color: '#fff', fontWeight: '600' },
   tabRowWrap: { paddingHorizontal: 20, marginBottom: 12 },
   tabRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   filterTab: {
