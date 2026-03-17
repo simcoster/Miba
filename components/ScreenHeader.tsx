@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,12 @@ type RightAction = {
   onPress: () => void;
   label?: string;
   badge?: boolean;
+};
+
+type RightActionPeek = {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  onPressIn: () => void;
+  onPressOut: () => void;
 };
 
 type ScreenHeaderProps = {
@@ -24,13 +30,16 @@ type ScreenHeaderProps = {
   rightAction?: RightAction;
   /** Multiple right actions rendered left-to-right. Takes precedence over rightAction. */
   rightActions?: RightAction[];
+  /** Peek button: shows on press-in, hides on press-out (e.g. for hold-to-preview). */
+  rightActionPeek?: RightActionPeek;
 };
 
-export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitlePress, rightAction, rightActions }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitlePress, rightAction, rightActions, rightActionPeek }: ScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const actions = rightActions ?? (rightAction ? [rightAction] : []);
+  const hasRightContent = actions.length > 0 || rightActionPeek;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -53,7 +62,7 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitl
             </>
           )}
         </View>
-        {actions.length > 0 ? (
+        {hasRightContent ? (
           <View style={styles.rightActions}>
             {actions.map((a, i) => (
               <TouchableOpacity key={i} onPress={a.onPress} style={styles.rightButton}>
@@ -68,6 +77,16 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitl
                 }
               </TouchableOpacity>
             ))}
+            {rightActionPeek && (
+              <Pressable
+                style={styles.rightButton}
+                onPressIn={rightActionPeek.onPressIn}
+                onPressOut={rightActionPeek.onPressOut}
+                accessibilityLabel="Peek at event details"
+              >
+                <Ionicons name={rightActionPeek.icon} size={24} color={Colors.primary} />
+              </Pressable>
+            )}
           </View>
         ) : (
           <View style={styles.placeholder} />

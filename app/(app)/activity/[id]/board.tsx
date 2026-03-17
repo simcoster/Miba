@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -18,7 +19,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isToday, isYesterday } from 'date-fns';
+import { format, isToday, isYesterday, isTomorrow } from 'date-fns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
@@ -26,9 +27,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Post, PostComment } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { LocationDisplay } from '@/components/LocationDisplay';
 import Colors from '@/constants/Colors';
 
 const DROPDOWN_WIDTH = 110;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 function formatPostTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -47,6 +50,13 @@ export default function ActivityBoardScreen() {
   const insets = useSafeAreaInsets();
 
   const [activityTitle, setActivityTitle] = useState('');
+  const [activityDetails, setActivityDetails] = useState<{
+    title: string;
+    activity_time: string;
+    location: string | null;
+    description: string | null;
+  } | null>(null);
+  const [showPeek, setShowPeek] = useState(false);
   const [posts, setPosts] = useState<PostWithComments[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,8 +79,20 @@ export default function ActivityBoardScreen() {
 
   const fetchActivity = useCallback(async () => {
     if (!id) return;
-    const { data } = await supabase.from('activities').select('title').eq('id', id).single();
-    if (data) setActivityTitle(data.title);
+    const { data } = await supabase
+      .from('activities')
+      .select('title, activity_time, location, description')
+      .eq('id', id)
+      .single();
+    if (data) {
+      setActivityTitle(data.title);
+      setActivityDetails({
+        title: data.title,
+        activity_time: data.activity_time,
+        location: data.location,
+        description: data.description,
+      });
+    }
   }, [id]);
 
   const fetchPosts = useCallback(async () => {
@@ -463,7 +485,86 @@ export default function ActivityBoardScreen() {
                 )
             : undefined
         }
+        rightActionPeek={
+          id
+            ? {
+                icon: 'eye-outline',
+                onPressIn: () => setShowPeek(true),
+                onPressOut: () => setShowPeek(false),
+              }
+            : undefined
+        }
       />
+
+      <Modal visible={showPeek} transparent animationType="fade">
+        <Pressable style={styles.peekOverlay} onPress={() => setShowPeek(false)}>
+          <Pressable
+            style={[
+              styles.peekCard,
+              {
+                marginTop: insets.top + 56,
+                width: SCREEN_WIDTH,
+                height: SCREEN_HEIGHT * (2 / 3),
+              },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            {activityDetails ? (
+              <ScrollView style={styles.peekContent} showsVerticalScrollIndicator={false}>
+                <Text style={styles.peekTitle}>{activityDetails.title}</Text>
+                <View style={styles.peekMeta}>
+                  <View style={styles.peekMetaRow}>
+                    <View style={styles.peekMetaIcon}>
+                      <Ionicons name="calendar" size={20} color={Colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.peekMetaLabel}>When</Text>
+                      <Text style={styles.peekMetaValue}>
+                        {(() => {
+                          const d = new Date(activityDetails.activity_time);
+                          return isToday(d)
+                            ? `Today at ${format(d, 'h:mm a')}`
+                            : isTomorrow(d)
+                              ? `Tomorrow at ${format(d, 'h:mm a')}`
+                              : format(d, 'EEEE, MMMM d · h:mm a');
+                        })()}
+                      </Text>
+                    </View>
+                  </View>
+                  {activityDetails.location && (
+                    <View style={styles.peekMetaRow}>
+                      <View style={styles.peekMetaIcon}>
+                        <Ionicons name="location" size={20} color={Colors.primary} />
+                      </View>
+                      <View>
+                        <Text style={styles.peekMetaLabel}>Where</Text>
+                        <LocationDisplay
+                          location={activityDetails.location}
+                          variant="detail"
+                          showIcon={false}
+                        />
+                      </View>
+                    </View>
+                  )}
+                  {activityDetails.description ? (
+                    <View style={styles.peekMetaRow}>
+                      <View style={styles.peekMetaIcon}>
+                        <Ionicons name="document-text" size={20} color={Colors.primary} />
+                      </View>
+                      <View style={styles.peekDescWrap}>
+                        <Text style={styles.peekMetaLabel}>About</Text>
+                        <Text style={styles.peekDescText}>{activityDetails.description}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              </ScrollView>
+            ) : (
+              <Text style={styles.peekTitle}>Loading…</Text>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {loading ? (
         <View style={styles.center}>
@@ -733,6 +834,36 @@ const styles = StyleSheet.create({
   },
   publishBtnDisabled: { backgroundColor: Colors.border, opacity: 0.6 },
   publishBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+
+  peekOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+  },
+  peekCard: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    overflow: 'hidden',
+  },
+  peekContent: { flex: 1, padding: 16 },
+  peekTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  peekMeta: { gap: 14 },
+  peekMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  peekMetaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.accentLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  peekMetaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
+  peekMetaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
+  peekDescWrap: { flex: 1 },
+  peekDescText: { fontSize: 15, color: Colors.text, lineHeight: 22, marginTop: 1 },
 
   dropdownOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
   dropdownMenu: {

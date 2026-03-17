@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useGlobalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,7 +33,10 @@ import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
 export default function ActivityDetailScreen() {
-  const { id, edit, fromTab } = useLocalSearchParams<{ id: string; edit?: string; fromTab?: string }>();
+  const localParams = useLocalSearchParams<{ id: string; edit?: string; fromTab?: string }>();
+  const globalParams = useGlobalSearchParams<{ fromTab?: string }>();
+  const { id, edit } = localParams;
+  const fromTab = localParams.fromTab ?? globalParams.fromTab;
   const { user, profile } = useAuth();
   useSetTabHighlight(fromTab);
   const router = useRouter();
