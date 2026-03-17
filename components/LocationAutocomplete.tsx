@@ -30,6 +30,8 @@ export interface ResolvedPlace {
   address: string;
   placeId: string;
   displayName: string;
+  /** Google Places API photo resource name for cover image */
+  placePhotoName?: string;
 }
 
 interface LocationAutocompleteProps {
@@ -134,6 +136,7 @@ export function LocationAutocomplete({
             address: details.formattedAddress,
             placeId: details.placeId,
             displayName: details.displayName,
+            placePhotoName: details.placePhotoName,
           });
         } else {
           onChangeText(prediction.fullText);

@@ -29,6 +29,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { buildPlacePhotoUrl } from '@/lib/placesApi';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -64,6 +65,7 @@ export default function ActivityDetailScreen() {
   const [editLocation, setEditLocation] = useState('');
   const [editTime, setEditTime] = useState(new Date());
   const [editSplashArt, setEditSplashArt] = useState<SplashPreset | null>(null);
+  const [editPlacePhotoName, setEditPlacePhotoName] = useState<string | null>(null);
   const [showEditSplashPicker, setShowEditSplashPicker] = useState(false);
   const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
@@ -130,6 +132,7 @@ export default function ActivityDetailScreen() {
         setEditLocation(act.location ?? '');
         setEditTime(new Date(act.activity_time));
         setEditSplashArt(act.splash_art ?? 'banner_1');
+        setEditPlacePhotoName(act.place_photo_name ?? null);
         setIsEditing(true);
       }
     }
@@ -139,7 +142,7 @@ export default function ActivityDetailScreen() {
   const onRefresh = useCallback(async () => { setRefreshing(true); await fetchActivity(); setRefreshing(false); }, [fetchActivity]);
 
   // Bug fix: reset edit mode when navigating to a different activity
-  useEffect(() => { setIsEditing(false); setEditSplashArt(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
+  useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
   useEffect(() => { if (!isEditing) setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [isEditing]);
 
   const checkUnread = useCallback(async () => {
@@ -339,6 +342,7 @@ export default function ActivityDetailScreen() {
           activity_time: newTime,
           created_by: user.id,
           splash_art: activity.splash_art,
+          place_photo_name: activity.place_photo_name ?? null,
           is_limited: activity.is_limited ?? false,
           max_participants: activity.is_limited ? activity.max_participants : null,
         })
@@ -369,6 +373,7 @@ export default function ActivityDetailScreen() {
     setEditLocation(activity.location ?? '');
     setEditTime(new Date(activity.activity_time));
     setEditSplashArt(activity.splash_art ?? 'banner_1');
+    setEditPlacePhotoName(activity.place_photo_name ?? null);
     setIsEditing(true);
   };
 
@@ -387,13 +392,15 @@ export default function ActivityDetailScreen() {
         location: activity.location,
         activity_time: activity.activity_time,
         splash_art: activity.splash_art ?? undefined,
+        place_photo_name: activity.place_photo_name ?? undefined,
       };
       const newValues: EditableFields = {
         title: editTitle.trim(),
         description: editDesc.trim() || null,
         location: editLocation.trim() || null,
         activity_time: editTime.toISOString(),
-        splash_art: editSplashArt,
+        splash_art: editPlacePhotoName ? null : editSplashArt,
+        place_photo_name: editPlacePhotoName || null,
       };
 
       const { error } = await supabase.from('activities').update(newValues).eq('id', activity.id);
@@ -576,13 +583,24 @@ export default function ActivityDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
-      <View style={[styles.titleSection, (activity.splash_art || (isEditing && editSplashArt)) && styles.titleSectionWithSplash]}>
-        {(activity.splash_art && !isEditing) || (isEditing && editSplashArt) ? (
+      <View style={[styles.titleSection, (activity.place_photo_name || activity.splash_art || (isEditing && (editPlacePhotoName || editSplashArt))) && styles.titleSectionWithSplash]}>
+        {(activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt)) ? (
           <View style={styles.splashBackground}>
-            <SplashArt preset={isEditing ? editSplashArt! : activity.splash_art!} height={105} opacity={0.4} />
+            <SplashArt
+              preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
+              imageUri={
+                isEditing && editPlacePhotoName
+                  ? buildPlacePhotoUrl(editPlacePhotoName)
+                  : activity.place_photo_name
+                    ? buildPlacePhotoUrl(activity.place_photo_name)
+                    : undefined
+              }
+              height={105}
+              opacity={0.4}
+            />
           </View>
         ) : null}
-        <View style={[styles.titleSectionOverlay, isEditing && editSplashArt && styles.titleSectionOverlayWithSplash]}>
+        <View style={[styles.titleSectionOverlay, isEditing && (editPlacePhotoName || editSplashArt) && styles.titleSectionOverlayWithSplash]}>
         {isEditing ? (
           <>
             <TouchableOpacity
@@ -590,7 +608,7 @@ export default function ActivityDetailScreen() {
               onPress={() => setShowEditSplashPicker(v => !v)}
             >
               <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{editSplashArt ? 'Change cover image' : 'Add cover image'}</Text>
+              <Text style={styles.addCoverBtnText}>{(editSplashArt || editPlacePhotoName) ? 'Change cover image' : 'Add cover image'}</Text>
             </TouchableOpacity>
             {showEditSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
@@ -598,7 +616,7 @@ export default function ActivityDetailScreen() {
                   <TouchableOpacity
                     key={p.id}
                     style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
-                    onPress={() => { setEditSplashArt(p.id); setShowEditSplashPicker(false); }}
+                    onPress={() => { setEditSplashArt(p.id); setEditPlacePhotoName(null); setShowEditSplashPicker(false); }}
                   >
                     <View style={styles.splashPickerThumb}>
                       <SplashArt preset={p.id} height={48} opacity={1} />
@@ -669,8 +687,16 @@ export default function ActivityDetailScreen() {
               <View style={{ flex: 1 }}>
                 <LocationAutocomplete
                   value={parseLocation(editLocation)?.address ?? editLocation ?? ''}
-                  onChangeText={(text) => setEditLocation(text)}
-                  onResolvedPlace={(p) => setEditLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
+                  onChangeText={(text) => { setEditLocation(text); setEditPlacePhotoName(null); }}
+                  onResolvedPlace={(p) => {
+                    setEditLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
+                    if (p.placePhotoName) {
+                      setEditPlacePhotoName(p.placePhotoName);
+                      setEditSplashArt(null);
+                    } else {
+                      setEditPlacePhotoName(null);
+                    }
+                  }}
                   placeholder="Where? (optional)"
                   maxLength={150}
                   showIcon={false}

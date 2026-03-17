@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
 import { SplashArt } from '@/components/SplashArt';
+import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
 
 const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
@@ -268,14 +269,14 @@ export default function UpdatesScreen() {
                 onPress={() => handlePress(item)}
                 activeOpacity={0.85}
               >
-                <View style={[styles.cardContent, item.data.activity.splash_art && styles.cardContentWithSplash]}>
-                <View style={[styles.cardHeaderWrapper, item.data.activity.splash_art && styles.cardHeaderWithSplash]}>
-                  {item.data.activity.splash_art && (
+                <View style={[styles.cardContent, hasActivityCover(item.data.activity) && styles.cardContentWithSplash]}>
+                <View style={[styles.cardHeaderWrapper, hasActivityCover(item.data.activity) && styles.cardHeaderWithSplash]}>
+                  {getActivityCoverProps(item.data.activity) && (
                     <View style={styles.cardSplashBackground}>
-                      <SplashArt preset={item.data.activity.splash_art} height={90} opacity={0.2} />
+                      <SplashArt {...getActivityCoverProps(item.data.activity)!} height={90} opacity={0.2} />
                     </View>
                   )}
-                <View style={[styles.cardHeader, item.data.activity.splash_art && styles.cardHeaderOverlay]}>
+                <View style={[styles.cardHeader, hasActivityCover(item.data.activity) && styles.cardHeaderOverlay]}>
                   <Text style={[styles.cardTitle, isHebrew(item.data.activity.title) && styles.titleRtl]} numberOfLines={2}>{item.data.activity.title}</Text>
                   <TouchableOpacity
                     style={styles.dismissButton}

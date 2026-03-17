@@ -10,6 +10,7 @@ import { Activity, RsvpStatus } from '@/lib/types';
 import { Avatar } from './Avatar';
 import { LocationDisplay } from './LocationDisplay';
 import { SplashArt } from './SplashArt';
+import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
 
 const INVITED_BLUE = '#3B82F6';
 const INVITED_BLUE_LIGHT = '#EFF6FF';
@@ -87,10 +88,10 @@ export function ActivityCard({
       activeOpacity={0.85}
     >
       <View style={styles.cardContent}>
-      <View style={[styles.titleSectionWrapper, activity.splash_art && styles.titleSectionWithSplash]}>
-        {activity.splash_art && (
+      <View style={[styles.titleSectionWrapper, hasActivityCover(activity) && styles.titleSectionWithSplash]}>
+        {getActivityCoverProps(activity) && (
           <View style={styles.splashBackground}>
-            <SplashArt preset={activity.splash_art} height={80} opacity={0.2} />
+            <SplashArt {...getActivityCoverProps(activity)!} height={80} opacity={0.2} />
           </View>
         )}
         <View style={styles.titleSectionOverlay}>

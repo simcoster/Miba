@@ -18,6 +18,7 @@ import { Avatar } from '@/components/Avatar';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { SplashArt } from '@/components/SplashArt';
+import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
 import type { SplashPreset } from '@/lib/splashArt';
 import Colors from '@/constants/Colors';
 
@@ -28,6 +29,7 @@ type PastActivity = {
   description: string | null;
   location: string | null;
   splash_art: string | null;
+  place_photo_name: string | null;
   rsvps?: Array<{ user_id: string; profile: { id: string; full_name: string | null; avatar_url: string | null } | null }>;
 };
 
@@ -42,7 +44,7 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
     Promise.all([
       supabase
         .from('activities')
-        .select('id, title, activity_time, description, location, splash_art, rsvps(id, user_id, profile:profiles(id, full_name, avatar_url))')
+        .select('id, title, activity_time, description, location, splash_art, place_photo_name, rsvps(id, user_id, profile:profiles(id, full_name, avatar_url))')
         .eq('created_by', userId)
         .lt('activity_time', new Date().toISOString())
         .order('activity_time', { ascending: false })
@@ -67,6 +69,7 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
     if (event.description) parts.push(`description=${encodeURIComponent(event.description)}`);
     if (event.location) parts.push(`location=${encodeURIComponent(event.location)}`);
     if (event.splash_art) parts.push(`splashArt=${encodeURIComponent(event.splash_art)}`);
+    if (event.place_photo_name) parts.push(`placePhotoName=${encodeURIComponent(event.place_photo_name)}`);
     router.push(`/(app)/activity/new?${parts.join('&')}` as any);
   };
 
@@ -92,8 +95,10 @@ function ClonePickerModal({ visible, onDismiss, userId }: { visible: boolean; on
                   .map((r: any) => ({ ...r, profile: Array.isArray(r.profile) ? r.profile?.[0] : r.profile }));
                 return (
                   <TouchableOpacity key={e.id} style={cloneStyles.row} onPress={() => handleSelect(e)}>
-                    <View style={[cloneStyles.thumb, !e.splash_art && cloneStyles.thumbEmpty]}>
-                      {e.splash_art && <SplashArt preset={e.splash_art as SplashPreset} height={44} opacity={1} />}
+                    <View style={[cloneStyles.thumb, !hasActivityCover(e) && cloneStyles.thumbEmpty]}>
+                      {getActivityCoverProps(e) && (
+                        <SplashArt {...getActivityCoverProps(e)!} height={44} opacity={1} />
+                      )}
                     </View>
                     <View style={cloneStyles.rowInfo}>
                       <View style={cloneStyles.rowTitleRow}>

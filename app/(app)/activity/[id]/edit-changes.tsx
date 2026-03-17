@@ -15,6 +15,7 @@ const FIELD_LABELS: Record<keyof EditableFields, string> = {
   location: 'Location',
   activity_time: 'Time',
   splash_art: 'Cover image',
+  place_photo_name: 'Cover image',
 };
 
 function formatFieldValue(field: keyof EditableFields, value: string | null | undefined): string {

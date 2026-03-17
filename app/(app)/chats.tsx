@@ -14,6 +14,7 @@ import { SplashArt } from '@/components/SplashArt';
 import { EmptyState } from '@/components/EmptyState';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
+import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
 import type { SplashPreset } from '@/lib/splashArt';
 
 type ChatItem = {
@@ -23,6 +24,7 @@ type ChatItem = {
   lastMessageAt: string;
   isMipoDm: boolean;
   splashArt?: SplashPreset | null;
+  placePhotoName?: string | null;
   avatarUri?: string | null;
   avatarName?: string | null;
 };
@@ -157,12 +159,12 @@ export default function ChatsScreen() {
     );
 
     const [activitiesRes, profilesRes] = await Promise.all([
-      supabase.from('activities').select('id, title, splash_art').in('id', allActivityIds),
+      supabase.from('activities').select('id, title, splash_art, place_photo_name').in('id', allActivityIds),
       supabase.from('profiles').select('id, full_name, avatar_url').in('id', otherUserIds),
     ]);
 
     const activities = new Map(
-      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null }) => [
+      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null; place_photo_name: string | null }) => [
         a.id,
         a,
       ])
@@ -200,6 +202,7 @@ export default function ChatsScreen() {
         lastMessageAt: i.lastMessageAt,
         isMipoDm: false,
         splashArt: activity?.splash_art as SplashPreset | null | undefined,
+        placePhotoName: activity?.place_photo_name ?? undefined,
         avatarUri: undefined,
         avatarName: undefined,
       };
@@ -243,9 +246,9 @@ export default function ChatsScreen() {
         )
       }
     >
-      {item.splashArt ? (
+      {hasActivityCover({ place_photo_name: item.placePhotoName, splash_art: item.splashArt }) ? (
         <View style={styles.splashCircle}>
-          <SplashArt preset={item.splashArt} height={52} opacity={1} />
+          <SplashArt {...getActivityCoverProps({ place_photo_name: item.placePhotoName, splash_art: item.splashArt })!} height={52} opacity={1} />
         </View>
       ) : (
         <Avatar

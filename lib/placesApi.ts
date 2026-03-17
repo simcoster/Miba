@@ -26,6 +26,8 @@ export interface PlaceDetails {
   placeId: string;
   displayName: string;
   formattedAddress: string;
+  /** Google Places API photo resource name (places/PLACE_ID/photos/PHOTO_ID) for first photo */
+  placePhotoName?: string;
 }
 
 function isApiConfigured(): boolean {
@@ -117,7 +119,7 @@ export async function fetchPlaceDetails(
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': API_KEY,
-      'X-Goog-FieldMask': 'displayName,formattedAddress',
+      'X-Goog-FieldMask': 'displayName,formattedAddress,photos',
     },
   });
 
@@ -134,11 +136,24 @@ export async function fetchPlaceDetails(
   const text = formattedAddress || displayName;
   if (!text) return null;
 
+  const photos = data.photos ?? [];
+  const firstPhoto = Array.isArray(photos) ? photos[0] : null;
+  const placePhotoName = firstPhoto?.name ?? undefined;
+
   return {
     placeId: id,
     displayName,
     formattedAddress: text,
+    placePhotoName,
   };
+}
+
+/**
+ * Build the URL for a Places API photo. Use at render time (API key is in env).
+ */
+export function buildPlacePhotoUrl(placePhotoName: string, maxWidthPx = 800): string {
+  if (!API_KEY) return '';
+  return `https://places.googleapis.com/v1/${placePhotoName}/media?key=${API_KEY}&maxWidthPx=${maxWidthPx}`;
 }
 
 export { isApiConfigured };

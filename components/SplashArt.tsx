@@ -4,15 +4,19 @@ import { getSplashSource } from '@/lib/splashArt';
 import type { SplashPreset } from '@/lib/splashArt';
 
 type SplashArtProps = {
-  preset: SplashPreset | null | undefined;
+  preset?: SplashPreset | null;
+  /** Remote image URI (e.g. place photo). When set, overrides preset. */
+  imageUri?: string | null;
   style?: ImageStyle;
   height?: number;
   /** Opacity 0–1. Default 0.2 for background use behind text. */
   opacity?: number;
 };
 
-export function SplashArt({ preset, style, height = 120, opacity = 0.2 }: SplashArtProps) {
-  const source = getSplashSource(preset);
+export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2 }: SplashArtProps) {
+  const localSource = !imageUri ? getSplashSource(preset ?? undefined) : null;
+  const remoteSource = imageUri ? { uri: imageUri } : null;
+  const source = remoteSource ?? localSource;
   if (!source) return null;
 
   return (

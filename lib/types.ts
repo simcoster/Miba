@@ -45,6 +45,8 @@ export type Activity = {
   limited_reopened_at?: string | null;
   /** Optional splash art preset: banner_1 through banner_12 */
   splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | null;
+  /** Google Places API photo resource name. When set, used as cover instead of splash_art. */
+  place_photo_name?: string | null;
   /** Host profile (from created_by). Host is the event creator. */
   host?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
   rsvps?: Rsvp[];
@@ -87,6 +89,7 @@ export type EditableFields = {
   location: string | null;
   activity_time: string;
   splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | null;
+  place_photo_name?: string | null;
 };
 
 export type EditMetadata = {

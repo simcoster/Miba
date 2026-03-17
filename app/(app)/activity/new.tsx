@@ -19,6 +19,7 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { buildPlacePhotoUrl } from '@/lib/placesApi';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
@@ -33,23 +34,26 @@ export default function NewActivityScreen() {
     description: paramDescription,
     location: paramLocation,
     splashArt: paramSplashArt,
-  } = useLocalSearchParams<{
+    placePhotoName: paramPlacePhotoName,
+  } = useLocalSearchParams() as {
     clone?: string;
     cloneFrom?: string;
     title?: string;
     description?: string;
     location?: string;
     splashArt?: string;
-  }>();
+    placePhotoName?: string;
+  };
 
   const isClone = clone === '1';
 
   const [title, setTitle] = useState(paramTitle ?? '');
   const [description, setDescription] = useState(paramDescription ?? '');
   const [location, setLocation] = useState(paramLocation ?? '');
-  const [splashArt, setSplashArt] = useState<SplashPreset>(
+  const [splashArt, setSplashArt] = useState<SplashPreset | null>(
     (paramSplashArt as SplashPreset) || SPLASH_PRESETS[0].id
   );
+  const [placePhotoName, setPlacePhotoName] = useState<string | null>(null);
 
   // When cloning: always apply the cloned event's fields, replacing any current values
   useEffect(() => {
@@ -58,8 +62,12 @@ export default function NewActivityScreen() {
     if (paramDescription != null) setDescription(paramDescription);
     if (paramLocation != null) setLocation(paramLocation);
     if (paramSplashArt != null) setSplashArt(paramSplashArt as SplashPreset);
+    if (paramPlacePhotoName != null) {
+      setPlacePhotoName(paramPlacePhotoName);
+      setSplashArt(null);
+    }
     if (paramDescription) setShowDetailsInput(true);
-  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt]);
+  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName]);
 
   // When cloning: fetch and apply the invitee list from the source activity
   useEffect(() => {
@@ -87,12 +95,13 @@ export default function NewActivityScreen() {
 
   // When navigating to New Event with no params: reset to defaults (empty name, empty invitees)
   useEffect(() => {
-    const hasParams = isClone || cloneFrom || paramTitle || paramDescription || paramLocation || paramSplashArt;
+    const hasParams = isClone || cloneFrom || paramTitle || paramDescription || paramLocation || paramSplashArt || paramPlacePhotoName;
     if (!hasParams) {
       setTitle('');
       setDescription('');
       setLocation('');
       setSplashArt(SPLASH_PRESETS[0].id);
+      setPlacePhotoName(null);
       setShowDetailsInput(false);
       setInvitePool(new Map());
       setExpandedCircleIds(new Set());
@@ -101,7 +110,7 @@ export default function NewActivityScreen() {
       setSearchQuery('');
       setSearchResults([]);
     }
-  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt]);
+  }, [isClone, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName]);
   const [showSplashPicker, setShowSplashPicker] = useState(false);
   const [showDetailsInput, setShowDetailsInput] = useState(!!paramDescription);
   const [isLimited, setIsLimited] = useState(false);
@@ -369,7 +378,8 @@ export default function NewActivityScreen() {
         description: description.trim() || null,
         location: location.trim() || null,
         activity_time: activityTime.toISOString(),
-        splash_art: splashArt,
+        splash_art: placePhotoName ? null : splashArt,
+        place_photo_name: placePhotoName || null,
         is_limited: isLimited,
         max_participants: isLimited ? maxParticipants : null,
       });
@@ -412,11 +422,16 @@ export default function NewActivityScreen() {
       <ScreenHeader title="New Event" showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Title + Cover — merged section with splash as background */}
-        <View style={[styles.titleSection, splashArt && styles.titleSectionWithSplash]}>
-          {splashArt && (
+        {/* Title + Cover — merged section with splash or place photo as background */}
+        <View style={[styles.titleSection, (splashArt || placePhotoName) && styles.titleSectionWithSplash]}>
+          {(splashArt || placePhotoName) && (
             <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}>
-              <SplashArt preset={splashArt} height={300} opacity={0.35} />
+              <SplashArt
+                preset={splashArt}
+                imageUri={placePhotoName ? buildPlacePhotoUrl(placePhotoName) : undefined}
+                height={300}
+                opacity={0.35}
+              />
             </View>
           )}
           <View style={styles.titleSectionInner}>
@@ -425,7 +440,7 @@ export default function NewActivityScreen() {
               onPress={() => setShowSplashPicker(v => !v)}
             >
               <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{splashArt ? 'Change cover image' : 'Cover image'}</Text>
+              <Text style={styles.addCoverBtnText}>{(splashArt || placePhotoName) ? 'Change cover image' : 'Cover image'}</Text>
             </TouchableOpacity>
             {showSplashPicker && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
@@ -433,7 +448,7 @@ export default function NewActivityScreen() {
                   <TouchableOpacity
                     key={p.id}
                     style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
-                    onPress={() => { setSplashArt(p.id); setShowSplashPicker(false); }}
+                    onPress={() => { setSplashArt(p.id); setPlacePhotoName(null); setShowSplashPicker(false); }}
                   >
                     <View style={styles.splashThumb}>
                       <SplashArt preset={p.id} height={56} opacity={1} />
@@ -511,8 +526,19 @@ export default function NewActivityScreen() {
           <Text style={styles.label}>Where?</Text>
           <LocationAutocomplete
             value={parseLocation(location)?.address ?? location ?? ''}
-            onChangeText={(text) => setLocation(text)}
-            onResolvedPlace={(p) => setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
+            onChangeText={(text) => {
+              setLocation(text);
+              setPlacePhotoName(null);
+            }}
+            onResolvedPlace={(p) => {
+              setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
+              if (p.placePhotoName) {
+                setPlacePhotoName(p.placePhotoName);
+                setSplashArt(null);
+              } else {
+                setPlacePhotoName(null);
+              }
+            }}
             placeholder="Venue or address"
             maxLength={150}
           />
