@@ -35,6 +35,7 @@ import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
 import { deleteActivity } from '@/lib/deleteActivity';
+import { markActivityVisited } from '@/lib/visitedActivities';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -146,6 +147,7 @@ export default function ActivityDetailScreen() {
       // Do NOT set miba_activity_last_seen here — that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
       AsyncStorage.setItem(`miba_rsvp_changes_seen_${id}`, now).catch(() => {});
+      markActivityVisited(id).catch(() => {});
 
       // Auto-enter edit mode when cloned (navigated with ?edit=1)
       if (editOnLoad.current) {

@@ -47,6 +47,7 @@ export function ActivityCard({
   isHidden,
   onHide,
   onUnhide,
+  visitedDetails,
 }: {
   activity: Activity;
   fromTab?: EventsFilter;
@@ -55,6 +56,8 @@ export function ActivityCard({
   isHidden?: boolean;
   onHide?: () => void;
   onUnhide?: () => void;
+  /** True when user has visited the activity details page (hides New badge) */
+  visitedDetails?: boolean;
 }) {
   const router = useRouter();
   const activityDate = new Date(activity.activity_time);
@@ -127,7 +130,7 @@ export function ActivityCard({
               </Text>
             </View>
           )}
-          {activity.is_new && !(isHost && myRsvp?.status === 'in') && (
+          {activity.is_new && !visitedDetails && !(isHost && myRsvp?.status === 'in') && (
             <View style={styles.newBadge}>
               <Text style={styles.newBadgeText}>New</Text>
             </View>

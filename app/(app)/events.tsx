@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Activity, isJoinMeNow } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
+import { getVisitedActivityIds } from '@/lib/visitedActivities';
 import { extractEventFromPoster, getTestCachedParsedResult } from '@/lib/geminiPosterExtract';
 import { resolveLocationFromText } from '@/lib/resolveLocationFromText';
 import { getPosterUsesRemaining, recordPosterExtraction } from '@/lib/posterExtractionUsage';
@@ -188,6 +189,7 @@ export default function EventsScreen() {
   const [invitedCount, setInvitedCount] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [visitedDetailsIds, setVisitedDetailsIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
   const [showAddDropdown, setShowAddDropdown] = useState(false);
@@ -271,9 +273,15 @@ export default function EventsScreen() {
     setHiddenIds(ids);
   }, []);
 
+  const loadVisitedIds = useCallback(async () => {
+    const ids = await getVisitedActivityIds();
+    setVisitedDetailsIds(ids);
+  }, []);
+
   useEffect(() => {
     loadHiddenIds();
-  }, [loadHiddenIds]);
+    loadVisitedIds();
+  }, [loadHiddenIds, loadVisitedIds]);
 
   // Android back button: exit app when on events tab (root screen)
   useEffect(() => {
@@ -294,9 +302,10 @@ export default function EventsScreen() {
       if (!user) return;
       fetchActivities();
       loadHiddenIds();
+      loadVisitedIds();
       loadPosterUsesRemaining();
       return () => console.log('[Events:Tab] useFocusEffect — focus lost');
-    }, [fetchActivities, loadHiddenIds, loadPosterUsesRemaining, user, tab])
+    }, [fetchActivities, loadHiddenIds, loadVisitedIds, loadPosterUsesRemaining, user, tab])
   );
 
   const handleFromPoster = useCallback(async () => {
@@ -692,6 +701,7 @@ export default function EventsScreen() {
                 activity={item}
                 fromTab={filter}
                 isHidden={itemHidden}
+                visitedDetails={visitedDetailsIds.has(item.id)}
                 isDeleting={deletingIds.has(item.id)}
                 onHide={handleHideUnhide}
                 onUnhide={handleHideUnhide}
