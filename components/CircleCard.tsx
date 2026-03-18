@@ -18,7 +18,7 @@ export function CircleCard({ circle }: { circle: Circle }) {
         <Text style={styles.emoji}>{circle.emoji}</Text>
       </View>
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={1}>{circle.name}</Text>
+        <Text style={[styles.name, circle.is_all_friends && styles.nameAllFriends]} numberOfLines={1}>{circle.name}</Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color={Colors.border} />
     </TouchableOpacity>
@@ -33,6 +33,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
     borderWidth: 1, borderColor: Colors.borderLight,
   },
+  nameAllFriends: { color: Colors.allfriends },
   emojiContainer: {
     width: 52, height: 52, borderRadius: 26,
     backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center',

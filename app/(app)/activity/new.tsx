@@ -207,10 +207,16 @@ export default function NewActivityScreen() {
     if (!user) return;
     const { data } = await supabase
       .from('circles')
-      .select('id, name, emoji, description, created_by, created_at')
+      .select('id, name, emoji, description, created_by, created_at, is_all_friends')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
-    setCircles((data ?? []) as Circle[]);
+    const sorted = (data ?? []) as Circle[];
+    sorted.sort((a: Circle, b: Circle) => {
+      if (a.is_all_friends && !b.is_all_friends) return 1;
+      if (!a.is_all_friends && b.is_all_friends) return -1;
+      return 0;
+    });
+    setCircles(sorted);
   }, [user]);
 
   useEffect(() => {
@@ -624,7 +630,7 @@ export default function NewActivityScreen() {
                     onPress={() => toggleCircle(c)}
                   >
                     <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                    <Text style={[styles.chipName, expanded && styles.chipNameSelected]}>{c.name}</Text>
+                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
                     {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                   </TouchableOpacity>
                 );
@@ -745,7 +751,7 @@ export default function NewActivityScreen() {
                           onPress={() => isExcluded ? removeExclusionCircle(c.id) : addExclusionCircle(c)}
                         >
                           <Text style={styles.excludeChipEmoji}>{c.emoji}</Text>
-                          <Text style={[styles.excludeChipName, isExcluded && styles.excludeChipNameActive]}>{c.name}</Text>
+                          <Text style={[styles.excludeChipName, c.is_all_friends && styles.excludeChipNameAllFriends, isExcluded && styles.excludeChipNameActive]}>{c.name}</Text>
                           {isExcluded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                         </TouchableOpacity>
                       );
@@ -805,7 +811,7 @@ export default function NewActivityScreen() {
                     {circles.filter(c => excludeCircleIds.has(c.id)).map(c => (
                       <View key={c.id} style={styles.excludedChip}>
                         <Text style={styles.excludedChipEmoji}>{c.emoji}</Text>
-                        <Text style={styles.excludedChipName} numberOfLines={1}>{c.name}</Text>
+                        <Text style={[styles.excludedChipName, c.is_all_friends && styles.excludedChipNameAllFriends]} numberOfLines={1}>{c.name}</Text>
                         <TouchableOpacity onPress={() => removeExclusionCircle(c.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
                           <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
                         </TouchableOpacity>
@@ -980,11 +986,13 @@ const styles = StyleSheet.create({
   excludeChipActive: { borderColor: Colors.danger, backgroundColor: Colors.dangerLight },
   excludeChipEmoji: { fontSize: 16 },
   excludeChipName: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  excludeChipNameAllFriends: { color: Colors.allfriends },
   excludeChipNameActive: { color: Colors.danger },
   excludedList: { marginTop: 12 },
   excludedChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   excludedChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.dangerLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 130 },
   excludedChipName: { fontSize: 13, fontWeight: '600', color: Colors.danger, flex: 1 },
+  excludedChipNameAllFriends: { color: Colors.allfriends },
   excludedChipEmoji: { fontSize: 14 },
   input: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: Colors.text },
   textArea: { minHeight: 100, paddingTop: 12 },
@@ -997,6 +1005,7 @@ const styles = StyleSheet.create({
   chipSelected: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   chipEmoji: { fontSize: 16 },
   chipName: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  chipNameAllFriends: { color: Colors.allfriends },
   chipNameSelected: { color: Colors.primaryDark },
   searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 12, gap: 8 },
   searchInput: { flex: 1, fontSize: 16, color: Colors.text, paddingVertical: 12 },

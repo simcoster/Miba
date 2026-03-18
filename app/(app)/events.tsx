@@ -187,6 +187,7 @@ export default function EventsScreen() {
   const [invitedCount, setInvitedCount] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [mipoDmActivityIds, setMipoDmActivityIds] = useState<Set<string>>(new Set());
   const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [showClonePicker, setShowClonePicker] = useState(false);
@@ -650,12 +651,18 @@ export default function EventsScreen() {
                 activity={item}
                 fromTab={filter}
                 isHidden={itemHidden}
+                isDeleting={deletingIds.has(item.id)}
                 onHide={handleHideUnhide}
                 onUnhide={handleHideUnhide}
                 onDelete={canDelete ? async () => {
+                  setDeletingIds(prev => new Set(prev).add(item.id));
                   const { error } = await supabase.from('activities').update({ status: 'cancelled' }).eq('id', item.id);
-                  if (!error) fetchActivities();
-                  else Alert.alert('Error', 'Could not delete event.');
+                  if (!error) {
+                    await fetchActivities();
+                  } else {
+                    setDeletingIds(prev => { const n = new Set(prev); n.delete(item.id); return n; });
+                    Alert.alert('Error', 'Could not delete event.');
+                  }
                 } : undefined}
               />
             );

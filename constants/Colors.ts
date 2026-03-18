@@ -22,6 +22,7 @@ const Colors = {
   overlay:       'rgba(28, 25, 23, 0.5)',
   gradientStart: '#FBBF24',
   gradientEnd:   '#F97316',
+  allfriends:    '#FCBA03',
 } as const;
 
 export default Colors;

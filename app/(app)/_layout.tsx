@@ -156,7 +156,7 @@ function TabBarContent() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIconWithHighlight tabName="chats" focused={focused}>
-              {(f) => <TabIcon name={f ? 'chatbubbles' : 'chatbubbles-outline'} focused={f} label="Chats" />}
+              {(f) => <TabIcon name={f ? 'chatbubbles' : 'chatbubbles-outline'} focused={f} label="Discussions" />}
             </TabIconWithHighlight>
           ),
         }}

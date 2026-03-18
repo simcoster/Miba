@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import ReanimatedSwipeable, { SwipeDirection, type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { TouchableOpacity } from 'react-native-gesture-handler';
@@ -43,6 +43,7 @@ export function ActivityCard({
   activity,
   fromTab,
   onDelete,
+  isDeleting,
   isHidden,
   onHide,
   onUnhide,
@@ -50,6 +51,7 @@ export function ActivityCard({
   activity: Activity;
   fromTab?: EventsFilter;
   onDelete?: () => void;
+  isDeleting?: boolean;
   isHidden?: boolean;
   onHide?: () => void;
   onUnhide?: () => void;
@@ -77,15 +79,28 @@ export function ActivityCard({
   const handleDeletePress = () => {
     Alert.alert('Delete event', 'This will cancel the activity for everyone. Continue?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: onDelete },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          swipeableRef.current?.reset();
+          onDelete?.();
+        },
+      },
     ]);
   };
 
   const cardContent = (
     <TouchableOpacity
-      style={[styles.card, past && styles.cardPast, isPending && !past && styles.cardPending]}
-      onPress={() => router.push(href as any)}
+      style={[
+        styles.card,
+        past && styles.cardPast,
+        isPending && !past && styles.cardPending,
+        isDeleting && styles.cardDeleting,
+      ]}
+      onPress={isDeleting ? undefined : () => router.push(href as any)}
       activeOpacity={0.85}
+      disabled={isDeleting}
     >
       <View style={styles.cardContent}>
       <View style={[styles.titleSectionWrapper, hasActivityCover(activity) && styles.titleSectionWithSplash]}>
@@ -175,6 +190,12 @@ export function ActivityCard({
           {goingCount > 0 ? `${goingCount} ${goingCount === 1 ? 'person' : 'people'} in` : 'Be the first to join!'}
         </Text>
       </View>
+      {isDeleting && (
+        <View style={styles.deletingOverlay} pointerEvents="none">
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.deletingText}>Deleting…</Text>
+        </View>
+      )}
       </View>
     </TouchableOpacity>
   );
@@ -256,7 +277,16 @@ const styles = StyleSheet.create({
   splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, overflow: 'hidden', borderTopLeftRadius: 17, borderTopRightRadius: 17 },
   titleSectionOverlay: { padding: 16, paddingTop: 16 },
   cardPast: { opacity: 0.6 },
+  cardDeleting: { opacity: 0.5 },
   cardPending: { borderWidth: 2, borderColor: INVITED_BLUE },
+  deletingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deletingText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },

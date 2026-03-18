@@ -47,8 +47,8 @@ export default function CirclesScreen() {
 
     const sorted = (data ?? []).map((c: any) => ({ ...c, is_owner: true }));
     sorted.sort((a: Circle, b: Circle) => {
-      if (a.is_all_friends && !b.is_all_friends) return -1;
-      if (!a.is_all_friends && b.is_all_friends) return 1;
+      if (a.is_all_friends && !b.is_all_friends) return 1;
+      if (!a.is_all_friends && b.is_all_friends) return -1;
       return 0;
     });
     setCircles(sorted);
