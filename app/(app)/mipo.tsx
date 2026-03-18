@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable,
   TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
@@ -73,6 +73,7 @@ export default function MipoScreen() {
   const [circles, setCircles] = useState<Circle[]>([]);
   const [expandedCircleIds, setExpandedCircleIds] = useState<Set<string>>(new Set());
   const [circleMembersMap, setCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
+  const [allCircleMembersMap, setAllCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
   const [individuallyAddedUserIds, setIndividuallyAddedUserIds] = useState<Set<string>>(new Set());
   const [selectedPool, setSelectedPool] = useState<Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
@@ -125,6 +126,28 @@ export default function MipoScreen() {
     if (!user) return;
     fetchCircles();
   }, [fetchCircles]);
+
+  // Fetch all circle members to compute full vs partial invite status
+  useEffect(() => {
+    if (!user || circles.length === 0) {
+      setAllCircleMembersMap(new Map());
+      return;
+    }
+    supabase
+      .from('circle_members')
+      .select('circle_id, user_id')
+      .in('circle_id', circles.map(c => c.id))
+      .neq('user_id', user.id)
+      .then(({ data }) => {
+        const map = new Map<string, Set<string>>();
+        (data ?? []).forEach((row: { circle_id: string; user_id: string }) => {
+          const set = map.get(row.circle_id) ?? new Set<string>();
+          set.add(row.user_id);
+          map.set(row.circle_id, set);
+        });
+        setAllCircleMembersMap(map);
+      });
+  }, [user, circles]);
 
   const skipFirstCirclesFocus = useRef(true);
   useFocusEffect(
@@ -212,23 +235,19 @@ export default function MipoScreen() {
   }, [user, visibleState.isVisible]);
 
 
-  const toggleCircle = useCallback(async (circle: Circle) => {
+  const toggleCircle = useCallback(async (circle: Circle, inviteStatus: 'full' | 'partial' | 'none' | undefined) => {
     if (!user) return;
-    if (expandedCircleIds.has(circle.id)) {
+    const expanded = expandedCircleIds.has(circle.id);
+
+    if (expanded) {
       const membersOfCircle = circleMembersMap.get(circle.id);
       setExpandedCircleIds(prev => { const s = new Set(prev); s.delete(circle.id); return s; });
       setCircleMembersMap(prev => { const m = new Map(prev); m.delete(circle.id); return m; });
       if (membersOfCircle && membersOfCircle.size > 0) {
-        const otherExpandedIds = new Set(expandedCircleIds);
-        otherExpandedIds.delete(circle.id);
-        const inOtherCircle = new Set<string>();
-        otherExpandedIds.forEach(cid => {
-          circleMembersMap.get(cid)?.forEach(uid => inOtherCircle.add(uid));
-        });
         setSelectedPool(prev => {
           const next = new Map(prev);
           membersOfCircle.forEach(uid => {
-            if (!individuallyAddedUserIds.has(uid) && !inOtherCircle.has(uid)) {
+            if (!individuallyAddedUserIds.has(uid)) {
               next.delete(uid);
             }
           });
@@ -237,6 +256,23 @@ export default function MipoScreen() {
       }
       return;
     }
+
+    if (inviteStatus === 'full') {
+      const membersOfCircle = allCircleMembersMap.get(circle.id);
+      if (membersOfCircle && membersOfCircle.size > 0) {
+        setSelectedPool(prev => {
+          const next = new Map(prev);
+          membersOfCircle.forEach(uid => {
+            if (!individuallyAddedUserIds.has(uid)) {
+              next.delete(uid);
+            }
+          });
+          return next;
+        });
+      }
+      return;
+    }
+
     const { data, error } = await supabase
       .from('circle_members')
       .select('user_id, profile:profiles!user_id(id, full_name, avatar_url)')
@@ -254,7 +290,7 @@ export default function MipoScreen() {
       });
       return next;
     });
-  }, [user, expandedCircleIds, circleMembersMap, individuallyAddedUserIds]);
+  }, [user, expandedCircleIds, circleMembersMap, individuallyAddedUserIds, allCircleMembersMap]);
 
   const removeFromPool = useCallback((userId: string) => {
     setSelectedPool(prev => { const next = new Map(prev); next.delete(userId); return next; });
@@ -696,6 +732,21 @@ export default function MipoScreen() {
     router.push(`/(app)/activity/${activityId}/chat?fromTab=mipo`);
   }, [user, router]);
 
+  const circleInviteStatus = useMemo(() => {
+    const status = new Map<string, 'full' | 'partial' | 'none'>();
+    allCircleMembersMap.forEach((memberIds, circleId) => {
+      if (memberIds.size === 0) {
+        status.set(circleId, 'none');
+        return;
+      }
+      const invitedCount = [...memberIds].filter(uid => selectedPool.has(uid)).length;
+      if (invitedCount === memberIds.size) status.set(circleId, 'full');
+      else if (invitedCount > 0) status.set(circleId, 'partial');
+      else status.set(circleId, 'none');
+    });
+    return status;
+  }, [allCircleMembersMap, selectedPool]);
+
   const selectedList = [...selectedPool.values()];
 
   if (view === 'active') {
@@ -773,17 +824,18 @@ export default function MipoScreen() {
             {circles.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {circles.map(c => {
-                  const expanded = expandedCircleIds.has(c.id);
+                  const inviteStatus = circleInviteStatus.get(c.id);
+                  const highlighted = inviteStatus === 'full';
                   return (
                     <TouchableOpacity
                       key={c.id}
-                      style={[styles.chip, expanded && styles.chipSelected]}
-                      onPress={() => view !== 'active' && toggleCircle(c)}
+                      style={[styles.chip, highlighted && styles.chipSelected]}
+                      onPress={() => view !== 'active' && toggleCircle(c, circleInviteStatus.get(c.id))}
                       disabled={view === 'active'}
                     >
                       <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                      <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
-                      {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
+                      <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, highlighted && styles.chipNameSelected]}>{c.name}</Text>
+                      {highlighted && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -1023,16 +1075,17 @@ export default function MipoScreen() {
           {circles.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               {circles.map(c => {
-                const expanded = expandedCircleIds.has(c.id);
+                const inviteStatus = circleInviteStatus.get(c.id);
+                const highlighted = inviteStatus === 'full';
                 return (
                   <TouchableOpacity
                     key={c.id}
-                    style={[styles.chip, expanded && styles.chipSelected]}
-                    onPress={() => toggleCircle(c)}
+                    style={[styles.chip, highlighted && styles.chipSelected]}
+                    onPress={() => toggleCircle(c, circleInviteStatus.get(c.id))}
                   >
                     <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
-                    {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
+                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, highlighted && styles.chipNameSelected]}>{c.name}</Text>
+                    {highlighted && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                   </TouchableOpacity>
                 );
               })}

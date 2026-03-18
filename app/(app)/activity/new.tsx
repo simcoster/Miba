@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
@@ -207,6 +207,8 @@ export default function NewActivityScreen() {
   const [expandedCircleIds, setExpandedCircleIds] = useState<Set<string>>(new Set());
   // Map circleId -> Set of userIds (for removing on unselect)
   const [circleMembersMap, setCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
+  // All circle members for full vs partial invite status
+  const [allCircleMembersMap, setAllCircleMembersMap] = useState<Map<string, Set<string>>>(new Map());
   // Users added individually via search (keep when unselecting circle)
   const [individuallyAddedUserIds, setIndividuallyAddedUserIds] = useState<Set<string>>(new Set());
 
@@ -248,6 +250,28 @@ export default function NewActivityScreen() {
     fetchCircles();
   }, [fetchCircles]);
 
+  // Fetch all circle members to compute full vs partial invite status
+  useEffect(() => {
+    if (!user || circles.length === 0) {
+      setAllCircleMembersMap(new Map());
+      return;
+    }
+    supabase
+      .from('circle_members')
+      .select('circle_id, user_id')
+      .in('circle_id', circles.map(c => c.id))
+      .neq('user_id', user.id)
+      .then(({ data }) => {
+        const map = new Map<string, Set<string>>();
+        (data ?? []).forEach((row: { circle_id: string; user_id: string }) => {
+          const set = map.get(row.circle_id) ?? new Set<string>();
+          set.add(row.user_id);
+          map.set(row.circle_id, set);
+        });
+        setAllCircleMembersMap(map);
+      });
+  }, [user, circles]);
+
   // Highlight the date/time buttons when cloning (don't auto-open the picker)
   useEffect(() => {
     if (!isClone) return;
@@ -273,22 +297,34 @@ export default function NewActivityScreen() {
   );
 
   // Expand or collapse a circle's members into/from the invite pool
-  const toggleCircle = async (circle: Circle) => {
-    if (expandedCircleIds.has(circle.id)) {
+  const toggleCircle = async (circle: Circle, inviteStatus: 'full' | 'partial' | 'none' | undefined) => {
+    const expanded = expandedCircleIds.has(circle.id);
+
+    if (expanded) {
       const membersOfCircle = circleMembersMap.get(circle.id);
       setExpandedCircleIds(prev => { const s = new Set(prev); s.delete(circle.id); return s; });
       setCircleMembersMap(prev => { const m = new Map(prev); m.delete(circle.id); return m; });
       if (membersOfCircle && membersOfCircle.size > 0) {
-        const otherExpandedIds = new Set(expandedCircleIds);
-        otherExpandedIds.delete(circle.id);
-        const inOtherCircle = new Set<string>();
-        otherExpandedIds.forEach(cid => {
-          circleMembersMap.get(cid)?.forEach(uid => inOtherCircle.add(uid));
-        });
         setInvitePool(prev => {
           const next = new Map(prev);
           membersOfCircle.forEach(uid => {
-            if (!individuallyAddedUserIds.has(uid) && !inOtherCircle.has(uid)) {
+            if (!individuallyAddedUserIds.has(uid)) {
+              next.delete(uid);
+            }
+          });
+          return next;
+        });
+      }
+      return;
+    }
+
+    if (inviteStatus === 'full') {
+      const membersOfCircle = allCircleMembersMap.get(circle.id);
+      if (membersOfCircle && membersOfCircle.size > 0) {
+        setInvitePool(prev => {
+          const next = new Map(prev);
+          membersOfCircle.forEach(uid => {
+            if (!individuallyAddedUserIds.has(uid)) {
               next.delete(uid);
             }
           });
@@ -596,6 +632,21 @@ export default function NewActivityScreen() {
     }
   };
 
+  const circleInviteStatus = useMemo(() => {
+    const status = new Map<string, 'full' | 'partial' | 'none'>();
+    allCircleMembersMap.forEach((memberIds, circleId) => {
+      if (memberIds.size === 0) {
+        status.set(circleId, 'none');
+        return;
+      }
+      const invitedCount = [...memberIds].filter(uid => invitePool.has(uid)).length;
+      if (invitedCount === memberIds.size) status.set(circleId, 'full');
+      else if (invitedCount > 0) status.set(circleId, 'partial');
+      else status.set(circleId, 'none');
+    });
+    return status;
+  }, [allCircleMembersMap, invitePool]);
+
   const inviteList = [...invitePool.values()];
 
   return (
@@ -863,16 +914,17 @@ export default function NewActivityScreen() {
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {circles.map(c => {
-                const expanded = expandedCircleIds.has(c.id);
+                const inviteStatus = circleInviteStatus.get(c.id);
+                const highlighted = inviteStatus === 'full';
                 return (
                   <TouchableOpacity
                     key={c.id}
-                    style={[styles.chip, expanded && styles.chipSelected]}
-                    onPress={() => toggleCircle(c)}
+                    style={[styles.chip, highlighted && styles.chipSelected]}
+                    onPress={() => toggleCircle(c, circleInviteStatus.get(c.id))}
                   >
                     <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
-                    {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
+                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, highlighted && styles.chipNameSelected]}>{c.name}</Text>
+                    {highlighted && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                   </TouchableOpacity>
                 );
               })}
