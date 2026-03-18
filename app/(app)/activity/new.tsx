@@ -144,7 +144,7 @@ export default function NewActivityScreen() {
   // When join me mode: set defaults
   useEffect(() => {
     if (!isJoinMe) return;
-    setTitle("I'm here, Let's hang!");
+    setTitle("Let's hang!");
     setSplashArt('join_me_banner');
     setPlacePhotoName(null);
     setIsLimited(false);

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, Pressable,
   TouchableOpacity, Alert, ActivityIndicator, Image, Modal, useWindowDimensions,
-  Platform,
+  Platform, Linking,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
@@ -20,7 +20,7 @@ import * as Notifications from 'expo-notifications';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMipo, type ProximityEventWithProfile } from '@/contexts/MipoContext';
-import { Circle, Profile } from '@/lib/types';
+import { Circle, Profile, JOIN_ME_NOW_ACTIVITY_TIME } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import {
@@ -92,6 +92,7 @@ export default function MipoScreen() {
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const [inviteToJoinLoading, setInviteToJoinLoading] = useState(false);
+  const [joinMeActivityId, setJoinMeActivityId] = useState<string | null>(null);
 
   const getProximityDistanceM = useCallback((): number => {
     if (distanceOption === 'custom') {
@@ -107,10 +108,16 @@ export default function MipoScreen() {
     if (!user) return;
     const { data } = await supabase
       .from('circles')
-      .select('id, name, emoji, created_by, created_at')
+      .select('id, name, emoji, created_by, created_at, is_all_friends')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
-    setCircles((data ?? []) as Circle[]);
+    const sorted = (data ?? []) as Circle[];
+    sorted.sort((a, b) => {
+      if (a.is_all_friends && !b.is_all_friends) return 1;
+      if (!a.is_all_friends && b.is_all_friends) return -1;
+      return 0;
+    });
+    setCircles(sorted);
   }, [user]);
 
   useEffect(() => {
@@ -136,6 +143,23 @@ export default function MipoScreen() {
       if (visibleState.isVisible) checkAndTurnOffIfServiceStopped();
     }, [visibleState.isVisible, checkAndTurnOffIfServiceStopped])
   );
+
+  // Sync joinMeActivityId when visible (e.g. app restart with existing session); clear when turning off
+  useEffect(() => {
+    if (!visibleState.isVisible) {
+      setJoinMeActivityId(null);
+      return;
+    }
+    if (!user) return;
+    supabase
+      .from('mipo_visible_sessions')
+      .select('join_me_activity_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.join_me_activity_id) setJoinMeActivityId(data.join_me_activity_id);
+      });
+  }, [user, visibleState.isVisible]);
 
   useEffect(() => {
     if (!user) return;
@@ -397,12 +421,34 @@ export default function MipoScreen() {
     }
     const sub = locationSub;
     setLocationSub(null);
-    if (sub) await sub.remove();
-    await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
     setVisible(false, null);
     setView('selection');
-    refreshVisibleState();
-  }, [user, locationSub, setVisible, refreshVisibleState]);
+    if (sub) await sub.remove();
+    const { data: session } = await supabase
+      .from('mipo_visible_sessions')
+      .select('join_me_activity_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    const activityId = session?.join_me_activity_id ?? null;
+    if (activityId) {
+      console.log('[Mipo] Turning off: session has join_me_activity_id', activityId);
+    }
+    // Delete session; DB trigger on_mipo_session_deleted_delete_join_me deletes the linked activity (bypasses RLS)
+    const { error: sessionError } = await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
+    if (sessionError) {
+      console.error('[Mipo] Failed to delete session:', sessionError);
+    } else {
+      console.log('[Mipo] Session deleted successfully');
+      if (activityId) {
+        const { data: stillExists } = await supabase.from('activities').select('id').eq('id', activityId).maybeSingle();
+        if (stillExists) {
+          console.error('[Mipo] Join me activity was NOT deleted:', activityId);
+        } else {
+          console.log('[Mipo] Join me activity deleted correctly:', activityId);
+        }
+      }
+    }
+  }, [user, locationSub, setVisible]);
 
   turnOffRef.current = handleTurnOffVisible;
 
@@ -418,7 +464,7 @@ export default function MipoScreen() {
       return;
     }
     if (session.join_me_activity_id) {
-      router.push(`/(app)/activity/${session.join_me_activity_id}?fromTab=mipo`);
+      setJoinMeActivityId(session.join_me_activity_id);
       return;
     }
     setInviteToJoinLoading(true);
@@ -430,16 +476,27 @@ export default function MipoScreen() {
       const { error: activityError } = await supabase.from('activities').insert({
         id: activityId,
         created_by: user.id,
-        title: "I'm here, Let's hang!",
+        title: "Let's hang!",
         description: null,
         location: 'Current location',
-        activity_time: now.toISOString(),
+        activity_time: JOIN_ME_NOW_ACTIVITY_TIME,
         splash_art: 'join_me_banner',
         is_join_me: true,
         join_me_expires_at: joinMeExpiresAt,
         join_me_mipo_linked: true,
       });
       if (activityError) throw activityError;
+
+      const inviteIds = [...selectedPool.keys()];
+      const rsvpRows = [
+        { activity_id: activityId, user_id: user.id, status: 'in' as const },
+        ...inviteIds.map(uid => ({ activity_id: activityId, user_id: uid, status: 'pending' as const })),
+      ];
+      const { error: rsvpError } = await supabase.from('rsvps').insert(rsvpRows);
+      if (rsvpError) {
+        await supabase.from('activities').delete().eq('id', activityId);
+        throw rsvpError;
+      }
 
       const { data: post, error: postError } = await supabase
         .from('posts')
@@ -452,7 +509,10 @@ export default function MipoScreen() {
         })
         .select('id')
         .single();
-      if (postError || !post) throw postError ?? new Error('Could not create post');
+      if (postError || !post) {
+        await supabase.from('activities').delete().eq('id', activityId);
+        throw postError ?? new Error('Could not create post');
+      }
 
       const { error: shareError } = await supabase.from('chat_location_shares').insert({
         activity_id: activityId,
@@ -469,27 +529,22 @@ export default function MipoScreen() {
         throw shareError;
       }
 
-      const inviteIds = [...selectedPool.keys()];
-      const rsvpRows = [
-        { activity_id: activityId, user_id: user.id, status: 'in' as const },
-        ...inviteIds.map(uid => ({ activity_id: activityId, user_id: uid, status: 'pending' as const })),
-      ];
-      const { error: rsvpError } = await supabase.from('rsvps').insert(rsvpRows);
-      if (rsvpError) throw rsvpError;
-
       const { error: sessionError } = await supabase
         .from('mipo_visible_sessions')
         .update({ join_me_activity_id: activityId, updated_at: now.toISOString() })
         .eq('user_id', user.id);
       if (sessionError) throw sessionError;
 
-      router.push(`/(app)/activity/${activityId}?fromTab=mipo`);
+      setJoinMeActivityId(activityId);
+      Toast.show({ type: 'success', text1: 'Invites sent' });
     } catch (e) {
-      Alert.alert('Error', (e as Error).message ?? 'Could not create Join me! event.');
+      const err = e as Error;
+      console.error('[Mipo] Invite to join error:', err.message, err);
+      Alert.alert('Error', err.message ?? 'Could not create Join me! event.');
     } finally {
       setInviteToJoinLoading(false);
     }
-  }, [user, visibleState.isVisible, selectedPool, router]);
+  }, [user, visibleState.isVisible, selectedPool]);
 
   const handlePermissionModalRequest = useCallback(async () => {
     const kind = permissionErrorModal.permissionKind;
@@ -501,12 +556,19 @@ export default function MipoScreen() {
         if (status === 'granted') {
           setPermissionErrorModal(p => ({ ...p, visible: false }));
           handleTurnOnVisible();
+        } else {
+          // User denied or can't be asked again — open app settings so they can enable there
+          await Linking.openSettings();
+          setPermissionErrorModal(p => ({ ...p, visible: false }));
         }
       } else if (kind === 'location') {
         const permResult = await checkMipoVisibleModePermissions();
         if (permResult.ok) {
           setPermissionErrorModal(p => ({ ...p, visible: false }));
           handleTurnOnVisible();
+        } else {
+          await Linking.openSettings();
+          setPermissionErrorModal(p => ({ ...p, visible: false }));
         }
       }
     } finally {
@@ -690,7 +752,7 @@ export default function MipoScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.label}>Who can see you (edit anytime)</Text>
+            <Text style={styles.label}>Who can see you{view === 'active' ? ' (turn off to edit)' : ''}</Text>
             {circles.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {circles.map(c => {
@@ -699,16 +761,18 @@ export default function MipoScreen() {
                     <TouchableOpacity
                       key={c.id}
                       style={[styles.chip, expanded && styles.chipSelected]}
-                      onPress={() => toggleCircle(c)}
+                      onPress={() => view !== 'active' && toggleCircle(c)}
+                      disabled={view === 'active'}
                     >
                       <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                      <Text style={[styles.chipName, expanded && styles.chipNameSelected]}>{c.name}</Text>
+                      <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
                       {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                     </TouchableOpacity>
                   );
                 })}
               </ScrollView>
             )}
+            {view !== 'active' && (
             <View style={styles.searchBox}>
               <Ionicons name="search" size={18} color={Colors.textSecondary} />
               <TextInput
@@ -727,7 +791,8 @@ export default function MipoScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {searchQuery.trim().length >= 2 && !searching && (
+            )}
+            {view !== 'active' && searchQuery.trim().length >= 2 && !searching && (
               <View style={styles.searchResults}>
                 {searchResults.length > 0 ? (
                   searchResults.map(p => {
@@ -767,36 +832,42 @@ export default function MipoScreen() {
             )}
             {selectedList.length > 0 && (
               <>
-                <Text style={styles.sublabel}>Selected</Text>
-                <View style={styles.invitePool}>
-                {selectedList.map(p => (
-                  <View key={p.id} style={styles.inviteChip}>
-                    <Avatar uri={p.avatar_url} name={p.full_name} size={28} />
-                    <Text style={styles.inviteChipName} numberOfLines={1}>{p.full_name?.split(' ')[0] ?? '?'}</Text>
-                    <TouchableOpacity onPress={() => removeFromPool(p.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-                      <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
-                    </TouchableOpacity>
+                <Text style={[styles.sublabel, { marginBottom: 4 }]}>Selected</Text>
+                <View style={styles.invitePoolSelectedBlock}>
+                  <View style={styles.invitePool}>
+                    {selectedList.map(p => (
+                      <View key={p.id} style={[styles.inviteChip, view === 'active' && styles.inviteChipAvatarOnly]}>
+                        <Avatar uri={p.avatar_url} name={p.full_name} size={28} />
+                        {view !== 'active' && (
+                          <>
+                            <Text style={styles.inviteChipName} numberOfLines={1}>{p.full_name?.split(' ')[0] ?? '?'}</Text>
+                            <TouchableOpacity onPress={() => removeFromPool(p.id)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+                              <Ionicons name="close-circle" size={16} color={Colors.textSecondary} />
+                            </TouchableOpacity>
+                          </>
+                        )}
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
+                  <TouchableOpacity
+                    style={[styles.inviteToJoinBtnSmall, (inviteToJoinLoading || joinMeActivityId) && { opacity: 0.6 }]}
+                    onPress={handleInviteToJoin}
+                    disabled={inviteToJoinLoading || !!joinMeActivityId}
+                  >
+                    {inviteToJoinLoading ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <Ionicons name="paper-plane-outline" size={14} color={Colors.primary} />
+                    )}
+                    <Text style={styles.inviteToJoinBtnTextSmall}>Invite to join</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
           </View>
         </View>
         <View style={[styles.mipoFooter, { paddingBottom: 16 }]}>
           <Text style={styles.youreVisibleLabel}>{visibleUntilLabel}</Text>
-          <TouchableOpacity
-            style={[styles.inviteToJoinBtn, inviteToJoinLoading && { opacity: 0.6 }]}
-            onPress={handleInviteToJoin}
-            disabled={inviteToJoinLoading}
-          >
-            {inviteToJoinLoading ? (
-              <ActivityIndicator size="small" color={Colors.primary} />
-            ) : (
-              <Ionicons name="person-add" size={20} color={Colors.primary} />
-            )}
-            <Text style={styles.inviteToJoinBtnText}>Invite to join</Text>
-          </TouchableOpacity>
           <View style={[styles.buttonWithRadar, { marginTop: 12 }]}>
             <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" fullWidth={false} style={styles.buttonWithRadarBtn} />
             <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
@@ -943,7 +1014,7 @@ export default function MipoScreen() {
                     onPress={() => toggleCircle(c)}
                   >
                     <Text style={styles.chipEmoji}>{c.emoji}</Text>
-                    <Text style={[styles.chipName, expanded && styles.chipNameSelected]}>{c.name}</Text>
+                    <Text style={[styles.chipName, c.is_all_friends && styles.chipNameAllFriends, expanded && styles.chipNameSelected]}>{c.name}</Text>
                     {expanded && <Ionicons name="checkmark" size={14} color={Colors.primary} />}
                   </TouchableOpacity>
                 );
@@ -1167,19 +1238,22 @@ const styles = StyleSheet.create({
   modalScroll: { maxHeight: '100%' },
   modalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   youreVisibleLabel: { fontSize: 18, color: Colors.success, fontWeight: '600', marginBottom: 12 },
-  inviteToJoinBtn: {
+  invitePoolSelectedBlock: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
+  inviteChipAvatarOnly: { paddingHorizontal: 4, maxWidth: 36 },
+  inviteToJoinBtnSmall: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.primary,
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    alignSelf: 'flex-start',
   },
-  inviteToJoinBtnText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  inviteToJoinBtnTextSmall: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   sublabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, marginTop: 10 },
   section: { marginBottom: 22 },
@@ -1199,6 +1273,7 @@ const styles = StyleSheet.create({
   radarGifSmall: { width: 50, height: 50 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
   chipSelected: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  chipNameAllFriends: { color: Colors.allfriends },
   chipEmoji: { fontSize: 16 },
   chipName: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   chipNameSelected: { color: Colors.primaryDark },

@@ -114,7 +114,7 @@ export async function isMipoLocationRunning(): Promise<boolean> {
 }
 
 /** Threshold: if no location update in this many ms, service likely stopped. Location updates every ~5s. */
-const MIPO_HEARTBEAT_STALE_MS = 12_000;
+const MIPO_HEARTBEAT_STALE_MS = 25_000;
 
 /**
  * Check if the Mipo session's last location update is stale.
@@ -127,7 +127,7 @@ export async function isMipoLocationHeartbeatStale(userId: string): Promise<bool
       .from('mipo_visible_sessions')
       .select('updated_at')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
     if (!data?.updated_at) return true;
     const updatedAt = new Date(data.updated_at).getTime();
     return Date.now() - updatedAt > MIPO_HEARTBEAT_STALE_MS;
@@ -147,7 +147,30 @@ export async function turnOffMipoVisibleMode(userId: string): Promise<void> {
     // Service may already be stopped
   }
   await setMipoActiveUserId(null);
-  await supabase.from('mipo_visible_sessions').delete().eq('user_id', userId);
+  const { data: session } = await supabase
+    .from('mipo_visible_sessions')
+    .select('join_me_activity_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  const activityId = session?.join_me_activity_id ?? null;
+  if (activityId) {
+    console.log('[Mipo] turnOffMipoVisibleMode: session has join_me_activity_id', activityId);
+  }
+  // Delete session; DB trigger on_mipo_session_deleted_delete_join_me deletes the linked activity (bypasses RLS)
+  const { error: sessionError } = await supabase.from('mipo_visible_sessions').delete().eq('user_id', userId);
+  if (sessionError) {
+    console.error('[Mipo] turnOffMipoVisibleMode: failed to delete session:', sessionError);
+  } else {
+    console.log('[Mipo] turnOffMipoVisibleMode: session deleted successfully');
+    if (activityId) {
+      const { data: stillExists } = await supabase.from('activities').select('id').eq('id', activityId).maybeSingle();
+      if (stillExists) {
+        console.error('[Mipo] turnOffMipoVisibleMode: join me activity was NOT deleted:', activityId);
+      } else {
+        console.log('[Mipo] turnOffMipoVisibleMode: join me activity deleted correctly:', activityId);
+      }
+    }
+  }
 }
 
 /**

@@ -48,6 +48,7 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
   });
   const [nearbyEvents, setNearbyEvents] = useState<ProximityEventWithProfile[]>([]);
   const lastNotifiedEventId = useRef<string | null>(null);
+  const turnedOffAtRef = useRef<number>(0);
 
   const refreshVisibleState = useCallback(async () => {
     if (!user) {
@@ -58,8 +59,10 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
       .from('mipo_visible_sessions')
       .select('expires_at')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
     if (data) {
+      const turnedOffRecently = Date.now() - turnedOffAtRef.current < 5000;
+      if (turnedOffRecently) return;
       const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
       const isExpired = expiresAt ? expiresAt <= new Date() : false;
       setVisibleState({
@@ -72,6 +75,7 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const setVisible = useCallback((visible: boolean, expiresAt?: Date | null) => {
+    if (!visible) turnedOffAtRef.current = Date.now();
     setVisibleState({
       isVisible: visible,
       expiresAt: expiresAt ?? null,
@@ -119,13 +123,20 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
   }, [user, refreshVisibleState]);
 
   // Realtime subscription - always active when logged in (not tied to Mipo screen mount)
+  // Note: DELETE events cannot be filtered; we only call refreshNearby (not refreshVisibleState)
+  // to avoid fetch races. Our own turn-off is handled in handleTurnOffVisible.
   useEffect(() => {
     if (!user) return;
     const channel = supabase
       .channel('mipo_nearby')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mipo_proximity_events' }, () => refreshNearby(true))
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'mipo_visible_sessions' }, () => refreshNearby())
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'mipo_visible_sessions' }, () => refreshNearby())
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'mipo_visible_sessions',
+        filter: `user_id=eq.${user.id}`,
+      }, () => refreshNearby())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, refreshNearby]);
@@ -145,7 +156,6 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
       if (!hasPermission) {
         await turnOffMipoVisibleMode(user.id);
         setVisible(false, null);
-        refreshVisibleState();
         Toast.show({
           type: 'info',
           text1: 'Mipo visible mode turned off',
@@ -157,7 +167,6 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
       if (stale) {
         await turnOffMipoVisibleMode(user.id);
         setVisible(false, null);
-        refreshVisibleState();
         Toast.show({
           type: 'info',
           text1: 'Mipo visible mode turned off',
@@ -167,7 +176,7 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Ignore errors
     }
-  }, [user, visibleState.isVisible, setVisible, refreshVisibleState]);
+  }, [user, visibleState.isVisible, setVisible]);
 
   // When app returns from background: run heartbeat + permission check
   useEffect(() => {
