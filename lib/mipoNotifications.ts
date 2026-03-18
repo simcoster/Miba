@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false, // Silent by default; loud option for events can be added later
     shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
@@ -34,8 +34,8 @@ export async function registerForPushNotifications(userId: string): Promise<Push
 
   try {
     if (Platform.OS === 'android') {
-      // Delete existing channel so we can recreate with custom sound.
-      // Android channels are immutable; old channel may have been created with default sound.
+      // Delete existing channel so we can recreate with updated settings.
+      // Android channels are immutable; old channel may have had different sound/importance.
       try {
         await Notifications.deleteNotificationChannelAsync(MIPO_CHANNEL_ID);
       } catch {
@@ -48,8 +48,8 @@ export async function registerForPushNotifications(userId: string): Promise<Push
       });
       await Notifications.setNotificationChannelAsync(ACTIVITY_UPDATES_CHANNEL_ID, {
         name: 'Events & Messages',
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: 'default',
+        importance: Notifications.AndroidImportance.LOW,
+        sound: null,
       });
     }
 
