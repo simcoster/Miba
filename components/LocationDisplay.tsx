@@ -40,10 +40,9 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
         <Text style={[styles.address, variant === 'detail' && styles.addressDetail]} {...(!allowFullWrap && { numberOfLines: lines })}>
           {parsed.address}
         </Text>
-        {parsed.placeId && parsed.displayName && (
-          <TouchableOpacity style={styles.linkRow} onPress={openMaps} activeOpacity={0.7}>
-            <Ionicons name="open-outline" size={12} color={Colors.primary} />
-            <Text style={styles.linkText}>{parsed.displayName}</Text>
+        {parsed.placeId && (
+          <TouchableOpacity style={styles.mapsIconBtn} onPress={openMaps} activeOpacity={0.7}>
+            <Ionicons name="map-outline" size={18} color={Colors.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -54,18 +53,12 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
 const styles = StyleSheet.create({
   container: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   compact: { alignItems: 'center' },
-  textBlock: { flex: 1 },
+  textBlock: { flex: 1, minWidth: 0 },
   address: { fontSize: 13, color: Colors.textSecondary },
   addressDetail: { fontSize: 15, color: Colors.text },
-  linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  mapsIconBtn: {
+    alignSelf: 'flex-end',
     marginTop: 4,
-  },
-  linkText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
+    padding: 4,
   },
 });

@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
   },
   rsvpBadgeText: { fontSize: 11, fontWeight: '600' },
-  title: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 10, lineHeight: 24 },
+  title: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 10, lineHeight: 36 },
   titlePast: { color: Colors.textSecondary },
   titleRtl: { textAlign: 'right' },
   meta: { gap: 4, marginBottom: 12 },
