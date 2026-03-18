@@ -57,6 +57,7 @@ export default function ActivityDetailScreen() {
 
   // Invite-edit state
   const [showAddSearch, setShowAddSearch] = useState(false);
+  const [showDeclined, setShowDeclined] = useState(false);
   const [addQuery, setAddQuery] = useState('');
   const [addResults, setAddResults] = useState<Profile[]>([]);
   const [addSearching, setAddSearching] = useState(false);
@@ -952,17 +953,30 @@ export default function ActivityDetailScreen() {
             <Text style={styles.sectionTitle}>
               Invited · {(activity.rsvps ?? []).length}
             </Text>
-            {isCreator && activity.status === 'active' && !past && (
-              <TouchableOpacity
-                style={[styles.addInviteBtn, showAddSearch && styles.addInviteBtnActive]}
-                onPress={() => { setShowAddSearch(v => !v); setAddQuery(''); setAddResults([]); }}
-              >
-                <Ionicons name={showAddSearch ? 'close' : 'person-add-outline'} size={16} color={showAddSearch ? Colors.textSecondary : Colors.primary} />
-                <Text style={[styles.addInviteBtnText, showAddSearch && { color: Colors.textSecondary }]}>
-                  {showAddSearch ? 'Done' : 'Add'}
-                </Text>
-              </TouchableOpacity>
-            )}
+            <View style={styles.sectionHeaderRight}>
+              {notGoing.length > 0 && (
+                <TouchableOpacity
+                  style={styles.showDeclinedBtn}
+                  onPress={() => setShowDeclined(v => !v)}
+                >
+                  <Ionicons name={showDeclined ? 'eye-off-outline' : 'eye-outline'} size={14} color={Colors.textSecondary} />
+                  <Text style={styles.showDeclinedBtnText}>
+                    {showDeclined ? 'Hide declined' : `Show declined (${notGoing.length})`}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {isCreator && activity.status === 'active' && !past && (
+                <TouchableOpacity
+                  style={[styles.addInviteBtn, showAddSearch && styles.addInviteBtnActive]}
+                  onPress={() => { setShowAddSearch(v => !v); setAddQuery(''); setAddResults([]); }}
+                >
+                  <Ionicons name={showAddSearch ? 'close' : 'person-add-outline'} size={16} color={showAddSearch ? Colors.textSecondary : Colors.primary} />
+                  <Text style={[styles.addInviteBtnText, showAddSearch && { color: Colors.textSecondary }]}>
+                    {showAddSearch ? 'Done' : 'Add'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           {/* Inline add-invitee search */}
@@ -1052,8 +1066,8 @@ export default function ActivityDetailScreen() {
             <Text style={styles.noAttendees}>No one invited yet.</Text>
           ) : (
             <View style={styles.attendeeList}>
-              {/* Host always first */}
-              {hostRsvp && (() => {
+              {/* Host always first (hidden when declined and showDeclined is off) */}
+              {hostRsvp && (hostRsvp.status !== 'out' || showDeclined) && (() => {
                 const rsvp = hostRsvp;
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = true;
@@ -1138,7 +1152,7 @@ export default function ActivityDetailScreen() {
                   </View>
                 );
               })}
-              {notGoing.map(rsvp => {
+              {showDeclined && notGoing.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
@@ -1455,6 +1469,9 @@ const styles = StyleSheet.create({
   editTextArea: { minHeight: 80, paddingTop: 10, textAlignVertical: 'top' },
   attendeesSection: { marginTop: 8, marginBottom: 16 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  showDeclinedBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 6 },
+  showDeclinedBtnText: { fontSize: 13, color: Colors.textSecondary },
   addInviteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   addInviteBtnActive: { borderColor: Colors.border, backgroundColor: Colors.surface },
   addInviteBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
