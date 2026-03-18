@@ -4,7 +4,7 @@
 
 import { supabase } from '@/lib/supabase';
 
-const DAILY_LIMIT = 100;
+const DAILY_LIMIT = 5;
 
 /** Get remaining poster extraction uses for today. */
 export async function getPosterUsesRemaining(userId: string): Promise<number> {

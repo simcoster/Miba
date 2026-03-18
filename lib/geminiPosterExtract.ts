@@ -5,7 +5,9 @@
 import { parse } from 'date-fns';
 
 const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
-const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const MODEL_PRO = 'gemini-2.5-flash';
+const MODEL_FLASH_LITE = 'gemini-2.5-flash-lite';
+const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const PROMPT = `I am attaching an image. First, determine if this image is actually a poster or advertisement for an event (concert, meetup, party, workshop, etc.). It should clearly promote a specific event with details like date, time, or location.
 
@@ -149,16 +151,13 @@ export function getTestCachedParsedResult(): ParsedPosterResult {
   };
 }
 
-export async function extractEventFromPoster(
+async function callGeminiWithModel(
   base64Image: string,
-  mimeType: string = 'image/jpeg'
-): Promise<ParsedPosterResult> {
-  console.log('[geminiPosterExtract] Starting extraction...');
-  if (!API_KEY) {
-    throw new Error('Gemini API key not configured');
-  }
-
-  const res = await fetch(`${ENDPOINT}?key=${API_KEY}`, {
+  mimeType: string,
+  model: string
+): Promise<{ text: string }> {
+  const url = `${BASE_URL}/${model}:generateContent?key=${API_KEY}`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -183,7 +182,9 @@ export async function extractEventFromPoster(
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Gemini API error: ${res.status} ${errText}`);
+    const err = new Error(`Gemini API error: ${res.status} ${errText}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
   }
 
   const data = await res.json();
@@ -191,6 +192,32 @@ export async function extractEventFromPoster(
   if (!text) {
     console.log('[geminiPosterExtract] Full API response:', JSON.stringify(data, null, 2));
     throw new Error('No response from Gemini');
+  }
+  return { text };
+}
+
+export async function extractEventFromPoster(
+  base64Image: string,
+  mimeType: string = 'image/jpeg'
+): Promise<ParsedPosterResult> {
+  console.log('[geminiPosterExtract] Starting extraction...');
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured');
+  }
+
+  let text: string;
+  try {
+    const result = await callGeminiWithModel(base64Image, mimeType, MODEL_PRO);
+    text = result.text;
+  } catch (err: unknown) {
+    const status = (err as Error & { status?: number }).status;
+    if (status === 429) {
+      console.log('[geminiPosterExtract] 429 quota exceeded, retrying with gemini-2.5-flash-lite...');
+      const result = await callGeminiWithModel(base64Image, mimeType, MODEL_FLASH_LITE);
+      text = result.text;
+    } else {
+      throw err;
+    }
   }
 
   console.log('[geminiPosterExtract] Model JSON response:', text);

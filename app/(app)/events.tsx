@@ -523,17 +523,19 @@ export default function EventsScreen() {
                   size={18}
                   color={posterUsesLeft === 0 ? Colors.textSecondary : Colors.primary}
                 />
-                <View style={styles.addDropdownTextRow}>
-                  <Text style={[styles.addDropdownText, posterUsesLeft === 0 && styles.addDropdownTextDisabled]}>
-                    From Poster
-                  </Text>
-                  <View style={styles.aiTag}>
-                    <Text style={styles.aiTagText}>AI</Text>
+                <View style={styles.addDropdownTextCol}>
+                  <View style={styles.addDropdownTextRow}>
+                    <Text style={[styles.addDropdownText, posterUsesLeft === 0 && styles.addDropdownTextDisabled]}>
+                      From Poster
+                    </Text>
+                    <View style={styles.aiTag}>
+                      <Text style={styles.aiTagText}>AI</Text>
+                    </View>
                   </View>
+                  {posterUsesLeft > 0 && posterUsesLeft < 5 && (
+                    <Text style={styles.posterUsesLeftSubtext}>{posterUsesLeft} left today</Text>
+                  )}
                 </View>
-                {posterUsesLeft > 0 && posterUsesLeft < 5 && (
-                  <Text style={styles.posterUsesLeft}>({posterUsesLeft} left today)</Text>
-                )}
               </TouchableOpacity>
               {__DEV__ && (
                 <>
@@ -734,7 +736,8 @@ const styles = StyleSheet.create({
   addDropdownText: { fontSize: 15, fontWeight: '600', color: Colors.text },
   addDropdownDivider: { height: 1, backgroundColor: Colors.borderLight },
   addDropdownRowDisabled: { opacity: 0.6 },
-  addDropdownTextRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  addDropdownTextCol: { flex: 1 },
+  addDropdownTextRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   aiTag: {
     backgroundColor: '#3B82F6',
     paddingHorizontal: 6,
@@ -742,7 +745,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   aiTagText: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  posterUsesLeft: { fontSize: 12, color: Colors.textSecondary, marginLeft: 4 },
+  posterUsesLeftSubtext: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
   addDropdownTextDisabled: { color: Colors.textSecondary },
   fromPosterLoadingOverlay: {
     flex: 1,
