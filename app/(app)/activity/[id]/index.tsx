@@ -29,7 +29,7 @@ import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
-import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
+import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace, buildGoogleMapsUrl } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
@@ -687,7 +687,7 @@ export default function ActivityDetailScreen() {
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
       <View style={styles.titleSection}>
-        {((activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt))) ? (
+        {((activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (activity.poster_image_url && String(activity.poster_image_url).trim() && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt))) ? (
           <View style={styles.splashBlock}>
             <SplashArt
               preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
@@ -696,7 +696,9 @@ export default function ActivityDetailScreen() {
                   ? getCoverImageUrl(editPlacePhotoName)
                   : activity.place_photo_name
                     ? getCoverImageUrl(activity.place_photo_name)
-                    : undefined
+                    : activity.poster_image_url && String(activity.poster_image_url).trim()
+                      ? activity.poster_image_url
+                      : undefined
               }
               height={90}
               opacity={0.5}
@@ -721,7 +723,7 @@ export default function ActivityDetailScreen() {
                 </TouchableOpacity>
                 {showEditSplashPicker && (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginBottom: 10 }]}>
-                    {SPLASH_PRESETS.map(p => (
+                    {(activity.is_join_me ? SPLASH_PRESETS : SPLASH_PRESETS_REGULAR).map(p => (
                       <TouchableOpacity
                         key={p.id}
                         style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}

@@ -7,6 +7,8 @@ if (__DEV__) {
   console.warn('[App] Bundle loaded at', loadTime);
 }
 import { checkForStoreUpdate, checkForOTAUpdate } from '@/lib/versionCheck';
+import { ensureBannersCached } from '@/lib/bannerCache';
+import { deleteOldActivitiesForUser } from '@/lib/deleteOldActivities';
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -56,6 +58,18 @@ function RootLayoutNav() {
     const t = setTimeout(() => checkForOTAUpdate(), 2000);
     return () => clearTimeout(t);
   }, []);
+
+  // Fetch banners from Supabase and cache locally on first load
+  useEffect(() => {
+    ensureBannersCached();
+  }, []);
+
+  // Delete user's activities older than 30 days (runs in background when logged in)
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const t = setTimeout(() => deleteOldActivitiesForUser(session.user.id), 5000);
+    return () => clearTimeout(t);
+  }, [session?.user?.id]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

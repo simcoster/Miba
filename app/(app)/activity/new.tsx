@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   ActivityIndicator, Linking, Modal, Pressable, Dimensions,
+  Image,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
@@ -25,7 +26,7 @@ import { getAndClearPendingPosterUri, clearPendingPosterUri, setPendingPosterFor
 import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
 import { startLiveLocationPostWatch } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
-import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
+import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
 
@@ -196,6 +197,7 @@ export default function NewActivityScreen() {
   const excludeIconRef = useRef<View>(null);
   const limitedIconRef = useRef<View>(null);
   const [loading, setLoading] = useState(false);
+  const [creatingPosterUri, setCreatingPosterUri] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
   // Join me: collapsed = "now", expanded "set start time" = "later"
@@ -488,6 +490,7 @@ export default function NewActivityScreen() {
       }
     }
     try {
+      const posterUri = getAndClearPendingPosterUri();
       setLoading(true);
 
       // Compute final invitees before creating — validate again in case state changed (e.g. unselect)
@@ -539,7 +542,6 @@ export default function NewActivityScreen() {
       });
       if (activityError) throw activityError;
 
-      const posterUri = getAndClearPendingPosterUri();
       if (posterUri) {
         setPendingPosterForActivity(activityId, posterUri);
         console.log('[NewActivity] Poster queued for upload after create:', activityId);
@@ -634,6 +636,7 @@ export default function NewActivityScreen() {
       Alert.alert('Error', error.message ?? 'Could not create activity.');
     } finally {
       setLoading(false);
+      setCreatingPosterUri(null);
     }
   };
 
@@ -659,55 +662,57 @@ export default function NewActivityScreen() {
       <ScreenHeader title={isJoinMe ? 'Join me!' : 'New Event'} showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Title + Cover — splash thumb to the left of title */}
-        <View style={styles.titleSection}>
-          <View style={styles.titleRow}>
+        {/* Cover — full width above title, with Change cover button overlaid */}
+        <View style={styles.coverSection}>
+          <View style={styles.coverImageWrap}>
             {(splashArt || placePhotoName) ? (
-              <TouchableOpacity style={styles.splashThumbWrap} onPress={() => setShowSplashPicker(v => !v)}>
-                <SplashArt
-                  preset={splashArt}
-                  imageUri={placePhotoName ? getCoverImageUrl(placePhotoName) : undefined}
-                  height={56}
-                  opacity={1}
-                />
-              </TouchableOpacity>
+              <SplashArt
+                preset={splashArt}
+                imageUri={placePhotoName ? getCoverImageUrl(placePhotoName) : undefined}
+                height={140}
+                opacity={1}
+              />
             ) : (
-              <TouchableOpacity style={styles.splashThumbPlaceholder} onPress={() => setShowSplashPicker(true)}>
-                <Ionicons name="image-outline" size={24} color={Colors.primary} />
+              <TouchableOpacity style={styles.coverPlaceholder} onPress={() => setShowSplashPicker(true)} activeOpacity={0.8}>
+                <Ionicons name="image-outline" size={40} color={Colors.textSecondary} />
               </TouchableOpacity>
             )}
-            <View style={styles.titleContent}>
-              <TouchableOpacity
-                style={[styles.addCoverBtn, { marginBottom: 8 }]}
-                onPress={() => setShowSplashPicker(v => !v)}
-              >
-                <Ionicons name="image-outline" size={16} color={Colors.primary} />
-                <Text style={styles.addCoverBtnText}>{(splashArt || placePhotoName) ? 'Change cover' : 'Cover image'}</Text>
-              </TouchableOpacity>
-              {showSplashPicker && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={[styles.splashScrollContent, { marginBottom: 12 }]}>
-                  {SPLASH_PRESETS.map(p => (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
-                      onPress={() => { setSplashArt(p.id); setPlacePhotoName(null); setShowSplashPicker(false); }}
-                    >
-                      <View style={styles.splashPickerThumb}>
-                        <SplashArt preset={p.id} height={56} opacity={1} />
-                      </View>
-                      <Text style={styles.splashOptionLabel}>{p.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-              <Text style={[styles.label, styles.titleLabel]}>What's happening? *</Text>
-              <TextInput
-                style={styles.input} value={title} onChangeText={setTitle}
-                placeholder="e.g. Morning surf, Escape room…"
-                placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
-              />
-            </View>
+            <TouchableOpacity
+              style={styles.coverBtnOverlay}
+              onPress={() => setShowSplashPicker(v => !v)}
+            >
+              <Ionicons name="image-outline" size={16} color={Colors.primary} />
+              <Text style={styles.coverBtnOverlayText}>{(splashArt || placePhotoName) ? 'Change cover' : 'Cover image'}</Text>
+            </TouchableOpacity>
           </View>
+          {showSplashPicker && (
+            <View style={styles.splashPickerWrap}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashScrollContent, { marginBottom: 12 }]}>
+              {(isJoinMe ? SPLASH_PRESETS : SPLASH_PRESETS_REGULAR).map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
+                  onPress={() => { setSplashArt(p.id); setPlacePhotoName(null); setShowSplashPicker(false); }}
+                >
+                  <View style={styles.splashPickerThumb}>
+                    <SplashArt preset={p.id} height={56} opacity={1} />
+                  </View>
+                  <Text style={styles.splashOptionLabel}>{p.label}</Text>
+                </TouchableOpacity>
+              ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* Title */}
+        <View style={styles.titleSection}>
+          <Text style={[styles.label, styles.titleLabel]}>What's happening? *</Text>
+          <TextInput
+            style={styles.input} value={title} onChangeText={setTitle}
+            placeholder="e.g. Morning surf, Escape room…"
+            placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
+          />
         </View>
         
         {/* Details (hidden until button tapped) */}
@@ -1209,6 +1214,26 @@ export default function NewActivityScreen() {
         />
       </ScrollView>
 
+      {/* Creating event overlay — poster greyed out behind spinner (from poster flow only) */}
+      <Modal visible={loading && !!creatingPosterUri} transparent animationType="fade" statusBarTranslucent>
+        <View style={styles.creatingOverlay}>
+          {creatingPosterUri ? (
+            <View style={StyleSheet.absoluteFill}>
+              <Image
+                source={{ uri: creatingPosterUri }}
+                style={[StyleSheet.absoluteFill, styles.creatingPosterImage]}
+                resizeMode="cover"
+              />
+              <View style={[StyleSheet.absoluteFill, styles.creatingPosterDim]} />
+            </View>
+          ) : null}
+          <View style={styles.creatingContent} pointerEvents="box-none">
+            <ActivityIndicator color="#fff" size="large" />
+            <Text style={styles.creatingText}>Creating event…</Text>
+          </View>
+        </View>
+      </Modal>
+
       {/* Tooltip bubbles - overlay closes on any tap */}
       <Modal visible={showExcludeBubble || showLimitedBubble} transparent animationType="fade">
         <Pressable
@@ -1316,17 +1341,18 @@ const styles = StyleSheet.create({
   noResultsHint: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
   noResultsText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   searchInfo: { flex: 1 },
+  coverSection: { marginHorizontal: -20, marginBottom: 22 },
+  coverImageWrap: { width: '100%', height: 140, backgroundColor: '#e5e5e5', position: 'relative' as const, overflow: 'hidden' as const },
+  coverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.accentLight, minHeight: 140 },
+  coverBtnOverlay: { position: 'absolute' as const, top: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
+  coverBtnOverlayText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
   titleSection: { marginBottom: 22, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface, padding: 14 },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  splashThumbWrap: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
-  splashThumbPlaceholder: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  titleContent: { flex: 1, minWidth: 0 },
-  titleLabel: { marginTop: 12 },
+  titleLabel: { marginTop: 0 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
-  splashScroll: { marginHorizontal: -14, marginTop: 10 },
-  splashScrollContent: { paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center' },
-  splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10, backgroundColor: Colors.surface },
+  splashPickerWrap: { paddingHorizontal: 20, paddingTop: 12 },
+  splashScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: Colors.surface },
   splashOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   splashOptionImage: { padding: 0, overflow: 'hidden', width: 80 },
   splashPickerThumb: { width: 80, height: 56, overflow: 'hidden', borderTopLeftRadius: 10, borderTopRightRadius: 10 },
@@ -1341,4 +1367,9 @@ const styles = StyleSheet.create({
   inviteEmailText: { flex: 1, fontSize: 14, color: Colors.primaryDark },
   bubble: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 },
   bubbleText: { fontSize: 14, color: Colors.text },
+  creatingOverlay: { flex: 1, width: Dimensions.get('window').width, height: Dimensions.get('window').height, backgroundColor: '#1a1a1a' },
+  creatingPosterImage: { opacity: 0.6 },
+  creatingPosterDim: { backgroundColor: 'rgba(0,0,0,0.35)' },
+  creatingContent: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 16 },
+  creatingText: { fontSize: 18, fontWeight: '600', color: '#fff' },
 });

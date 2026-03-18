@@ -12,6 +12,10 @@ export function setPendingPosterUri(uri: string) {
   pendingPosterUri = uri;
 }
 
+export function getPendingPosterUri(): string | null {
+  return pendingPosterUri;
+}
+
 export function getAndClearPendingPosterUri(): string | null {
   const u = pendingPosterUri;
   pendingPosterUri = null;

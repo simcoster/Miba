@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { View, Image, StyleSheet, ImageStyle } from 'react-native';
-import { getSplashSource } from '@/lib/splashArt';
+import { Ionicons } from '@expo/vector-icons';
+import { getBannerUri } from '@/lib/bannerCache';
 import type { SplashPreset } from '@/lib/splashArt';
+import Colors from '@/constants/Colors';
 
 const DEFAULT_FALLBACK: SplashPreset = 'banner_1';
 
 type SplashArtProps = {
   preset?: SplashPreset | null;
-  /** Remote image URI (e.g. place photo). When set, overrides preset. Falls back to preset/fallback on load error. */
+  /** Remote image URI (e.g. place photo). When set, overrides preset. Falls back to placeholder on load error. */
   imageUri?: string | null;
   style?: ImageStyle;
   height?: number;
@@ -19,15 +21,34 @@ type SplashArtProps = {
 
 export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2, resizeMode = 'cover' }: SplashArtProps) {
   const [remoteFailed, setRemoteFailed] = useState(false);
+  const [bannerFailed, setBannerFailed] = useState(false);
+  const [bannerUri, setBannerUri] = useState<string | null>(null);
+
   useEffect(() => {
     setRemoteFailed(false);
   }, [imageUri]);
+
+  // Fetch cached or remote banner URI when using preset (and no imageUri)
+  useEffect(() => {
+    if (imageUri) return;
+    setBannerFailed(false);
+    const p = preset ?? DEFAULT_FALLBACK;
+    getBannerUri(p).then(setBannerUri);
+  }, [preset, imageUri]);
+
   const useRemote = imageUri && !remoteFailed;
-  const fallbackPreset = preset ?? DEFAULT_FALLBACK;
-  const localSource = !useRemote ? getSplashSource(fallbackPreset ?? undefined) : null;
-  const remoteSource = useRemote ? { uri: imageUri } : null;
-  const source = remoteSource ?? localSource;
-  if (!source) return null;
+  const hasBannerSource = !useRemote && !bannerFailed && bannerUri;
+
+  // Priority: imageUri (place photo etc) > cached/remote banner URI > placeholder
+  const source = useRemote ? { uri: imageUri } : hasBannerSource ? { uri: bannerUri } : null;
+
+  if (!source) {
+    return (
+      <View style={[styles.wrapper, styles.placeholder, { height }]}>
+        <Ionicons name="image-outline" size={32} color={Colors.textSecondary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.wrapper, { height }]}>
@@ -35,7 +56,10 @@ export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2
         source={source}
         style={[styles.image, { height, opacity }, style]}
         resizeMode={resizeMode}
-        onError={() => setRemoteFailed(true)}
+        onError={() => {
+          if (imageUri) setRemoteFailed(true);
+          else setBannerFailed(true);
+        }}
       />
     </View>
   );
@@ -43,5 +67,6 @@ export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2
 
 const styles = StyleSheet.create({
   wrapper: { overflow: 'hidden', backgroundColor: '#e5e5e5' },
+  placeholder: { alignItems: 'center', justifyContent: 'center' },
   image: { width: '100%', height: '100%' },
 });

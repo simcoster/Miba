@@ -379,6 +379,7 @@ export default function EventsScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
+      base64: true,
       quality: 0.8,
     });
 
