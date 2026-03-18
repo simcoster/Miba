@@ -30,7 +30,7 @@ import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
-import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { parseLocation, buildLocationWithPlace, buildGoogleMapsUrl } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
@@ -622,62 +622,69 @@ export default function ActivityDetailScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
-      <View style={[styles.titleSection, (activity.place_photo_name || activity.splash_art || (isEditing && (editPlacePhotoName || editSplashArt))) && styles.titleSectionWithSplash]}>
-        {(activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt)) ? (
-          <View style={styles.splashBackground}>
-            <SplashArt
-              preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
-              imageUri={
-                isEditing && editPlacePhotoName
-                  ? getCoverImageUrl(editPlacePhotoName)
-                  : activity.place_photo_name
-                    ? getCoverImageUrl(activity.place_photo_name)
-                    : undefined
-              }
-              height={105}
-              opacity={0.4}
-            />
-          </View>
-        ) : null}
-        <View style={[styles.titleSectionOverlay, isEditing && (editPlacePhotoName || editSplashArt) && styles.titleSectionOverlayWithSplash]}>
-        {isEditing ? (
-          <>
-            <TouchableOpacity
-              style={styles.addCoverBtn}
-              onPress={() => setShowEditSplashPicker(v => !v)}
-            >
-              <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{(editSplashArt || editPlacePhotoName) ? 'Change cover image' : 'Add cover image'}</Text>
+      <View style={styles.titleSection}>
+        <View style={styles.titleRow}>
+          {(activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt)) ? (
+            <View style={styles.splashThumb}>
+              <SplashArt
+                preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
+                imageUri={
+                  isEditing && editPlacePhotoName
+                    ? getCoverImageUrl(editPlacePhotoName)
+                    : activity.place_photo_name
+                      ? getCoverImageUrl(activity.place_photo_name)
+                      : undefined
+                }
+                height={56}
+                opacity={1}
+              />
+            </View>
+          ) : isEditing ? (
+            <TouchableOpacity style={styles.splashThumbPlaceholder} onPress={() => setShowEditSplashPicker(true)}>
+              <Ionicons name="image-outline" size={24} color={Colors.primary} />
             </TouchableOpacity>
-            {showEditSplashPicker && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginTop: 10 }]}>
-                {SPLASH_PRESETS.map(p => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
-                    onPress={() => { setEditSplashArt(p.id); setEditPlacePhotoName(null); setShowEditSplashPicker(false); }}
-                  >
-                    <View style={styles.splashPickerThumb}>
-                      <SplashArt preset={p.id} height={48} opacity={1} />
-                    </View>
-                    <Text style={styles.splashPickerOptionLabel}>{p.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+          ) : null}
+          <View style={styles.titleContent}>
+            {isEditing ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.addCoverBtn, { marginBottom: 8 }]}
+                  onPress={() => setShowEditSplashPicker(v => !v)}
+                >
+                  <Ionicons name="image-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.addCoverBtnText}>{(editSplashArt || editPlacePhotoName) ? 'Change cover' : 'Add cover'}</Text>
+                </TouchableOpacity>
+                {showEditSplashPicker && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.splashPickerContent, { marginBottom: 10 }]}>
+                    {SPLASH_PRESETS.map(p => (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={[styles.splashPickerOption, styles.splashPickerOptionImg, editSplashArt === p.id && styles.splashPickerOptionActive]}
+                        onPress={() => { setEditSplashArt(p.id); setEditPlacePhotoName(null); setShowEditSplashPicker(false); }}
+                      >
+                        <View style={styles.splashPickerThumb}>
+                          <SplashArt preset={p.id} height={48} opacity={1} />
+                        </View>
+                        <Text style={styles.splashPickerOptionLabel}>{p.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+                <TextInput
+                  style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholder="Activity title…"
+                  placeholderTextColor={Colors.textSecondary}
+                  maxLength={80}
+                  autoFocus
+                />
+              </>
+            ) : (
+              <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]}>{activity.title}</Text>
             )}
-            <TextInput
-              style={[styles.titleInput, isHebrew(editTitle) && styles.titleRtl]}
-              value={editTitle}
-              onChangeText={setEditTitle}
-              placeholder="Activity title…"
-              placeholderTextColor={Colors.textSecondary}
-              maxLength={80}
-              autoFocus
-            />
-          </>
-        ) : (
-          <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]}>{activity.title}</Text>
-        )}
+          </View>
+        </View>
         {activity.status === 'cancelled' && (
           <View style={styles.cancelBanner}>
             <Ionicons name="close-circle" size={16} color={Colors.danger} />
@@ -690,7 +697,6 @@ export default function ActivityDetailScreen() {
             <Text style={styles.limitedBadgeText}>Limited, max {activity.max_participants}</Text>
           </View>
         )}
-        </View>
       </View>
 
       <ScrollView
@@ -746,7 +752,12 @@ export default function ActivityDetailScreen() {
               <View style={[styles.metaRowInner, { flex: 1 }]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.metaLabel}>Where</Text>
-                  <LocationDisplay location={activity.location} variant="detail" showIcon={false} />
+                  <LocationDisplay
+                    location={activity.location}
+                    variant="detail"
+                    showIcon={false}
+                    hideMapsButton={!past && activity.status === 'active' && !isEditing && parseLocation(activity.location)?.placeId != null}
+                  />
                 </View>
               </View>
             ) : null}
@@ -757,11 +768,23 @@ export default function ActivityDetailScreen() {
               <Text style={styles.suggestBtnText}>Suggest different time or location</Text>
             </TouchableOpacity>
           )}
-          {!past && activity.status === 'active' && !isEditing && Platform.OS !== 'web' && (
-            <TouchableOpacity style={styles.suggestBtn} onPress={handleAddToCalendar}>
-              <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
-              <Text style={styles.suggestBtnText}>Add to calendar</Text>
-            </TouchableOpacity>
+          {!past && activity.status === 'active' && !isEditing && (parseLocation(activity.location)?.placeId != null || Platform.OS !== 'web') && (
+            <View style={styles.actionButtonsRow}>
+              {Platform.OS !== 'web' && (
+                <TouchableOpacity style={styles.actionBtn} onPress={handleAddToCalendar}>
+                  <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
+                  <Text style={styles.actionBtnText}>Add to calendar</Text>
+                </TouchableOpacity>
+              )}
+              {parseLocation(activity.location)?.placeId != null && (
+                <TouchableOpacity
+                  style={styles.actionBtnMaps}
+                  onPress={() => Linking.openURL(buildGoogleMapsUrl(parseLocation(activity.location)!.placeId!, parseLocation(activity.location)!.displayName ?? parseLocation(activity.location)!.address))}
+                >
+                  <Ionicons name="map-outline" size={20} color={Colors.primary} />
+                </TouchableOpacity>
+              )}
+            </View>
           )}
         </View>
 
@@ -833,7 +856,11 @@ export default function ActivityDetailScreen() {
             )}
           </View>
         ) : activity.description ? (
-          <View style={styles.descCard}><Text style={styles.descText}>{activity.description}</Text></View>
+          <View style={styles.descCard}>
+            <ScrollView style={styles.descScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              <Text style={styles.descText}>{activity.description}</Text>
+            </ScrollView>
+          </View>
         ) : null}
 
 
@@ -1294,11 +1321,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
-  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, position: 'relative' as const },
-  titleSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
-  splashBackground: { position: 'absolute' as const, top: 0, left: 20, right: 20, height: 105, overflow: 'hidden', borderRadius: 16 },
-  titleSectionOverlay: { paddingTop: 8, paddingBottom: 4 },
-  titleSectionOverlayWithSplash: { paddingTop: 117 },
+  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 8 },
+  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  splashThumbPlaceholder: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  titleContent: { flex: 1, minWidth: 0 },
   editSection: { marginBottom: 16 },
   editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
@@ -1321,6 +1348,10 @@ const styles = StyleSheet.create({
   metaCard: { backgroundColor: Colors.surface, borderRadius: 16, padding: 16, gap: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },
   suggestBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, paddingVertical: 8 },
   suggestBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  actionButtonsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
+  actionBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  actionBtnMaps: { padding: 12, marginLeft: 'auto' },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   suggestionModal: {
     backgroundColor: Colors.surface,
@@ -1375,7 +1406,8 @@ const styles = StyleSheet.create({
   locationImageModalCloseText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
   metaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   metaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
-  descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12 },
+  descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12, maxHeight: 128 },
+  descScroll: { maxHeight: 100 },
   descText: { fontSize: 15, color: Colors.text, lineHeight: 22 },
   rsvpSection: { marginVertical: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },

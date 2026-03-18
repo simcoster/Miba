@@ -103,13 +103,13 @@ export function ActivityCard({
       disabled={isDeleting}
     >
       <View style={styles.cardContent}>
-      <View style={[styles.titleSectionWrapper, hasActivityCover(activity) && styles.titleSectionWithSplash]}>
+      <View style={styles.titleRow}>
         {getActivityCoverProps(activity) && (
-          <View style={styles.splashBackground}>
-            <SplashArt {...getActivityCoverProps(activity)!} height={80} opacity={0.2} />
+          <View style={styles.splashThumb}>
+            <SplashArt {...getActivityCoverProps(activity)!} height={56} opacity={1} />
           </View>
         )}
-        <View style={styles.titleSectionOverlay}>
+        <View style={styles.titleContent}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           {activity.status === 'cancelled' && (
@@ -171,7 +171,7 @@ export function ActivityCard({
           </View>
         )}
         {activity.location && (
-          <LocationDisplay location={activity.location} variant="card" />
+          <LocationDisplay location={activity.location} variant="card" hideMapsButton />
         )}
       </View>
 
@@ -272,10 +272,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.borderLight,
   },
   cardContent: { padding: 16 },
-  titleSectionWrapper: { position: 'relative' as const },
-  titleSectionWithSplash: { marginHorizontal: -16, marginTop: -16, marginBottom: 0, minHeight: 80 },
-  splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, overflow: 'hidden', borderTopLeftRadius: 17, borderTopRightRadius: 17 },
-  titleSectionOverlay: { padding: 16, paddingTop: 16 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 10 },
+  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  titleContent: { flex: 1, minWidth: 0 },
   cardPast: { opacity: 0.6 },
   cardDeleting: { opacity: 0.5 },
   cardPending: { borderWidth: 2, borderColor: INVITED_BLUE },

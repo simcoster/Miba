@@ -12,9 +12,11 @@ interface LocationDisplayProps {
   showIcon?: boolean;
   /** When true, allow full text wrap without line limit */
   allowFullWrap?: boolean;
+  /** When true, hide the Maps button (e.g. when parent renders it elsewhere) */
+  hideMapsButton?: boolean;
 }
 
-export function LocationDisplay({ location, variant = 'card', showIcon = true, allowFullWrap = false }: LocationDisplayProps) {
+export function LocationDisplay({ location, variant = 'card', showIcon = true, allowFullWrap = false, hideMapsButton = false }: LocationDisplayProps) {
   const parsed = parseLocation(location);
   if (!parsed) return null;
 
@@ -40,7 +42,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
         <Text style={[styles.address, variant === 'detail' && styles.addressDetail]} {...(!allowFullWrap && { numberOfLines: lines })}>
           {parsed.address}
         </Text>
-        {parsed.placeId && (
+        {parsed.placeId && !hideMapsButton && (
           <TouchableOpacity style={styles.mapsIconBtn} onPress={openMaps} activeOpacity={0.7}>
             <Ionicons name="map-outline" size={18} color={Colors.primary} />
           </TouchableOpacity>

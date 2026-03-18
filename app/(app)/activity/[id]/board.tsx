@@ -499,12 +499,9 @@ export default function ActivityBoardScreen() {
         }
       />
 
-      {/* Title section with optional splash behind */}
+      {/* Title section with splash thumb to the left */}
       <TouchableOpacity
-        style={[
-          styles.titleSection,
-          activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.titleSectionWithSplash,
-        ]}
+        style={styles.titleSection}
         activeOpacity={id ? 0.7 : 1}
         onPress={
           id
@@ -516,29 +513,26 @@ export default function ActivityBoardScreen() {
         }
         disabled={!id}
       >
-        {(activityDetails?.place_photo_name || activityDetails?.splash_art) && (
-          <View style={styles.splashBackground}>
-            <SplashArt
-              preset={getActivityCoverProps(activityDetails)?.preset}
-              imageUri={getActivityCoverProps(activityDetails)?.imageUri}
-              height={105}
-              opacity={0.4}
-            />
+        <View style={styles.titleRow}>
+          {(activityDetails?.place_photo_name || activityDetails?.splash_art) && (
+            <View style={styles.splashThumb}>
+              <SplashArt
+                preset={getActivityCoverProps(activityDetails)?.preset}
+                imageUri={getActivityCoverProps(activityDetails)?.imageUri}
+                height={56}
+                opacity={1}
+              />
+            </View>
+          )}
+          <View style={styles.titleContent}>
+            <Text style={[styles.boardTitle, isHebrew(activityTitle || '') && styles.boardTitleRtl]} numberOfLines={2}>
+              {activityTitle || 'Board'}
+            </Text>
+            <Text style={styles.boardSubtitle}>
+              Posts and comments
+            </Text>
           </View>
-        )}
-        <View
-          style={[
-            styles.titleSectionOverlay,
-            activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.titleSectionOverlayWithSplash,
-          ]}
-        >
-          <Text style={[styles.boardTitle, isHebrew(activityTitle || '') && styles.boardTitleRtl]} numberOfLines={2}>
-            {activityTitle || 'Board'}
-          </Text>
         </View>
-        <Text style={[styles.boardSubtitle, activityDetails && (activityDetails.place_photo_name || activityDetails.splash_art) && styles.boardSubtitleBelowSplash]}>
-          Posts and comments
-        </Text>
       </TouchableOpacity>
 
       <Modal visible={showPeek} transparent animationType="fade">
@@ -841,24 +835,13 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginTop: 8 },
   emptySubtitle: { fontSize: 14, color: Colors.textSecondary },
 
-  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4, position: 'relative' as const },
-  titleSectionWithSplash: { minHeight: 105, overflow: 'hidden' as const },
-  splashBackground: { position: 'absolute' as const, top: 0, left: 20, right: 20, height: 105, overflow: 'hidden', borderRadius: 16 },
-  titleSectionOverlay: { paddingTop: 8, paddingBottom: 4 },
-  titleSectionOverlayWithSplash: {
-    position: 'absolute' as const,
-    top: 0,
-    left: 20,
-    right: 20,
-    height: 105,
-    paddingTop: 35,
-    paddingHorizontal: 16,
-    justifyContent: 'flex-start',
-  },
+  titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  titleContent: { flex: 1, minWidth: 0 },
   boardTitle: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 4, paddingVertical: 8, paddingHorizontal: 4 },
   boardTitleRtl: { textAlign: 'right' },
   boardSubtitle: { fontSize: 14, color: Colors.textSecondary },
-  boardSubtitleBelowSplash: { marginTop: 113 },
 
   composer: {
     paddingHorizontal: 16,

@@ -488,48 +488,54 @@ export default function NewActivityScreen() {
       <ScreenHeader title="New Event" showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
-        {/* Title + Cover — merged section with splash or place photo as background */}
-        <View style={[styles.titleSection, (splashArt || placePhotoName) && styles.titleSectionWithSplash]}>
-          {(splashArt || placePhotoName) && (
-            <View style={[StyleSheet.absoluteFill, { overflow: 'hidden' }]}>
-              <SplashArt
-                preset={splashArt}
-                imageUri={placePhotoName ? getCoverImageUrl(placePhotoName) : undefined}
-                height={300}
-                opacity={0.35}
+        {/* Title + Cover — splash thumb to the left of title */}
+        <View style={styles.titleSection}>
+          <View style={styles.titleRow}>
+            {(splashArt || placePhotoName) ? (
+              <TouchableOpacity style={styles.splashThumbWrap} onPress={() => setShowSplashPicker(v => !v)}>
+                <SplashArt
+                  preset={splashArt}
+                  imageUri={placePhotoName ? getCoverImageUrl(placePhotoName) : undefined}
+                  height={56}
+                  opacity={1}
+                />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.splashThumbPlaceholder} onPress={() => setShowSplashPicker(true)}>
+                <Ionicons name="image-outline" size={24} color={Colors.primary} />
+              </TouchableOpacity>
+            )}
+            <View style={styles.titleContent}>
+              <TouchableOpacity
+                style={[styles.addCoverBtn, { marginBottom: 8 }]}
+                onPress={() => setShowSplashPicker(v => !v)}
+              >
+                <Ionicons name="image-outline" size={16} color={Colors.primary} />
+                <Text style={styles.addCoverBtnText}>{(splashArt || placePhotoName) ? 'Change cover' : 'Cover image'}</Text>
+              </TouchableOpacity>
+              {showSplashPicker && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={[styles.splashScrollContent, { marginBottom: 12 }]}>
+                  {SPLASH_PRESETS.map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
+                      onPress={() => { setSplashArt(p.id); setPlacePhotoName(null); setShowSplashPicker(false); }}
+                    >
+                      <View style={styles.splashPickerThumb}>
+                        <SplashArt preset={p.id} height={56} opacity={1} />
+                      </View>
+                      <Text style={styles.splashOptionLabel}>{p.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+              <Text style={[styles.label, styles.titleLabel]}>What's happening? *</Text>
+              <TextInput
+                style={styles.input} value={title} onChangeText={setTitle}
+                placeholder="e.g. Morning surf, Escape room…"
+                placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
               />
             </View>
-          )}
-          <View style={styles.titleSectionInner}>
-            <TouchableOpacity
-              style={styles.addCoverBtn}
-              onPress={() => setShowSplashPicker(v => !v)}
-            >
-              <Ionicons name="image-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{(splashArt || placePhotoName) ? 'Change cover image' : 'Cover image'}</Text>
-            </TouchableOpacity>
-            {showSplashPicker && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.splashScroll} contentContainerStyle={styles.splashScrollContent}>
-                {SPLASH_PRESETS.map(p => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={[styles.splashOption, styles.splashOptionImage, splashArt === p.id && styles.splashOptionActive]}
-                    onPress={() => { setSplashArt(p.id); setPlacePhotoName(null); setShowSplashPicker(false); }}
-                  >
-                    <View style={styles.splashThumb}>
-                      <SplashArt preset={p.id} height={56} opacity={1} />
-                    </View>
-                    <Text style={styles.splashOptionLabel}>{p.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-            <Text style={[styles.label, styles.titleLabel]}>What's happening? *</Text>
-            <TextInput
-              style={styles.input} value={title} onChangeText={setTitle}
-              placeholder="e.g. Morning surf, Escape room…"
-              placeholderTextColor={Colors.textSecondary} maxLength={80} autoFocus
-            />
           </View>
         </View>
         
@@ -1016,9 +1022,11 @@ const styles = StyleSheet.create({
   noResultsHint: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
   noResultsText: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
   searchInfo: { flex: 1 },
-  titleSection: { marginBottom: 22, position: 'relative' as const, overflow: 'hidden' as const, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface },
-  titleSectionWithSplash: { borderColor: 'transparent' },
-  titleSectionInner: { padding: 14 },
+  titleSection: { marginBottom: 22, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.border, backgroundColor: Colors.surface, padding: 14 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  splashThumbWrap: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  splashThumbPlaceholder: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  titleContent: { flex: 1, minWidth: 0 },
   titleLabel: { marginTop: 12 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
@@ -1027,7 +1035,7 @@ const styles = StyleSheet.create({
   splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, marginRight: 10, backgroundColor: Colors.surface },
   splashOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   splashOptionImage: { padding: 0, overflow: 'hidden', width: 80 },
-  splashThumb: { width: 80, height: 56, overflow: 'hidden', borderTopLeftRadius: 10, borderTopRightRadius: 10 },
+  splashPickerThumb: { width: 80, height: 56, overflow: 'hidden', borderTopLeftRadius: 10, borderTopRightRadius: 10 },
   splashOptionLabel: { fontSize: 11, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
   splashOptionText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   searchName: { fontSize: 15, fontWeight: '600', color: Colors.text },
