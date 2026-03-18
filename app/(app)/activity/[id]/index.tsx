@@ -1420,7 +1420,7 @@ const styles = StyleSheet.create({
   locationImageModalCloseText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
   metaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   metaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
-  descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.borderLight, marginBottom: 12, maxHeight: 128 },
+  descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.border, marginBottom: 12, maxHeight: 128 },
   descScroll: { maxHeight: 100 },
   descText: { fontSize: 15, color: Colors.text, lineHeight: 22 },
   rsvpSection: { marginVertical: 8 },
