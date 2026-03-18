@@ -442,6 +442,7 @@ export default function NewActivityScreen() {
       const posterUri = getAndClearPendingPosterUri();
       if (posterUri) {
         setPendingPosterForActivity(activityId, posterUri);
+        console.log('[NewActivity] Poster queued for upload after create:', activityId);
       }
 
       // Build rsvp rows: creator gets 'in', everyone in filtered pool gets 'pending'

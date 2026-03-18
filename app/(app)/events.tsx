@@ -365,6 +365,17 @@ export default function EventsScreen() {
   const handleTestSubDestinations = useCallback(async () => {
     if (!user) return;
     setShowAddDropdown(false);
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return;
+    }
+
+    const asset = result.assets[0];
     setFromPosterLoading(true);
     try {
       const parsed = getTestCachedParsedResult();
@@ -387,6 +398,7 @@ export default function EventsScreen() {
         parts.push(`splashArt=${encodeURIComponent('banner_1')}`);
       }
 
+      setPendingPosterUri(asset.uri);
       router.push(`/(app)/activity/new?${parts.join('&')}` as any);
     } catch (err: any) {
       console.log('[FromPoster] Test error:', err?.message, err);

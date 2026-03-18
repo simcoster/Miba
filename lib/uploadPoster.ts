@@ -20,6 +20,7 @@ export async function uploadPosterImage(
   localUri: string,
   activityId: string
 ): Promise<string | null> {
+  console.log('[uploadPoster] Starting upload for activity', activityId);
   let manipulated: Awaited<ReturnType<typeof ImageManipulator.manipulateAsync>>;
   try {
     manipulated = await ImageManipulator.manipulateAsync(
@@ -52,6 +53,7 @@ export async function uploadPosterImage(
       }
 
       const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
+      console.log('[uploadPoster] Upload success:', urlData.publicUrl?.slice(0, 60) + '...');
       return urlData.publicUrl;
     } catch (e: any) {
       const isNetworkError =

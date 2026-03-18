@@ -4,6 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:usb": "adb reverse tcp:8081 tcp:8081 && adb reverse tcp:19000 tcp:19000 && echo. && echo Connect to exp://localhost:8081 in Expo Go && echo. && npx expo start --localhost",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",

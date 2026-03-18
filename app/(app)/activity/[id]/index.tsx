@@ -31,7 +31,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
-import { getCoverImageUrl, getFullLocationImageUrl } from '@/lib/placesApi';
+import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
 import * as Calendar from 'expo-calendar';
@@ -71,7 +71,6 @@ export default function ActivityDetailScreen() {
   const [editSplashArt, setEditSplashArt] = useState<SplashPreset | null>(null);
   const [editPlacePhotoName, setEditPlacePhotoName] = useState<string | null>(null);
   const [showEditSplashPicker, setShowEditSplashPicker] = useState(false);
-  const [showLocationImageModal, setShowLocationImageModal] = useState(false);
   const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
@@ -156,12 +155,16 @@ export default function ActivityDetailScreen() {
     const posterUri = getAndClearPendingPosterForActivity(id);
     if (!posterUri) return;
 
+    console.log('[ActivityDetail] Poster upload starting for', id);
     setPosterUploading(true);
     uploadPosterImage(posterUri, id)
       .then(async (posterUrl) => {
         if (posterUrl) {
           await supabase.from('activities').update({ poster_image_url: posterUrl }).eq('id', id);
           setActivity(prev => prev ? { ...prev, poster_image_url: posterUrl } : null);
+          console.log('[ActivityDetail] Poster upload done, DB updated');
+        } else {
+          console.warn('[ActivityDetail] Poster upload failed (no URL returned)');
         }
       })
       .finally(() => setPosterUploading(false));
@@ -745,15 +748,6 @@ export default function ActivityDetailScreen() {
                   <Text style={styles.metaLabel}>Where</Text>
                   <LocationDisplay location={activity.location} variant="detail" showIcon={false} />
                 </View>
-                {activity.place_photo_name ? (
-                  <TouchableOpacity
-                    style={styles.locationImageBtn}
-                    onPress={() => setShowLocationImageModal(true)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="image" size={20} color={Colors.primary} />
-                  </TouchableOpacity>
-                ) : null}
               </View>
             ) : null}
           </View>
@@ -780,27 +774,6 @@ export default function ActivityDetailScreen() {
             onChange={(_, date) => { setShowEditPicker(false); if (date) setEditTime(date); }}
           />
         )}
-
-        {/* Location image popup (full uncropped) */}
-        <Modal visible={showLocationImageModal} transparent animationType="fade">
-          <Pressable style={styles.locationImageModalOverlay} onPress={() => setShowLocationImageModal(false)}>
-            <Pressable style={styles.locationImageModalContent} onPress={() => {}}>
-              {activity?.place_photo_name && (
-                <Image
-                  source={{ uri: getFullLocationImageUrl(activity.place_photo_name) }}
-                  style={styles.locationImageFull}
-                  resizeMode="contain"
-                />
-              )}
-              <TouchableOpacity
-                style={styles.locationImageModalClose}
-                onPress={() => setShowLocationImageModal(false)}
-              >
-                <Text style={styles.locationImageModalCloseText}>Close</Text>
-              </TouchableOpacity>
-            </Pressable>
-          </Pressable>
-        </Modal>
 
         {/* Original poster popup (from "From Poster" events) — pinch to zoom */}
         <Modal visible={showPosterModal} transparent animationType="fade" onRequestClose={() => setShowPosterModal(false)}>
@@ -1376,7 +1349,6 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   metaRowInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   metaIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center' },
-  locationImageBtn: { padding: 8, marginLeft: 4 },
   locationImageModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -1392,12 +1364,6 @@ const styles = StyleSheet.create({
   posterScrollContent: {
     alignItems: 'center',
     paddingVertical: 8,
-  },
-  locationImageFull: {
-    width: Math.min(500, Dimensions.get('window').width - 48),
-    height: Math.min(400, Dimensions.get('window').height * 0.5),
-    borderRadius: 12,
-    backgroundColor: Colors.borderLight,
   },
   locationImageModalClose: {
     marginTop: 16,
