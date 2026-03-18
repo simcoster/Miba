@@ -90,7 +90,7 @@ export default function MipoScreen() {
   const [showPermissionExplain, setShowPermissionExplain] = useState(false);
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const turnOffRef = useRef<(reason?: 'manual' | 'timer_reached') => Promise<void>>(() => Promise.resolve());
   const [inviteToJoinLoading, setInviteToJoinLoading] = useState(false);
   const [joinMeActivityId, setJoinMeActivityId] = useState<string | null>(null);
 
@@ -402,7 +402,8 @@ export default function MipoScreen() {
       if (expiresAt) {
         expiryIntervalRef.current = setInterval(() => {
           if (new Date() >= expiresAt) {
-            turnOffRef.current();
+            console.log('[Mipo] Timer reached, expires_at was', expiresAt.toISOString());
+            turnOffRef.current('timer_reached');
           }
         }, 30000);
       }
@@ -413,40 +414,45 @@ export default function MipoScreen() {
     }
   }, [user, timerOption, getProximityDistanceM, setVisible, saveSelections, refreshNearby]);
 
-  const handleTurnOffVisible = useCallback(async () => {
+  const handleTurnOffVisible = useCallback(async (reason: 'manual' | 'timer_reached' = 'manual') => {
     if (!user) return;
-    if (expiryIntervalRef.current) {
-      clearInterval(expiryIntervalRef.current);
-      expiryIntervalRef.current = null;
-    }
-    const sub = locationSub;
-    setLocationSub(null);
-    setVisible(false, null);
-    setView('selection');
-    if (sub) await sub.remove();
-    const { data: session } = await supabase
-      .from('mipo_visible_sessions')
-      .select('join_me_activity_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    const activityId = session?.join_me_activity_id ?? null;
-    if (activityId) {
-      console.log('[Mipo] Turning off: session has join_me_activity_id', activityId);
-    }
-    // Delete session; DB trigger on_mipo_session_deleted_delete_join_me deletes the linked activity (bypasses RLS)
-    const { error: sessionError } = await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
-    if (sessionError) {
-      console.error('[Mipo] Failed to delete session:', sessionError);
-    } else {
-      console.log('[Mipo] Session deleted successfully');
+    console.log('[Mipo] Visible mode turning off — reason:', reason);
+    try {
+      if (expiryIntervalRef.current) {
+        clearInterval(expiryIntervalRef.current);
+        expiryIntervalRef.current = null;
+      }
+      const sub = locationSub;
+      setLocationSub(null);
+      setVisible(false, null);
+      setView('selection');
+      if (sub) await sub.remove();
+      const { data: session } = await supabase
+        .from('mipo_visible_sessions')
+        .select('join_me_activity_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const activityId = session?.join_me_activity_id ?? null;
       if (activityId) {
-        const { data: stillExists } = await supabase.from('activities').select('id').eq('id', activityId).maybeSingle();
-        if (stillExists) {
-          console.error('[Mipo] Join me activity was NOT deleted:', activityId);
-        } else {
-          console.log('[Mipo] Join me activity deleted correctly:', activityId);
+        console.log('[Mipo] Turning off: session has join_me_activity_id', activityId);
+      }
+      // Delete session; DB trigger on_mipo_session_deleted_delete_join_me deletes the linked activity (bypasses RLS)
+      const { error: sessionError } = await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
+      if (sessionError) {
+        console.error('[Mipo] Failed to delete session:', sessionError);
+      } else {
+        console.log('[Mipo] Session deleted successfully');
+        if (activityId) {
+          const { data: stillExists } = await supabase.from('activities').select('id').eq('id', activityId).maybeSingle();
+          if (stillExists) {
+            console.error('[Mipo] Join me activity was NOT deleted:', activityId);
+          } else {
+            console.log('[Mipo] Join me activity deleted correctly:', activityId);
+          }
         }
       }
+    } catch (e) {
+      console.error('[Mipo] handleTurnOffVisible exception:', e);
     }
   }, [user, locationSub, setVisible]);
 

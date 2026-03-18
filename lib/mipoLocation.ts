@@ -113,8 +113,9 @@ export async function isMipoLocationRunning(): Promise<boolean> {
   }
 }
 
-/** Threshold: if no location update in this many ms, service likely stopped. Location updates every ~5s. */
-const MIPO_HEARTBEAT_STALE_MS = 25_000;
+/** Threshold: if no location update in this many ms, service likely stopped. Location updates every ~5s.
+ * Must be generous: location can be delayed (indoors, pocket, battery saver). Too low = premature turn-off. */
+const MIPO_HEARTBEAT_STALE_MS = 90_000;
 
 /**
  * Check if the Mipo session's last location update is stale.
@@ -128,19 +129,31 @@ export async function isMipoLocationHeartbeatStale(userId: string): Promise<bool
       .select('updated_at')
       .eq('user_id', userId)
       .maybeSingle();
-    if (!data?.updated_at) return true;
+    if (!data?.updated_at) {
+      console.log('[Mipo] Heartbeat stale: no session or updated_at');
+      return true;
+    }
     const updatedAt = new Date(data.updated_at).getTime();
-    return Date.now() - updatedAt > MIPO_HEARTBEAT_STALE_MS;
-  } catch {
+    const ageMs = Date.now() - updatedAt;
+    const stale = ageMs > MIPO_HEARTBEAT_STALE_MS;
+    if (stale) {
+      console.log('[Mipo] Heartbeat stale: last update', Math.round(ageMs / 1000), 's ago (threshold', MIPO_HEARTBEAT_STALE_MS / 1000, 's)');
+    }
+    return stale;
+  } catch (e) {
+    console.error('[Mipo] isMipoLocationHeartbeatStale exception:', e);
     return true;
   }
 }
+
+export type MipoTurnOffReason = 'heartbeat_stale' | 'location_permission_revoked' | 'unknown';
 
 /**
  * Turn off Mipo visible mode: stop location updates, clear active user, delete session.
  * Use when the foreground service was killed (e.g. user swiped notification).
  */
-export async function turnOffMipoVisibleMode(userId: string): Promise<void> {
+export async function turnOffMipoVisibleMode(userId: string, reason: MipoTurnOffReason = 'unknown'): Promise<void> {
+  console.log('[Mipo] turnOffMipoVisibleMode — reason:', reason);
   try {
     await stopLocationUpdatesAsync(MIPO_LOCATION_TASK_NAME);
   } catch {

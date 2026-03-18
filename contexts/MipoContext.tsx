@@ -154,7 +154,7 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
     try {
       const hasPermission = await hasLocationPermission();
       if (!hasPermission) {
-        await turnOffMipoVisibleMode(user.id);
+        await turnOffMipoVisibleMode(user.id, 'location_permission_revoked');
         setVisible(false, null);
         Toast.show({
           type: 'info',
@@ -165,7 +165,7 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
       }
       const stale = await isMipoLocationHeartbeatStale(user.id);
       if (stale) {
-        await turnOffMipoVisibleMode(user.id);
+        await turnOffMipoVisibleMode(user.id, 'heartbeat_stale');
         setVisible(false, null);
         Toast.show({
           type: 'info',
@@ -173,8 +173,8 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
           text2: 'Tracking stopped. Re-enable in Mipo tab.',
         });
       }
-    } catch {
-      // Ignore errors
+    } catch (e) {
+      console.error('[Mipo] checkAndTurnOffIfServiceStopped exception:', e);
     }
   }, [user, visibleState.isVisible, setVisible]);
 

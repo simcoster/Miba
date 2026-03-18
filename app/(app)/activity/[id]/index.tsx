@@ -52,6 +52,7 @@ export default function ActivityDetailScreen() {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [activityDeleted, setActivityDeleted] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [rsvpLoading, setRsvpLoading] = useState(false);
 
@@ -116,18 +117,26 @@ export default function ActivityDetailScreen() {
   const fetchActivity = useCallback(async () => {
     if (!id || !user) return;
     setFetchError(null);
+    setActivityDeleted(false);
     const { data, error } = await supabase.from('activities').select(`
       *,
       host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
       rsvps(*, profile:profiles(id, full_name, avatar_url))
-    `).eq('id', id).single();
+    `).eq('id', id).maybeSingle();
 
     if (error) {
       console.error('[Activity] fetch error:', error.message);
       setFetchError(error.message);
+      setActivity(null);
+      return;
+    }
+    if (!data) {
+      setActivity(null);
+      setActivityDeleted(true);
       return;
     }
     if (data) {
+      setActivityDeleted(false);
       const act = {
         ...data,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
@@ -601,18 +610,33 @@ export default function ActivityDetailScreen() {
     );
   }
 
-  if (fetchError || !activity) {
+  if (activityDeleted || fetchError || !activity) {
     return (
       <View style={styles.container}>
         <ScreenHeader title="Activity" showBack />
         <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={40} color={Colors.danger} />
-          <Text style={[styles.loadingText, { marginTop: 10, color: Colors.danger }]}>
-            {fetchError ?? 'Activity not found.'}
-          </Text>
-          <TouchableOpacity onPress={() => { setLoading(true); fetchActivity().finally(() => setLoading(false)); }} style={{ marginTop: 16 }}>
-            <Text style={{ color: Colors.primary, fontWeight: '600' }}>Try again</Text>
-          </TouchableOpacity>
+          {activityDeleted ? (
+            <>
+              <Ionicons name="trash-outline" size={40} color={Colors.textSecondary} />
+              <Text style={[styles.loadingText, { marginTop: 10 }]}>Event deleted</Text>
+              <TouchableOpacity
+                onPress={() => router.replace('/(app)/events')}
+                style={{ marginTop: 16, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: Colors.primary, borderRadius: 12 }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Go back to events</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Ionicons name="alert-circle-outline" size={40} color={Colors.danger} />
+              <Text style={[styles.loadingText, { marginTop: 10, color: Colors.danger }]}>
+                {fetchError ?? 'Activity not found.'}
+              </Text>
+              <TouchableOpacity onPress={() => { setLoading(true); fetchActivity().finally(() => setLoading(false)); }} style={{ marginTop: 16 }}>
+                <Text style={{ color: Colors.primary, fontWeight: '600' }}>Try again</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     );
@@ -949,8 +973,8 @@ export default function ActivityDetailScreen() {
         ) : null}
 
 
-        {/* RSVP section — hidden for host when limited (host is always "in") */}
-        {!past && activity.status === 'active' && !isEditing && !(isCreator && activity.is_limited) && (
+        {/* RSVP section — hidden for host when limited or join me (host is always "in") */}
+        {!past && activity.status === 'active' && !isEditing && !(isCreator && (activity.is_limited || activity.is_join_me)) && (
           <View style={styles.rsvpSection}>
             <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Are you joining?</Text>
                 <View style={styles.rsvpButtons}>
@@ -1296,8 +1320,8 @@ export default function ActivityDetailScreen() {
           )}
         </View>
 
-        {/* Updates feed */}
-        {!isEditing && (
+        {/* Updates feed — hidden for join me events */}
+        {!isEditing && !activity.is_join_me && (
           <ActivityUpdatesFeed activityId={id} hostId={activity.created_by} />
         )}
 
