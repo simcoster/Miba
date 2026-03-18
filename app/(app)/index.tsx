@@ -275,7 +275,7 @@ export default function UpdatesScreen() {
                 <View style={[styles.cardHeaderWrapper, hasActivityCover(item.data.activity) && styles.cardHeaderWithSplash]}>
                   {getActivityCoverProps(item.data.activity) && (
                     <View style={styles.cardSplashBackground}>
-                      <SplashArt {...getActivityCoverProps(item.data.activity)!} height={90} opacity={0.5} resizeMode="cover" />
+                      <SplashArt {...getActivityCoverProps(item.data.activity)!} height={90} opacity={0.8} resizeMode="cover" />
                     </View>
                   )}
                 <View style={[styles.cardHeader, hasActivityCover(item.data.activity) && styles.cardHeaderOverlay]}>
