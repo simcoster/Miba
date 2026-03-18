@@ -85,7 +85,8 @@ export default function MipoScreen() {
   const { visibleState, setVisible, refreshVisibleState, nearbyEvents, refreshNearby, checkAndTurnOffIfServiceStopped } = useMipo();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [comicScale, setComicScale] = useState(1);
-  const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string }>({ visible: false, title: '', message: '' });
+  const [permissionErrorModal, setPermissionErrorModal] = useState<{ visible: boolean; title: string; message: string; permissionKind?: 'notifications' | 'location' }>({ visible: false, title: '', message: '' });
+  const [permissionRequesting, setPermissionRequesting] = useState(false);
   const [showPermissionExplain, setShowPermissionExplain] = useState(false);
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -141,10 +142,12 @@ export default function MipoScreen() {
       .from('mipo_selections')
       .select('selected_user_id, profile:profiles!selected_user_id(id, full_name, avatar_url)')
       .eq('user_id', user.id)
-      .then(({ data }: { data: Array<{ selected_user_id: string; profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> }> | null }) => {
+      .then((res) => {
+        const data = res.data ?? [];
         const pool = new Map<string, Pick<Profile, 'id' | 'full_name' | 'avatar_url'>>();
-        (data ?? []).forEach((row: any) => {
-          if (row.profile) pool.set(row.selected_user_id, row.profile);
+        data.forEach((row: { selected_user_id: string; profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'> | Pick<Profile, 'id' | 'full_name' | 'avatar_url'>[] }) => {
+          const profile = Array.isArray(row.profile) ? row.profile[0] : row.profile;
+          if (profile) pool.set(row.selected_user_id, profile);
         });
         setSelectedPool(pool);
       });
@@ -286,6 +289,7 @@ export default function MipoScreen() {
         visible: true,
         title: 'Notifications required',
         message: 'Mipo visible mode notifies you when a friend is nearby — it needs notification permission to do that.\n\nPlease enable notifications for Miba in Settings.',
+        permissionKind: 'notifications',
       });
       return;
     }
@@ -300,6 +304,7 @@ export default function MipoScreen() {
         visible: true,
         title,
         message: permResult.message ?? 'Mipo needs location permissions to work. Please enable them in Settings.',
+        permissionKind: 'location',
       });
       return;
     }
@@ -347,6 +352,7 @@ export default function MipoScreen() {
           message: Platform.OS === 'ios'
             ? 'Mipo needs "Allow all the time" location access to notify you when friends are nearby. Please enable it in Settings > Privacy > Location Services > Miba.'
             : 'Could not start location tracking. Please check that location permissions are enabled in Settings.',
+          permissionKind: 'location',
         });
         return;
       }
@@ -398,6 +404,29 @@ export default function MipoScreen() {
   }, [user, locationSub, setVisible, refreshVisibleState]);
 
   turnOffRef.current = handleTurnOffVisible;
+
+  const handlePermissionModalRequest = useCallback(async () => {
+    const kind = permissionErrorModal.permissionKind;
+    if (!kind) return;
+    setPermissionRequesting(true);
+    try {
+      if (kind === 'notifications') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status === 'granted') {
+          setPermissionErrorModal(p => ({ ...p, visible: false }));
+          handleTurnOnVisible();
+        }
+      } else if (kind === 'location') {
+        const permResult = await checkMipoVisibleModePermissions();
+        if (permResult.ok) {
+          setPermissionErrorModal(p => ({ ...p, visible: false }));
+          handleTurnOnVisible();
+        }
+      }
+    } finally {
+      setPermissionRequesting(false);
+    }
+  }, [permissionErrorModal.permissionKind, handleTurnOnVisible]);
 
   const updateSessionDistance = useCallback((meters: number) => {
     if (!user || !visibleState.isVisible) return;
@@ -700,6 +729,21 @@ export default function MipoScreen() {
               <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
                 <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
                 <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
+                {permissionErrorModal.permissionKind && (
+                  <TouchableOpacity
+                    style={[styles.permissionModalButton, permissionRequesting && styles.permissionModalButtonDisabled]}
+                    onPress={handlePermissionModalRequest}
+                    disabled={permissionRequesting}
+                  >
+                    {permissionRequesting ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.permissionModalButtonText}>
+                        {permissionErrorModal.permissionKind === 'notifications' ? 'Enable notifications' : 'Enable location'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             </View>
           </View>
@@ -954,6 +998,21 @@ export default function MipoScreen() {
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.permissionModalScrollContent} showsVerticalScrollIndicator={false}>
               <Text style={styles.permissionModalTitle}>{permissionErrorModal.title}</Text>
               <Text style={styles.permissionModalMessage}>{permissionErrorModal.message}</Text>
+              {permissionErrorModal.permissionKind && (
+                <TouchableOpacity
+                  style={[styles.permissionModalButton, permissionRequesting && styles.permissionModalButtonDisabled]}
+                  onPress={handlePermissionModalRequest}
+                  disabled={permissionRequesting}
+                >
+                  {permissionRequesting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.permissionModalButtonText}>
+                      {permissionErrorModal.permissionKind === 'notifications' ? 'Enable notifications' : 'Enable location'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
         </View>
@@ -1004,6 +1063,9 @@ const styles = StyleSheet.create({
   permissionModalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   permissionModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' },
   permissionModalMessage: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  permissionModalButton: { marginTop: 20, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, alignSelf: 'stretch', alignItems: 'center' },
+  permissionModalButtonDisabled: { opacity: 0.7 },
+  permissionModalButtonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   modalScroll: { maxHeight: '100%' },
   modalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   youreVisibleLabel: { fontSize: 18, color: Colors.success, fontWeight: '600', marginBottom: 12 },
