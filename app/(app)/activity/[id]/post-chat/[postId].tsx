@@ -81,6 +81,7 @@ export default function PostChatScreen() {
     chat_closed_at: string | null;
   } | null>(null);
   const [activityTitle, setActivityTitle] = useState('');
+  const [activityIsJoinMe, setActivityIsJoinMe] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -139,10 +140,13 @@ export default function PostChatScreen() {
     if (postData) setPost(postData);
     const { data: actData } = await supabase
       .from('activities')
-      .select('title')
+      .select('title, is_join_me')
       .eq('id', id)
       .single();
-    if (actData) setActivityTitle(actData.title ?? '');
+    if (actData) {
+      setActivityTitle(actData.title ?? '');
+      setActivityIsJoinMe(!!actData.is_join_me);
+    }
   }, [postId, id]);
 
   const fetchMessages = useCallback(async () => {
@@ -598,7 +602,7 @@ export default function PostChatScreen() {
           ) : undefined
         }
         rightAction={
-          isCreator && !isExpired
+          isCreator && !isExpired && !activityIsJoinMe
             ? {
                 icon: 'close',
                 label: 'End chat now',

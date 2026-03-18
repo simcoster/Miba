@@ -19,7 +19,7 @@ import { format, isToday, isTomorrow, isPast, addMinutes } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity, Profile, Rsvp, EditableFields } from '@/lib/types';
+import { Activity, Profile, Rsvp, EditableFields, isJoinMeNow, JOIN_ME_NOW_ACTIVITY_TIME } from '@/lib/types';
 import { postEditSystemMessage } from '@/lib/postEditSystemMessage';
 import { postEditSuggestionMessage } from '@/lib/postEditSuggestionMessage';
 import { postRsvpChangeMessage } from '@/lib/postRsvpChangeMessage';
@@ -34,6 +34,7 @@ import { parseLocation, buildLocationWithPlace, buildGoogleMapsUrl } from '@/lib
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
+import { deleteActivity } from '@/lib/deleteActivity';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -59,6 +60,8 @@ export default function ActivityDetailScreen() {
   // Invite-edit state
   const [showAddSearch, setShowAddSearch] = useState(false);
   const [showDeclined, setShowDeclined] = useState(false);
+  // Join me: showFullList toggles between "I'm in" only vs full list (replaces showDeclined semantics)
+  const [showFullList, setShowFullList] = useState(false);
   const [addQuery, setAddQuery] = useState('');
   const [addResults, setAddResults] = useState<Profile[]>([]);
   const [addSearching, setAddSearching] = useState(false);
@@ -76,6 +79,7 @@ export default function ActivityDetailScreen() {
   const [showEditDetailsInput, setShowEditDetailsInput] = useState(false);
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [editPickerMode, setEditPickerMode] = useState<'date' | 'time'>('date');
+  const [editJoinMeWhenNow, setEditJoinMeWhenNow] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [posterUploading, setPosterUploading] = useState(false);
@@ -149,7 +153,9 @@ export default function ActivityDetailScreen() {
         setEditTitle(act.title);
         setEditDesc(act.description ?? '');
         setEditLocation(act.location ?? '');
-        setEditTime(new Date(act.activity_time));
+        const isNow = act.activity_time === JOIN_ME_NOW_ACTIVITY_TIME && !!act.is_join_me;
+        setEditJoinMeWhenNow(isNow);
+        setEditTime(isNow ? new Date() : new Date(act.activity_time));
         setEditSplashArt(act.splash_art ?? 'banner_1');
         setEditPlacePhotoName(act.place_photo_name ?? null);
         setIsEditing(true);
@@ -265,8 +271,13 @@ export default function ActivityDetailScreen() {
             { text: 'Cancel', style: 'cancel' },
             { text: 'Just decline', onPress: () => performRsvpUpdate('out') },
             { text: 'Delete event', style: 'destructive', onPress: async () => {
-              await supabase.from('activities').update({ status: 'cancelled' }).eq('id', activity.id);
-              fetchActivity();
+              if (!user || !activity) return;
+              const { error } = await deleteActivity(activity.id, user.id);
+              if (error) {
+                Alert.alert('Error', 'Could not delete event.');
+                return;
+              }
+              router.back();
             }},
           ]
         );
@@ -364,11 +375,16 @@ export default function ActivityDetailScreen() {
     ]);
   };
 
-  const handleCancel = () => Alert.alert('Delete Activity', 'This will cancel the activity for everyone. Continue?', [
+  const handleCancel = () => Alert.alert('Delete Activity', 'This will permanently delete the event and all its discussions, location chats, and live location sessions. Continue?', [
     { text: 'No', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: async () => {
-      await supabase.from('activities').update({ status: 'cancelled' }).eq('id', id);
-      fetchActivity();
+      if (!user || !id) return;
+      const { error } = await deleteActivity(id, user.id);
+      if (error) {
+        Alert.alert('Error', 'Could not delete event.');
+        return;
+      }
+      router.back();
     }},
   ]);
 
@@ -415,7 +431,9 @@ export default function ActivityDetailScreen() {
     setEditTitle(activity.title);
     setEditDesc(activity.description ?? '');
     setEditLocation(activity.location ?? '');
-    setEditTime(new Date(activity.activity_time));
+    const isNow = isJoinMeNow(activity);
+    setEditJoinMeWhenNow(isNow);
+    setEditTime(isNow ? new Date() : new Date(activity.activity_time));
     setEditSplashArt(activity.splash_art ?? 'banner_1');
     setEditPlacePhotoName(activity.place_photo_name ?? null);
     setIsEditing(true);
@@ -423,7 +441,8 @@ export default function ActivityDetailScreen() {
 
   const handleSaveEdit = async () => {
     if (!activity || editTitle.trim().length < 2) return;
-    if (editTime <= new Date()) {
+    const isJoinMe = !!activity.is_join_me;
+    if (!(isJoinMe && editJoinMeWhenNow) && editTime <= new Date()) {
       Alert.alert('Past date', 'Please choose a future date and time.');
       return;
     }
@@ -438,11 +457,12 @@ export default function ActivityDetailScreen() {
         splash_art: activity.splash_art ?? undefined,
         place_photo_name: activity.place_photo_name ?? undefined,
       };
+      const activityTimeValue = isJoinMe && editJoinMeWhenNow ? JOIN_ME_NOW_ACTIVITY_TIME : editTime.toISOString();
       const newValues: EditableFields = {
         title: editTitle.trim(),
         description: editDesc.trim() || null,
         location: editLocation.trim() || null,
-        activity_time: editTime.toISOString(),
+        activity_time: activityTimeValue,
         splash_art: editPlacePhotoName ? null : editSplashArt,
         place_photo_name: editPlacePhotoName || null,
       };
@@ -534,7 +554,7 @@ export default function ActivityDetailScreen() {
   };
 
   const openSuggestionModal = () => {
-    setSuggestTime(new Date(activity!.activity_time));
+    setSuggestTime(isJoinMeNow(activity!) ? new Date() : new Date(activity!.activity_time));
     setSuggestLocation(activity!.location ?? '');
     setSuggestNote('');
     setShowSuggestionModal(true);
@@ -547,7 +567,7 @@ export default function ActivityDetailScreen() {
       return;
     }
     try {
-      const startDate = new Date(activity.activity_time);
+      const startDate = isJoinMeNow(activity) ? new Date() : new Date(activity.activity_time);
       const endDate = addMinutes(startDate, 60); // 1 hour default
       const locationStr = parseLocation(activity.location)?.address ?? activity.location ?? undefined;
       await Calendar.createEventInCalendarAsync({
@@ -600,8 +620,12 @@ export default function ActivityDetailScreen() {
   const past = isPast(activityDate);
   const myRsvp = activity.my_rsvp;
 
-  const dateLabel = isToday(activityDate) ? `Today at ${format(activityDate, 'h:mm a')}`
-    : isTomorrow(activityDate) ? `Tomorrow at ${format(activityDate, 'h:mm a')}`
+  const dateLabel = isJoinMeNow(activity)
+    ? 'Now'
+    : isToday(activityDate)
+    ? `Today at ${format(activityDate, 'h:mm a')}`
+    : isTomorrow(activityDate)
+    ? `Tomorrow at ${format(activityDate, 'h:mm a')}`
     : format(activityDate, 'EEEE, MMMM d · h:mm a');
 
   const hostId = activity.created_by;
@@ -711,6 +735,14 @@ export default function ActivityDetailScreen() {
             <Text style={styles.limitedBadgeText}>Limited, max {activity.max_participants}</Text>
           </View>
         )}
+        {activity.is_join_me && activity.join_me_expires_at && !past && (
+          <View style={styles.limitedBadge}>
+            <Ionicons name="time-outline" size={14} color={Colors.primary} />
+            <Text style={styles.limitedBadgeText}>
+              Ends at {format(new Date(activity.join_me_expires_at), 'h:mm a')}
+            </Text>
+          </View>
+        )}
       </View>
 
       <ScrollView
@@ -725,16 +757,36 @@ export default function ActivityDetailScreen() {
             <View style={styles.metaIcon}><Ionicons name="calendar" size={20} color={Colors.primary} /></View>
             {isEditing ? (
               <View style={{ flex: 1 }}>
-                <View style={styles.editDatetimeRow}>
-                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
-                    <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
-                    <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
-                    <Ionicons name="time-outline" size={15} color={Colors.primary} />
-                    <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
-                  </TouchableOpacity>
-                </View>
+                {activity.is_join_me ? (
+                  <View style={styles.editDatetimeRow}>
+                    <TouchableOpacity
+                      style={[styles.editDatetimeBtn, { flex: 1 }, editJoinMeWhenNow && { borderColor: Colors.primary, backgroundColor: Colors.accentLight }]}
+                      onPress={() => setEditJoinMeWhenNow(true)}
+                    >
+                      <Ionicons name="time-outline" size={15} color={editJoinMeWhenNow ? Colors.primary : Colors.textSecondary} />
+                      <Text style={[styles.editDatetimeText, editJoinMeWhenNow && { color: Colors.primaryDark }]}>Now</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editDatetimeBtn, { flex: 1 }, !editJoinMeWhenNow && { borderColor: Colors.primary, backgroundColor: Colors.accentLight }]}
+                      onPress={() => setEditJoinMeWhenNow(false)}
+                    >
+                      <Ionicons name="calendar-outline" size={15} color={!editJoinMeWhenNow ? Colors.primary : Colors.textSecondary} />
+                      <Text style={[styles.editDatetimeText, !editJoinMeWhenNow && { color: Colors.primaryDark }]}>Later</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+                {(!activity.is_join_me || !editJoinMeWhenNow) && (
+                  <View style={styles.editDatetimeRow}>
+                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 2 }]} onPress={() => { setEditPickerMode('date'); setShowEditPicker(true); }}>
+                      <Ionicons name="calendar-outline" size={15} color={Colors.primary} />
+                      <Text style={styles.editDatetimeText}>{format(editTime, 'EEE, MMM d')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.editDatetimeBtn, { flex: 1 }]} onPress={() => { setEditPickerMode('time'); setShowEditPicker(true); }}>
+                      <Ionicons name="time-outline" size={15} color={Colors.primary} />
+                      <Text style={styles.editDatetimeText}>{format(editTime, 'h:mm a')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             ) : (
               <View><Text style={styles.metaLabel}>When</Text><Text style={styles.metaValue}>{dateLabel}</Text></View>
@@ -782,9 +834,9 @@ export default function ActivityDetailScreen() {
               <Text style={styles.suggestBtnText}>Suggest different time or location</Text>
             </TouchableOpacity>
           )}
-          {!past && activity.status === 'active' && !isEditing && (parseLocation(activity.location)?.placeId != null || Platform.OS !== 'web') && (
+          {!past && activity.status === 'active' && !isEditing && (parseLocation(activity.location)?.placeId != null || (Platform.OS !== 'web' && !isJoinMeNow(activity))) && (
             <View style={styles.actionButtonsRow}>
-              {Platform.OS !== 'web' && (
+              {Platform.OS !== 'web' && !isJoinMeNow(activity) && (
                 <TouchableOpacity style={styles.actionBtn} onPress={handleAddToCalendar}>
                   <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
                   <Text style={styles.actionBtnText}>Add to calendar</Text>
@@ -800,13 +852,21 @@ export default function ActivityDetailScreen() {
               )}
             </View>
           )}
-          {!past && activity.status === 'active' && !isEditing && activeLiveLocationPostId && (
+          {!past && activity.status === 'active' && !isEditing && (activity.is_join_me ? true : activeLiveLocationPostId) && (
             <TouchableOpacity
               style={styles.liveLocationBtn}
-              onPress={() => router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`)}
+              onPress={() => {
+                if (activeLiveLocationPostId) {
+                  router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                } else {
+                  router.push(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                }
+              }}
             >
               <Ionicons name="location" size={22} color={Colors.primary} />
-              <Text style={styles.liveLocationBtnText}>live location shared</Text>
+              <Text style={styles.liveLocationBtnText}>
+                {activeLiveLocationPostId ? 'live location shared' : 'Share live location'}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -976,14 +1036,16 @@ export default function ActivityDetailScreen() {
               Invited · {(activity.rsvps ?? []).length}
             </Text>
             <View style={styles.sectionHeaderRight}>
-              {notGoing.length > 0 && (
+              {(activity.is_join_me ? (going.length + maybe.length + notGoing.length + pending.length > 0) : notGoing.length > 0) && (
                 <TouchableOpacity
                   style={styles.showDeclinedBtn}
-                  onPress={() => setShowDeclined(v => !v)}
+                  onPress={() => activity.is_join_me ? setShowFullList(v => !v) : setShowDeclined(v => !v)}
                 >
-                  <Ionicons name={showDeclined ? 'eye-off-outline' : 'eye-outline'} size={14} color={Colors.textSecondary} />
+                  <Ionicons name={(activity.is_join_me ? showFullList : showDeclined) ? 'eye-off-outline' : 'eye-outline'} size={14} color={Colors.textSecondary} />
                   <Text style={styles.showDeclinedBtnText}>
-                    {showDeclined ? 'Hide declined' : `Show declined (${notGoing.length})`}
+                    {activity.is_join_me
+                      ? (showFullList ? 'Show I\'m in only' : `Show full list (${going.length + maybe.length + notGoing.length + pending.length})`)
+                      : (showDeclined ? 'Hide declined' : `Show declined (${notGoing.length})`)}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1088,8 +1150,8 @@ export default function ActivityDetailScreen() {
             <Text style={styles.noAttendees}>No one invited yet.</Text>
           ) : (
             <View style={styles.attendeeList}>
-              {/* Host always first (hidden when declined and showDeclined is off) */}
-              {hostRsvp && (hostRsvp.status !== 'out' || showDeclined) && (() => {
+              {/* Host always first (hidden when declined and showDeclined/showFullList is off) */}
+              {hostRsvp && (hostRsvp.status !== 'out' || (activity.is_join_me ? showFullList : showDeclined)) && (() => {
                 const rsvp = hostRsvp;
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = true;
@@ -1143,7 +1205,7 @@ export default function ActivityDetailScreen() {
                   </View>
                 );
               })}
-              {maybe.map(rsvp => {
+              {(!activity.is_join_me || showFullList) && maybe.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
@@ -1174,7 +1236,7 @@ export default function ActivityDetailScreen() {
                   </View>
                 );
               })}
-              {showDeclined && notGoing.map(rsvp => {
+              {(activity.is_join_me ? showFullList : showDeclined) && notGoing.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
@@ -1199,7 +1261,7 @@ export default function ActivityDetailScreen() {
                   </View>
                 );
               })}
-              {pending.map(rsvp => {
+              {(!activity.is_join_me || showFullList) && pending.map(rsvp => {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
@@ -1288,11 +1350,11 @@ export default function ActivityDetailScreen() {
 
             <Text style={styles.suggestionLabel}>Suggested time (optional)</Text>
             <View style={styles.suggestionRow}>
-              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('date'); if (!suggestTime) setSuggestTime(new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
+              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('date'); if (!suggestTime) setSuggestTime(isJoinMeNow(activity) ? new Date() : new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
                 <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
                 <Text style={styles.suggestionInputText}>{suggestTime ? format(suggestTime, 'EEE, MMM d') : 'Pick date'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('time'); if (!suggestTime) setSuggestTime(new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
+              <TouchableOpacity style={styles.suggestionInput} onPress={() => { setSuggestPickerMode('time'); if (!suggestTime) setSuggestTime(isJoinMeNow(activity) ? new Date() : new Date(activity.activity_time)); setShowSuggestPicker(true); }}>
                 <Ionicons name="time-outline" size={18} color={Colors.primary} />
                 <Text style={styles.suggestionInputText}>{suggestTime ? format(suggestTime, 'h:mm a') : 'Pick time'}</Text>
               </TouchableOpacity>
@@ -1341,7 +1403,7 @@ export default function ActivityDetailScreen() {
 
         {showSuggestPicker && (
           <DateTimePicker
-            value={suggestTime ?? new Date(activity.activity_time)}
+            value={suggestTime ?? (isJoinMeNow(activity) ? new Date() : new Date(activity.activity_time))}
             mode={suggestPickerMode}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             minimumDate={new Date()}

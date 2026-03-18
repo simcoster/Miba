@@ -4,7 +4,8 @@
  */
 export type SplashPreset =
   | 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6'
-  | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12';
+  | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12'
+  | 'join_me_banner';
 
 export const SPLASH_PRESETS: { id: SplashPreset; label: string; source: number }[] = [
   { id: 'banner_1', label: 'Banner 1', source: require('../assets/images/banners/banner_1.png') },
@@ -19,6 +20,7 @@ export const SPLASH_PRESETS: { id: SplashPreset; label: string; source: number }
   { id: 'banner_10', label: 'Banner 10', source: require('../assets/images/banners/banner_10.png') },
   { id: 'banner_11', label: 'Banner 11', source: require('../assets/images/banners/banner_11.png') },
   { id: 'banner_12', label: 'Banner 12', source: require('../assets/images/banners/banner_12.png') },
+  { id: 'join_me_banner', label: 'Join me!', source: require('../assets/images/banners/join_me_banner.jpg') },
 ];
 
 export function getSplashSource(preset: SplashPreset | null | undefined): number | null {

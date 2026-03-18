@@ -91,6 +91,7 @@ export default function MipoScreen() {
   const [unreadByEventId, setUnreadByEventId] = useState<Map<string, boolean>>(new Map());
   const expiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const turnOffRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const [inviteToJoinLoading, setInviteToJoinLoading] = useState(false);
 
   const getProximityDistanceM = useCallback((): number => {
     if (distanceOption === 'custom') {
@@ -405,6 +406,91 @@ export default function MipoScreen() {
 
   turnOffRef.current = handleTurnOffVisible;
 
+  const handleInviteToJoin = useCallback(async () => {
+    if (!user || !visibleState.isVisible) return;
+    const { data: session } = await supabase
+      .from('mipo_visible_sessions')
+      .select('lat, lng, expires_at, join_me_activity_id')
+      .eq('user_id', user.id)
+      .single();
+    if (!session) {
+      Alert.alert('Error', 'Could not get your location. Make sure visible mode is on.');
+      return;
+    }
+    if (session.join_me_activity_id) {
+      router.push(`/(app)/activity/${session.join_me_activity_id}?fromTab=mipo`);
+      return;
+    }
+    setInviteToJoinLoading(true);
+    try {
+      const activityId = Crypto.randomUUID();
+      const now = new Date();
+      const joinMeExpiresAt = session.expires_at ? new Date(session.expires_at).toISOString() : null;
+
+      const { error: activityError } = await supabase.from('activities').insert({
+        id: activityId,
+        created_by: user.id,
+        title: "I'm here, Let's hang!",
+        description: null,
+        location: 'Current location',
+        activity_time: now.toISOString(),
+        splash_art: 'join_me_banner',
+        is_join_me: true,
+        join_me_expires_at: joinMeExpiresAt,
+        join_me_mipo_linked: true,
+      });
+      if (activityError) throw activityError;
+
+      const { data: post, error: postError } = await supabase
+        .from('posts')
+        .insert({
+          activity_id: activityId,
+          user_id: user.id,
+          content: 'Live Location',
+          post_type: 'live_location',
+          creator_expires_at: joinMeExpiresAt,
+        })
+        .select('id')
+        .single();
+      if (postError || !post) throw postError ?? new Error('Could not create post');
+
+      const { error: shareError } = await supabase.from('chat_location_shares').insert({
+        activity_id: activityId,
+        post_id: post.id,
+        user_id: user.id,
+        lat: session.lat,
+        lng: session.lng,
+        updated_at: now.toISOString(),
+        expires_at: joinMeExpiresAt,
+      });
+      if (shareError) {
+        await supabase.from('posts').delete().eq('id', post.id);
+        await supabase.from('activities').delete().eq('id', activityId);
+        throw shareError;
+      }
+
+      const inviteIds = [...selectedPool.keys()];
+      const rsvpRows = [
+        { activity_id: activityId, user_id: user.id, status: 'in' as const },
+        ...inviteIds.map(uid => ({ activity_id: activityId, user_id: uid, status: 'pending' as const })),
+      ];
+      const { error: rsvpError } = await supabase.from('rsvps').insert(rsvpRows);
+      if (rsvpError) throw rsvpError;
+
+      const { error: sessionError } = await supabase
+        .from('mipo_visible_sessions')
+        .update({ join_me_activity_id: activityId, updated_at: now.toISOString() })
+        .eq('user_id', user.id);
+      if (sessionError) throw sessionError;
+
+      router.push(`/(app)/activity/${activityId}?fromTab=mipo`);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message ?? 'Could not create Join me! event.');
+    } finally {
+      setInviteToJoinLoading(false);
+    }
+  }, [user, visibleState.isVisible, selectedPool, router]);
+
   const handlePermissionModalRequest = useCallback(async () => {
     const kind = permissionErrorModal.permissionKind;
     if (!kind) return;
@@ -699,6 +785,18 @@ export default function MipoScreen() {
         </View>
         <View style={[styles.mipoFooter, { paddingBottom: 16 }]}>
           <Text style={styles.youreVisibleLabel}>{visibleUntilLabel}</Text>
+          <TouchableOpacity
+            style={[styles.inviteToJoinBtn, inviteToJoinLoading && { opacity: 0.6 }]}
+            onPress={handleInviteToJoin}
+            disabled={inviteToJoinLoading}
+          >
+            {inviteToJoinLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <Ionicons name="person-add" size={20} color={Colors.primary} />
+            )}
+            <Text style={styles.inviteToJoinBtnText}>Invite to join</Text>
+          </TouchableOpacity>
           <View style={[styles.buttonWithRadar, { marginTop: 12 }]}>
             <Button label="Turn off visible mode" onPress={handleTurnOffVisible} variant="danger" fullWidth={false} style={styles.buttonWithRadarBtn} />
             <Image source={require('@/assets/images/radar.gif')} style={styles.radarGifSmall} resizeMode="contain" />
@@ -1069,6 +1167,19 @@ const styles = StyleSheet.create({
   modalScroll: { maxHeight: '100%' },
   modalScrollContent: { padding: 20, paddingTop: 56, alignItems: 'center' },
   youreVisibleLabel: { fontSize: 18, color: Colors.success, fontWeight: '600', marginBottom: 12 },
+  inviteToJoinBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    marginTop: 8,
+  },
+  inviteToJoinBtnText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   sublabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, marginTop: 10 },
   section: { marginBottom: 22 },

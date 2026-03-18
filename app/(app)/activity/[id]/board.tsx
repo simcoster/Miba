@@ -32,6 +32,7 @@ import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
 import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
+import { isJoinMeNow } from '@/lib/types';
 import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
 import { addMinutes } from 'date-fns';
@@ -65,6 +66,7 @@ export default function ActivityBoardScreen() {
   const [activityDetails, setActivityDetails] = useState<{
     title: string;
     activity_time: string;
+    is_join_me?: boolean;
     location: string | null;
     description: string | null;
     splash_art?: string | null;
@@ -107,7 +109,7 @@ export default function ActivityBoardScreen() {
     if (!id) return;
     const { data } = await supabase
       .from('activities')
-      .select('title, activity_time, location, description, splash_art, place_photo_name, rsvps(*, profile:profiles(id, full_name, avatar_url))')
+      .select('title, activity_time, is_join_me, location, description, splash_art, place_photo_name, rsvps(*, profile:profiles(id, full_name, avatar_url))')
       .eq('id', id)
       .single();
     if (data) {
@@ -117,6 +119,7 @@ export default function ActivityBoardScreen() {
       setActivityDetails({
         title: data.title,
         activity_time: data.activity_time,
+        is_join_me: data.is_join_me,
         location: data.location,
         description: data.description,
         splash_art: data.splash_art ?? null,
@@ -710,14 +713,16 @@ export default function ActivityBoardScreen() {
                     <View style={styles.peekMetaValueWrap}>
                       <Text style={styles.peekMetaLabel}>When</Text>
                       <Text style={styles.peekMetaValue}>
-                        {(() => {
-                          const d = new Date(activityDetails.activity_time);
-                          return isToday(d)
-                            ? `Today at ${format(d, 'h:mm a')}`
-                            : isTomorrow(d)
-                              ? `Tomorrow at ${format(d, 'h:mm a')}`
-                              : format(d, 'EEEE, MMMM d · h:mm a');
-                        })()}
+                        {isJoinMeNow(activityDetails)
+                          ? 'Now'
+                          : (() => {
+                              const d = new Date(activityDetails.activity_time);
+                              return isToday(d)
+                                ? `Today at ${format(d, 'h:mm a')}`
+                                : isTomorrow(d)
+                                  ? `Tomorrow at ${format(d, 'h:mm a')}`
+                                  : format(d, 'EEEE, MMMM d · h:mm a');
+                            })()}
                       </Text>
                     </View>
                   </View>
@@ -857,7 +862,18 @@ export default function ActivityBoardScreen() {
                   <>
                     <TouchableOpacity
                       style={styles.shareLiveLocationBtn}
-                      onPress={() => setShowLiveLocationTimePicker(true)}
+                      onPress={async () => {
+                        const permResult = await checkMipoVisibleModePermissions();
+                        if (!permResult.ok) {
+                          setPermissionError({
+                            visible: true,
+                            title: permResult.missingPrecise ? 'Precise location required' : 'Location required',
+                            message: permResult.message ?? 'Please enable location access in Settings.',
+                          });
+                          return;
+                        }
+                        setShowLiveLocationTimePicker(true);
+                      }}
                     >
                       <Ionicons name="map-outline" size={22} color={Colors.primary} />
                       <Text style={styles.shareLiveLocationBtnText}>Share live location</Text>

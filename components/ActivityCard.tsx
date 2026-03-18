@@ -6,7 +6,7 @@ import { TouchableOpacity } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isTomorrow, isPast } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Activity, RsvpStatus } from '@/lib/types';
+import { Activity, RsvpStatus, isJoinMeNow } from '@/lib/types';
 import { Avatar } from './Avatar';
 import { LocationDisplay } from './LocationDisplay';
 import { SplashArt } from './SplashArt';
@@ -68,7 +68,9 @@ export function ActivityCard({
   const rsvpStatus = myRsvp?.status;
   const rsvpConfig = rsvpStatus ? RSVP_CONFIG[rsvpStatus as RsvpStatus] : null;
 
-  const dateLabel = isToday(activityDate)
+  const dateLabel = isJoinMeNow(activity)
+    ? 'Now'
+    : isToday(activityDate)
     ? `Today · ${format(activityDate, 'h:mm a')}`
     : isTomorrow(activityDate)
     ? `Tomorrow · ${format(activityDate, 'h:mm a')}`
@@ -77,7 +79,7 @@ export function ActivityCard({
   const href = fromTab ? `/(app)/activity/${activity.id}?fromTab=${fromTab}` : `/(app)/activity/${activity.id}`;
 
   const handleDeletePress = () => {
-    Alert.alert('Delete event', 'This will cancel the activity for everyone. Continue?', [
+    Alert.alert('Delete event', 'This will permanently delete the event and all its discussions, location chats, and live location sessions. Continue?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',

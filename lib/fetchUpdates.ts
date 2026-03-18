@@ -58,6 +58,7 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
         status,
         created_by,
         is_limited,
+        is_join_me,
         limited_reopened_at,
         host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
         rsvps(id, status, user_id, created_at, updated_at, profile:profiles(id, full_name, avatar_url))

@@ -15,6 +15,7 @@ Notifications.setNotificationHandler({
 /** Android channels - ensure notifications show when app is in background */
 const MIPO_CHANNEL_ID = 'mipo-proximity';
 const ACTIVITY_UPDATES_CHANNEL_ID = 'activity-updates';
+const JOIN_ME_RSVP_CHANNEL_ID = 'join-me-rsvp';
 
 export type PushRegistrationResult = {
   success: boolean;
@@ -50,6 +51,16 @@ export async function registerForPushNotifications(userId: string): Promise<Push
         name: 'Events & Messages',
         importance: Notifications.AndroidImportance.LOW,
         sound: null,
+      });
+      try {
+        await Notifications.deleteNotificationChannelAsync(JOIN_ME_RSVP_CHANNEL_ID);
+      } catch {
+        // Channel may not exist yet
+      }
+      await Notifications.setNotificationChannelAsync(JOIN_ME_RSVP_CHANNEL_ID, {
+        name: 'Join me! RSVP',
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: 'match_playful.mp3',
       });
     }
 

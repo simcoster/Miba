@@ -9,11 +9,11 @@ import Toast from 'react-native-toast-message';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addHours } from 'date-fns';
+import { format, addHours, addMinutes } from 'date-fns';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Circle, Profile } from '@/lib/types';
+import { Circle, Profile, JOIN_ME_NOW_ACTIVITY_TIME } from '@/lib/types';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
@@ -21,6 +21,9 @@ import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterUri, clearPendingPosterUri, setPendingPosterForActivity } from '@/lib/pendingPoster';
+import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
+import { startLiveLocationPostWatch } from '@/lib/liveLocationPost';
+import * as Location from 'expo-location';
 import { SPLASH_PRESETS, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
 import Colors from '@/constants/Colors';
@@ -32,6 +35,7 @@ export default function NewActivityScreen() {
     clone,
     cloneFrom,
     fromPoster,
+    joinMe,
     title: paramTitle,
     description: paramDescription,
     location: paramLocation,
@@ -42,6 +46,7 @@ export default function NewActivityScreen() {
     clone?: string;
     cloneFrom?: string;
     fromPoster?: string;
+    joinMe?: string;
     title?: string;
     description?: string;
     location?: string;
@@ -52,6 +57,7 @@ export default function NewActivityScreen() {
 
   const isClone = clone === '1';
   const isFromPoster = fromPoster === '1';
+  const isJoinMe = joinMe === '1';
 
   const [title, setTitle] = useState(paramTitle ?? '');
   const [description, setDescription] = useState(paramDescription ?? '');
@@ -135,11 +141,22 @@ export default function NewActivityScreen() {
     return () => { cancelled = true; };
   }, [isClone, cloneFrom, user]);
 
+  // When join me mode: set defaults
+  useEffect(() => {
+    if (!isJoinMe) return;
+    setTitle("I'm here, Let's hang!");
+    setSplashArt('join_me_banner');
+    setPlacePhotoName(null);
+    setIsLimited(false);
+    setShowJoinMeStartTime(false);
+  }, [isJoinMe]);
+
   // When navigating to New Event with no params: reset to defaults (empty name, empty invitees)
   useEffect(() => {
     const hasParams =
       isClone ||
       isFromPoster ||
+      isJoinMe ||
       cloneFrom ||
       paramTitle ||
       paramDescription ||
@@ -161,7 +178,7 @@ export default function NewActivityScreen() {
       setSearchQuery('');
       setSearchResults([]);
     }
-  }, [isClone, isFromPoster, cloneFrom, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName, paramActivityTime]);
+  }, [isClone, isFromPoster, isJoinMe, cloneFrom, paramTitle, paramDescription, paramLocation, paramSplashArt, paramPlacePhotoName, paramActivityTime]);
   const [showSplashPicker, setShowSplashPicker] = useState(false);
   const [showDetailsInput, setShowDetailsInput] = useState(!!paramDescription);
   const [isLimited, setIsLimited] = useState(false);
@@ -176,6 +193,13 @@ export default function NewActivityScreen() {
   const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+  // Join me: collapsed = "now", expanded "set start time" = "later"
+  const [showJoinMeStartTime, setShowJoinMeStartTime] = useState(false);
+  // Join me timer: '1h' | '5h' | 'custom'
+  const [joinMeTimer, setJoinMeTimer] = useState<'1h' | '5h' | 'custom'>('1h');
+  const [joinMeEndTime, setJoinMeEndTime] = useState<Date>(addHours(new Date(), 2));
+  const [showJoinMeEndPicker, setShowJoinMeEndPicker] = useState(false);
+  const [joinMeUseLiveLocation, setJoinMeUseLiveLocation] = useState(true);
 
   // Circles for quick-add
   const [circles, setCircles] = useState<Circle[]>([]);
@@ -402,14 +426,25 @@ export default function NewActivityScreen() {
 
   const handleCreate = async () => {
     if (!user || title.trim().length < 2) return;
+    if (isJoinMe && !joinMeUseLiveLocation && !location.trim()) {
+      Alert.alert('Location required', 'Please add a location or choose Live location for your Join me! event.');
+      return;
+    }
     // Invitee requirement temporarily disabled
     // if (invitePool.size === 0) {
     //   Alert.alert('Add invitees', 'Please add at least one person or circle to invite.');
     //   return;
     // }
-    if (activityTime <= new Date()) {
+    if (!(isJoinMe && !showJoinMeStartTime) && activityTime <= new Date()) {
       Alert.alert('Past date', 'Please choose a future date and time.');
       return;
+    }
+    if (isJoinMe && joinMeTimer === 'custom') {
+      const minEnd = addMinutes(new Date(), 5);
+      if (joinMeEndTime < minEnd) {
+        Alert.alert('Invalid end time', 'End time must be at least 5 minutes from now.');
+        return;
+      }
     }
     try {
       setLoading(true);
@@ -431,17 +466,35 @@ export default function NewActivityScreen() {
 
       const activityId = Crypto.randomUUID();
 
+      let joinMeExpiresAt: string | null = null;
+      const baseTime = isJoinMe && !showJoinMeStartTime ? new Date() : activityTime;
+      if (isJoinMe) {
+        if (joinMeTimer === '1h') {
+          joinMeExpiresAt = addHours(baseTime, 1).toISOString();
+        } else if (joinMeTimer === '5h') {
+          joinMeExpiresAt = addHours(baseTime, 5).toISOString();
+        } else {
+          joinMeExpiresAt = joinMeEndTime.toISOString();
+        }
+      }
+
+      const activityLocation = isJoinMe && joinMeUseLiveLocation ? 'Live location' : location.trim() || null;
+      const activityTimeValue = isJoinMe && !showJoinMeStartTime ? JOIN_ME_NOW_ACTIVITY_TIME : activityTime.toISOString();
+
       const { error: activityError } = await supabase.from('activities').insert({
         id: activityId,
         created_by: user.id,
         title: title.trim(),
         description: description.trim() || null,
-        location: location.trim() || null,
-        activity_time: activityTime.toISOString(),
+        location: activityLocation,
+        activity_time: activityTimeValue,
         splash_art: placePhotoName ? null : splashArt,
         place_photo_name: placePhotoName || null,
         is_limited: isLimited,
         max_participants: isLimited ? maxParticipants : null,
+        is_join_me: isJoinMe,
+        join_me_expires_at: joinMeExpiresAt,
+        join_me_mipo_linked: false,
       });
       if (activityError) throw activityError;
 
@@ -473,6 +526,68 @@ export default function NewActivityScreen() {
         await supabase.from('activity_exclusions').insert(exclusionRows);
       }
 
+      if (isJoinMe && joinMeUseLiveLocation) {
+        const permResult = await checkMipoVisibleModePermissions();
+        if (!permResult.ok) {
+          Alert.alert('Location required', permResult.message ?? 'Please enable location access to share live location.');
+          router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
+          return;
+        }
+        try {
+          await Location.enableNetworkProviderAsync().catch(() => {});
+          let loc: Location.LocationObject | null = null;
+          try {
+            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          } catch {
+            loc = await Location.getLastKnownPositionAsync();
+          }
+          if (!loc) {
+            throw new Error('Could not get your location.');
+          }
+          const now = new Date();
+          const expiresAt = joinMeExpiresAt ? new Date(joinMeExpiresAt) : null;
+          const { data: post, error: postError } = await supabase
+            .from('posts')
+            .insert({
+              activity_id: activityId,
+              user_id: user.id,
+              content: 'Live Location',
+              post_type: 'live_location',
+              creator_expires_at: expiresAt?.toISOString() ?? null,
+            })
+            .select('id')
+            .single();
+          if (postError || !post) throw postError ?? new Error('Could not create post');
+          const { error: shareError } = await supabase.from('chat_location_shares').insert({
+            activity_id: activityId,
+            post_id: post.id,
+            user_id: user.id,
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+            updated_at: now.toISOString(),
+            expires_at: expiresAt?.toISOString() ?? null,
+          });
+          if (shareError) {
+            await supabase.from('posts').delete().eq('id', post.id);
+            throw shareError;
+          }
+          const sub = await startLiveLocationPostWatch(
+            post.id,
+            user.id,
+            expiresAt,
+            activityId,
+            (err) => Alert.alert('Error', err.message)
+          );
+          if (!sub) {
+            await supabase.from('chat_location_shares').delete().eq('post_id', post.id).eq('user_id', user.id);
+            await supabase.from('posts').delete().eq('id', post.id);
+            throw new Error('Could not start location sharing.');
+          }
+        } catch (e) {
+          Alert.alert('Could not start live location', (e as Error).message ?? 'Please try again.');
+        }
+      }
+
       router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
     } catch (error: any) {
       Alert.alert('Error', error.message ?? 'Could not create activity.');
@@ -485,7 +600,7 @@ export default function NewActivityScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScreenHeader title="New Event" showBack />
+      <ScreenHeader title={isJoinMe ? 'Join me!' : 'New Event'} showBack />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
         {/* Title + Cover — splash thumb to the left of title */}
@@ -563,26 +678,28 @@ export default function NewActivityScreen() {
           )}
         </View>
 
-        {/* Date & Time */}
-        <View style={styles.section}>
-          <Text style={styles.label}>When? *</Text>
-          <View style={styles.datetimeRow}>
-            <TouchableOpacity
-              style={[styles.datetimeBtn, { flex: 2 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
-              onPress={() => { setPickerMode('date'); setShowPicker(true); }}
-            >
-              <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
-              <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.datetimeBtn, { flex: 1 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
-              onPress={() => { setPickerMode('time'); setShowPicker(true); }}
-            >
-              <Ionicons name="time-outline" size={18} color={Colors.primary} />
-              <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
-            </TouchableOpacity>
+        {/* Date & Time — only for regular events */}
+        {!isJoinMe && (
+          <View style={styles.section}>
+            <Text style={styles.label}>When? *</Text>
+            <View style={styles.datetimeRow}>
+              <TouchableOpacity
+                style={[styles.datetimeBtn, { flex: 2 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
+                onPress={() => { setPickerMode('date'); setShowPicker(true); }}
+              >
+                <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+                <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.datetimeBtn, { flex: 1 }, timeHighlight && { borderColor: Colors.primary, borderWidth: 2 }]}
+                onPress={() => { setPickerMode('time'); setShowPicker(true); }}
+              >
+                <Ionicons name="time-outline" size={18} color={Colors.primary} />
+                <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
 
         {showPicker && (
           <DateTimePicker
@@ -593,27 +710,145 @@ export default function NewActivityScreen() {
           />
         )}
 
-        {/* Location */}
-        <View style={styles.section}>
-          <Text style={styles.label}>Where?</Text>
-          <LocationAutocomplete
-            value={parseLocation(location)?.address ?? location ?? ''}
-            onChangeText={(text) => {
-              setLocation(text);
-              setPlacePhotoName(null);
-            }}
-            onResolvedPlace={(p) => {
-              setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
-              if (p.placePhotoName) {
-                setPlacePhotoName(p.placePhotoName);
-                setSplashArt(null);
-              } else {
-                setPlacePhotoName(null);
+        {isJoinMe && (
+          <>
+            <View style={styles.section}>
+              <Text style={styles.label}>Ends in</Text>
+              <View style={styles.datetimeRow}>
+                {(['1h', '5h', 'custom'] as const).map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.datetimeBtn, { flex: 1 }, joinMeTimer === opt && styles.chipSelected]}
+                    onPress={() => {
+                      setJoinMeTimer(opt);
+                      if (opt === 'custom') setShowJoinMeEndPicker(true);
+                    }}
+                  >
+                    <Text style={[styles.datetimeText, joinMeTimer === opt && styles.chipNameSelected]}>
+                      {opt === '1h' ? '1 hour' : opt === '5h' ? '5 hours' : format(joinMeEndTime, 'h:mm a')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={styles.section}>
+              <TouchableOpacity
+                style={styles.addCoverBtn}
+                onPress={() => setShowJoinMeStartTime(v => !v)}
+              >
+                <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
+                <Text style={styles.addCoverBtnText}>
+                  {showJoinMeStartTime && (activityTime > new Date())
+                    ? `Start: ${format(activityTime, 'EEE, MMM d · h:mm a')}`
+                    : 'Set start time'}
+                </Text>
+              </TouchableOpacity>
+              {showJoinMeStartTime && (
+                <View style={[styles.datetimeRow, { marginTop: 10 }]}>
+                  <TouchableOpacity
+                    style={[styles.datetimeBtn, { flex: 2 }]}
+                    onPress={() => { setPickerMode('date'); setShowPicker(true); }}
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+                    <Text style={styles.datetimeText}>{format(activityTime, 'EEE, MMM d')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.datetimeBtn, { flex: 1 }]}
+                    onPress={() => { setPickerMode('time'); setShowPicker(true); }}
+                  >
+                    <Ionicons name="time-outline" size={18} color={Colors.primary} />
+                    <Text style={styles.datetimeText}>{format(activityTime, 'h:mm a')}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        {showJoinMeEndPicker && (
+          <DateTimePicker
+            value={joinMeEndTime}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(_, date) => {
+              setShowJoinMeEndPicker(false);
+              if (date) {
+                const now = new Date();
+                const minEnd = addMinutes(now, 5);
+                const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), date.getHours(), date.getMinutes(), 0, 0);
+                const endTime = todayEnd >= minEnd ? todayEnd : addHours(todayEnd, 24);
+                setJoinMeEndTime(endTime);
               }
             }}
-            placeholder="Venue or address"
-            maxLength={150}
           />
+        )}
+
+        {/* Location */}
+        <View style={styles.section}>
+          <Text style={styles.label}>Where?{isJoinMe ? ' *' : ''}</Text>
+          {isJoinMe ? (
+            <>
+              <View style={styles.datetimeRow}>
+                <TouchableOpacity
+                  style={[styles.datetimeBtn, { flex: 1 }, joinMeUseLiveLocation && styles.chipSelected]}
+                  onPress={() => { setJoinMeUseLiveLocation(true); setLocation(''); setPlacePhotoName(null); }}
+                >
+                  <Ionicons name="location" size={16} color={joinMeUseLiveLocation ? Colors.primary : Colors.textSecondary} />
+                  <Text style={[styles.datetimeText, joinMeUseLiveLocation && styles.chipNameSelected]}>
+                    Live location
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.datetimeBtn, { flex: 1 }, !joinMeUseLiveLocation && styles.chipSelected]}
+                  onPress={() => { setJoinMeUseLiveLocation(false); setLocation(''); }}
+                >
+                  <Text style={[styles.datetimeText, !joinMeUseLiveLocation && styles.chipNameSelected]}>
+                    Venue or address
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {!joinMeUseLiveLocation && (
+                <LocationAutocomplete
+                  value={parseLocation(location)?.address ?? location ?? ''}
+                  onChangeText={(text) => {
+                    setLocation(text);
+                    setPlacePhotoName(null);
+                  }}
+                  onResolvedPlace={(p) => {
+                    setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
+                    if (p.placePhotoName) {
+                      setPlacePhotoName(p.placePhotoName);
+                      setSplashArt(null);
+                    } else {
+                      setPlacePhotoName(null);
+                    }
+                  }}
+                  placeholder="Venue or address"
+                  maxLength={150}
+                  style={{ marginTop: 12 }}
+                />
+              )}
+            </>
+          ) : (
+            <LocationAutocomplete
+              value={parseLocation(location)?.address ?? location ?? ''}
+              onChangeText={(text) => {
+                setLocation(text);
+                setPlacePhotoName(null);
+              }}
+              onResolvedPlace={(p) => {
+                setLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
+                if (p.placePhotoName) {
+                  setPlacePhotoName(p.placePhotoName);
+                  setSplashArt(null);
+                } else {
+                  setPlacePhotoName(null);
+                }
+              }}
+              placeholder="Venue or address"
+              maxLength={150}
+            />
+          )}
         </View>
 
       
@@ -848,7 +1083,8 @@ export default function NewActivityScreen() {
           </View>
         )}
 
-        {/* Limited event */}
+        {/* Limited event — hidden for Join me */}
+        {!isJoinMe && (
         <View style={styles.section}>
           <View style={styles.limitedRow}>
             <TouchableOpacity
@@ -906,6 +1142,7 @@ export default function NewActivityScreen() {
             </View>
           )}
         </View>
+        )}
 
         <Button
           label="Post Activity 🚀"

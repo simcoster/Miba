@@ -1,3 +1,19 @@
+/** Sentinel value for Join me "now" events. Never treated as past. */
+export const JOIN_ME_NOW_ACTIVITY_TIME = '9999-12-31T23:59:59.999Z';
+const SENTINEL_MS = new Date(JOIN_ME_NOW_ACTIVITY_TIME).getTime();
+
+export function isJoinMeNow(activity: { activity_time: string; is_join_me?: boolean }): boolean {
+  if (!activity.is_join_me) return false;
+  const t = activity.activity_time;
+  if (t === JOIN_ME_NOW_ACTIVITY_TIME) return true;
+  // Supabase/PostgreSQL may return +00:00 instead of Z, or other equivalent formats
+  try {
+    return new Date(t).getTime() === SENTINEL_MS;
+  } catch {
+    return false;
+  }
+}
+
 export type Profile = {
   id: string;
   username: string | null;
@@ -43,8 +59,14 @@ export type Activity = {
   max_participants?: number | null;
   limited_closed_at?: string | null;
   limited_reopened_at?: string | null;
-  /** Optional splash art preset: banner_1 through banner_12 */
-  splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | null;
+  /** Optional splash art preset: banner_1 through banner_12, join_me_banner */
+  splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | 'join_me_banner' | null;
+  /** Join me event: timer-based, mandatory location, auto-deleted when timer expires */
+  is_join_me?: boolean;
+  /** When the join me event auto-deletes. Null for non-join_me or Mipo-linked with unlimited timer. */
+  join_me_expires_at?: string | null;
+  /** True when created from Mipo "invite to join"; event is deleted when Mipo visible mode turns off. */
+  join_me_mipo_linked?: boolean;
   /** Google Places API photo resource name. When set, used as cover instead of splash_art. */
   place_photo_name?: string | null;
   /** Supabase Storage URL of original poster image (low res), when event was created from poster. */
@@ -90,7 +112,7 @@ export type EditableFields = {
   description: string | null;
   location: string | null;
   activity_time: string;
-  splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | null;
+  splash_art?: 'banner_1' | 'banner_2' | 'banner_3' | 'banner_4' | 'banner_5' | 'banner_6' | 'banner_7' | 'banner_8' | 'banner_9' | 'banner_10' | 'banner_11' | 'banner_12' | 'join_me_banner' | null;
   place_photo_name?: string | null;
 };
 

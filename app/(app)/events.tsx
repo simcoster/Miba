@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, isPast } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { Activity } from '@/lib/types';
+import { Activity, isJoinMeNow } from '@/lib/types';
 import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 import { getHiddenActivityIds, toggleHidden } from '@/lib/hiddenActivities';
 import { extractEventFromPoster, getTestCachedParsedResult } from '@/lib/geminiPosterExtract';
@@ -24,6 +24,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
+import { deleteActivity } from '@/lib/deleteActivity';
 import type { SplashPreset } from '@/lib/splashArt';
 import Colors from '@/constants/Colors';
 
@@ -424,27 +425,40 @@ export default function EventsScreen() {
       case 'upcoming': {
         const future = (s: string) => !isPast(new Date(s));
         const isHost = (a: Activity) => a.created_by === user?.id;
+        const notExpired = (a: Activity) =>
+          !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
         // Limited section: open limited events (not closed), future, user marked in or maybe (not pending)
         const limited = activities.filter(a =>
           future(a.activity_time) && a.is_limited && !a.limited_closed_at &&
           (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
         );
-        // Non-limited events only (limited go in Limited section)
+        // Join me! section: join me events, not expired, user in or maybe or hosting
+        const joinMe = activities
+          .filter(a =>
+            a.is_join_me && notExpired(a) &&
+            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || isHost(a))
+          )
+          .sort((a, b) => (isJoinMeNow(a) ? 0 : 1) - (isJoinMeNow(b) ? 0 : 1) || a.activity_time.localeCompare(b.activity_time));
+        // Non-limited, non-join_me
         const hosting = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && isHost(a) &&
+          future(a.activity_time) && !a.is_limited && !a.is_join_me && isHost(a) &&
           (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
         );
         const going = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'in' && !isHost(a)
+          future(a.activity_time) && !a.is_limited && !a.is_join_me && a.my_rsvp?.status === 'in' && !isHost(a)
         );
         const maybe = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && a.my_rsvp?.status === 'maybe' && !isHost(a)
+          future(a.activity_time) && !a.is_limited && !a.is_join_me && a.my_rsvp?.status === 'maybe' && !isHost(a)
         );
 
         const result: ListItem[] = [];
         if (limited.length > 0) {
           result.push({ __sep: true, key: 'limited-sep', label: 'Limited' });
           result.push(...limited);
+        }
+        if (joinMe.length > 0) {
+          if (result.length > 0) result.push({ __sep: true, key: 'joinme-sep', label: 'Join me!' });
+          result.push(...joinMe);
         }
         if (hosting.length > 0) {
           if (result.length > 0) result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
@@ -469,10 +483,27 @@ export default function EventsScreen() {
               (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')) ||
             (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in')))
           );
-      case 'invited':
-        return activities.filter(a =>
-          a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time))
+      case 'invited': {
+        const notExpired = (a: Activity) =>
+          !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
+        const pending = activities.filter(a =>
+          a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time)) && notExpired(a)
         );
+        const joinMe = pending
+          .filter(a => a.is_join_me)
+          .sort((a, b) => (isJoinMeNow(a) ? 0 : 1) - (isJoinMeNow(b) ? 0 : 1) || a.activity_time.localeCompare(b.activity_time));
+        const other = pending.filter(a => !a.is_join_me);
+        const result: ListItem[] = [];
+        if (joinMe.length > 0) {
+          result.push({ __sep: true, key: 'invited-joinme-sep', label: 'Join me!' });
+          result.push(...joinMe);
+        }
+        if (other.length > 0) {
+          if (result.length > 0) result.push({ __sep: true, key: 'invited-other-sep', label: 'Invited' });
+          result.push(...other);
+        }
+        return result;
+      }
       case 'declined':
         return [...activities].reverse().filter(a => a.my_rsvp?.status === 'out');
     }
@@ -503,6 +534,14 @@ export default function EventsScreen() {
               >
                 <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
                 <Text style={styles.addDropdownText}>New Event</Text>
+              </TouchableOpacity>
+              <View style={styles.addDropdownDivider} />
+              <TouchableOpacity
+                style={styles.addDropdownRow}
+                onPress={() => { setShowAddDropdown(false); router.push('/(app)/activity/new?joinMe=1'); }}
+              >
+                <Ionicons name="location" size={18} color={Colors.primary} />
+                <Text style={styles.addDropdownText}>Join me!</Text>
               </TouchableOpacity>
               <View style={styles.addDropdownDivider} />
               <TouchableOpacity
@@ -656,9 +695,9 @@ export default function EventsScreen() {
                 isDeleting={deletingIds.has(item.id)}
                 onHide={handleHideUnhide}
                 onUnhide={handleHideUnhide}
-                onDelete={canDelete ? async () => {
+                onDelete={canDelete && user ? async () => {
                   setDeletingIds(prev => new Set(prev).add(item.id));
-                  const { error } = await supabase.from('activities').update({ status: 'cancelled' }).eq('id', item.id);
+                  const { error } = await deleteActivity(item.id, user.id);
                   if (!error) {
                     await fetchActivities();
                   } else {

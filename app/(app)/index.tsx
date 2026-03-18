@@ -18,6 +18,7 @@ import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
 import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
+import { isJoinMeNow } from '@/lib/types';
 import Colors from '@/constants/Colors';
 
 const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
@@ -102,8 +103,9 @@ export default function UpdatesScreen() {
     }
   }, [router, refresh]);
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
+  const formatActivityDate = (activity: { activity_time: string; is_join_me?: boolean }) => {
+    if (isJoinMeNow(activity)) return 'Now';
+    const d = new Date(activity.activity_time);
     if (isToday(d)) return `Today · ${format(d, 'h:mm a')}`;
     if (isTomorrow(d)) return `Tomorrow · ${format(d, 'h:mm a')}`;
     return format(d, 'EEE, MMM d · h:mm a');
@@ -299,7 +301,7 @@ export default function UpdatesScreen() {
                 </View>
                 <View style={styles.meta}>
                   <Ionicons name="time-outline" size={13} color={Colors.textSecondary} />
-                  <Text style={styles.metaText}>{formatDate(item.data.activity.activity_time)}</Text>
+                  <Text style={styles.metaText}>{formatActivityDate(item.data.activity)}</Text>
                 </View>
                 <View style={styles.updatesRow}>
                   {item.data.updates.map((u, i) => (
