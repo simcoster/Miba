@@ -25,6 +25,7 @@ import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import {
   checkMipoVisibleModePermissions,
+  turnOffLocationSharingIfActiveWhenPermissionDenied,
   startMipoLocationWatch,
   type LocationSubscription,
 } from '@/lib/mipoLocation';
@@ -320,6 +321,11 @@ export default function MipoScreen() {
     }
     const permResult = await checkMipoVisibleModePermissions();
     if (!permResult.ok) {
+      const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id);
+      if (turnedOffMipo || turnedOffLiveLocation) {
+        if (turnedOffMipo) setVisible(false, null);
+        return;
+      }
       const title = permResult.missingPrecise
         ? 'Precise location required'
         : permResult.missingBackground
@@ -370,7 +376,12 @@ export default function MipoScreen() {
 
       const sub = await startMipoLocationWatch(user.id);
       if (!sub) {
+        const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id);
         await supabase.from('mipo_visible_sessions').delete().eq('user_id', user.id);
+        if (turnedOffMipo || turnedOffLiveLocation) {
+          if (turnedOffMipo) setVisible(false, null);
+          return;
+        }
         setPermissionErrorModal({
           visible: true,
           title: 'Location required',
@@ -758,7 +769,7 @@ export default function MipoScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.label}>Who can see you{view === 'active' ? ' (turn off to edit)' : ''}</Text>
+            <Text style={styles.label}>Who can see you{view === 'active'}</Text>
             {circles.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {circles.map(c => {

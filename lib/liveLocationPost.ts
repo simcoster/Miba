@@ -14,6 +14,7 @@ import {
   LIVE_LOCATION_POST_TASK_NAME,
   setLiveLocationPostActive,
   clearLiveLocationPostActive,
+  getLiveLocationPostActive,
 } from './liveLocationPostTask';
 import {
   requestLocationPermission,
@@ -76,6 +77,26 @@ export async function startLiveLocationPostWatch(
       await clearLiveLocationPostActive();
     },
   };
+}
+
+/**
+ * If the user has an active live location share for the given activity, turn it off.
+ * Returns true if we turned it off.
+ */
+export async function turnOffActiveLiveLocationIfForActivity(
+  activityId: string,
+  userId: string
+): Promise<boolean> {
+  const active = await getLiveLocationPostActive();
+  if (!active) return false;
+  const { data: post } = await supabase
+    .from('posts')
+    .select('activity_id')
+    .eq('id', active.postId)
+    .maybeSingle();
+  if (!post || post.activity_id !== activityId) return false;
+  await turnOffLiveLocationPost(active.postId, userId);
+  return true;
 }
 
 /**

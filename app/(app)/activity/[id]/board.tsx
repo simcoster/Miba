@@ -17,6 +17,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMipo } from '@/contexts/MipoContext';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday, isTomorrow } from 'date-fns';
@@ -31,7 +32,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
-import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
+import { checkMipoVisibleModePermissions, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { isJoinMeNow } from '@/lib/types';
 import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
@@ -58,6 +59,7 @@ type PostWithComments = Post & { comments: PostComment[] };
 export default function ActivityBoardScreen() {
   const { id, fromTab } = useLocalSearchParams<{ id: string; fromTab?: string }>();
   const { user } = useAuth();
+  const { setVisible } = useMipo();
   useSetTabHighlight(fromTab);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -265,6 +267,12 @@ export default function ActivityBoardScreen() {
     setShowLiveLocationTimePicker(false);
     const permResult = await checkMipoVisibleModePermissions();
     if (!permResult.ok) {
+      const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id, id);
+      if (turnedOffMipo || turnedOffLiveLocation) {
+        if (turnedOffMipo) setVisible(false, null);
+        await fetchPosts();
+        return;
+      }
       setPermissionError({
         visible: true,
         title: permResult.missingPrecise ? 'Precise location required' : 'Location required',
@@ -865,6 +873,12 @@ export default function ActivityBoardScreen() {
                       onPress={async () => {
                         const permResult = await checkMipoVisibleModePermissions();
                         if (!permResult.ok) {
+                          const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id, id);
+                          if (turnedOffMipo || turnedOffLiveLocation) {
+                            if (turnedOffMipo) setVisible(false, null);
+                            await fetchPosts();
+                            return;
+                          }
                           setPermissionError({
                             visible: true,
                             title: permResult.missingPrecise ? 'Precise location required' : 'Location required',

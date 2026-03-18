@@ -148,6 +148,35 @@ export async function isMipoLocationHeartbeatStale(userId: string): Promise<bool
 
 export type MipoTurnOffReason = 'heartbeat_stale' | 'location_permission_revoked' | 'unknown';
 
+export type TurnOffLocationResult = { turnedOffMipo: boolean; turnedOffLiveLocation: boolean };
+
+/**
+ * When location permission is denied: if user has Mipo visible or active join me live location
+ * for the given activity, turn them off silently. Returns what was turned off
+ * (caller should NOT prompt to enable location; caller should call setVisible(false) if turnedOffMipo).
+ */
+export async function turnOffLocationSharingIfActiveWhenPermissionDenied(
+  userId: string,
+  activityId?: string
+): Promise<TurnOffLocationResult> {
+  const { turnOffActiveLiveLocationIfForActivity } = await import('./liveLocationPost');
+  let turnedOffMipo = false;
+  let turnedOffLiveLocation = false;
+  const { data: session } = await supabase
+    .from('mipo_visible_sessions')
+    .select('user_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (session) {
+    await turnOffMipoVisibleMode(userId, 'location_permission_revoked');
+    turnedOffMipo = true;
+  }
+  if (activityId) {
+    turnedOffLiveLocation = await turnOffActiveLiveLocationIfForActivity(activityId, userId);
+  }
+  return { turnedOffMipo, turnedOffLiveLocation };
+}
+
 /**
  * Turn off Mipo visible mode: stop location updates, clear active user, delete session.
  * Use when the foreground service was killed (e.g. user swiped notification).

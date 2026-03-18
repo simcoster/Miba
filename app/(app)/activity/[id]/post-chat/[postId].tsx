@@ -27,6 +27,7 @@ class MapErrorBoundary extends React.Component<
 }
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMipo } from '@/contexts/MipoContext';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -37,7 +38,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Message } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
-import { requestLocationPermission } from '@/lib/mipoLocation';
+import { requestLocationPermission, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { turnOffLiveLocationPost } from '@/lib/liveLocationPost';
 import Colors from '@/constants/Colors';
 
@@ -69,6 +70,7 @@ export default function PostChatScreen() {
     fromTab?: string;
   }>();
   const { user } = useAuth();
+  const { setVisible } = useMipo();
   useSetTabHighlight(fromTab);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -335,10 +337,20 @@ export default function PostChatScreen() {
     if (!postId || !user || !post) return;
     const granted = await requestLocationPermission();
     if (!granted) {
-      Alert.alert(
-        'Location required',
-        'Please enable location access to share your live location.'
-      );
+      const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id, post.activity_id);
+      if (turnedOffMipo || turnedOffLiveLocation) {
+        if (turnedOffMipo) setVisible(false, null);
+        if (turnedOffLiveLocation) {
+          setPost((p) => (p ? { ...p, chat_closed_at: new Date().toISOString() } : null));
+          setLocationShares((prev) => prev.filter((s) => s.user_id !== user.id));
+          setSharingLocation(false);
+        }
+      } else {
+        Alert.alert(
+          'Location required',
+          'Please enable location access to share your live location.'
+        );
+      }
       return;
     }
     setShareLocationLoading(true);
