@@ -8,7 +8,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isPast } from 'date-fns';
+import { format, isPast, addHours } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Activity, isJoinMeNow } from '@/lib/types';
@@ -238,7 +238,7 @@ export default function EventsScreen() {
       };
     }) as Activity[];
 
-    setInvitedCount(raw.filter(a => a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time))).length);
+    setInvitedCount(raw.filter(a => a.my_rsvp?.status === 'pending' && !isPast(addHours(new Date(a.activity_time), 24))).length);
 
     const enriched = await enrichWithSeenStatus(raw, user.id);
     setAllActivities(enriched);
@@ -430,9 +430,12 @@ export default function EventsScreen() {
     : allActivities.filter(a => !hiddenIds.has(a.id));
 
   const getFilteredList = (activities: Activity[]): ListItem[] => {
+    // Event is "past" (moves to Past tab) only if start time was >24h ago
+    const isPast24h = (s: string) => isPast(addHours(new Date(s), 24));
+    const notPast24h = (s: string) => !isPast24h(s);
     switch (filter) {
       case 'upcoming': {
-        const future = (s: string) => !isPast(new Date(s));
+        const future = (s: string) => notPast24h(s); // future or within last 24h
         const isHost = (a: Activity) => a.created_by === user?.id;
         const notExpired = (a: Activity) =>
           !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
@@ -486,17 +489,17 @@ export default function EventsScreen() {
       case 'past':
         return [...activities]
           .reverse()
-          .filter(a =>
-            !mipoDmActivityIds.has(a.id) &&
-            ((isPast(new Date(a.activity_time)) &&
-              (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending')) ||
-            (a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in')))
-          );
+          .filter(a => {
+            if (mipoDmActivityIds.has(a.id) || !isPast24h(a.activity_time)) return false;
+            const rsvpIn = a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending';
+            const limitedClosed = a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in');
+            return rsvpIn || limitedClosed;
+          });
       case 'invited': {
         const notExpired = (a: Activity) =>
           !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
         const pending = activities.filter(a =>
-          a.my_rsvp?.status === 'pending' && !isPast(new Date(a.activity_time)) && notExpired(a)
+          a.my_rsvp?.status === 'pending' && notPast24h(a.activity_time) && notExpired(a)
         );
         const joinMe = pending
           .filter(a => a.is_join_me)
@@ -674,6 +677,9 @@ export default function EventsScreen() {
         <FlatList
           data={listData}
           keyExtractor={item => ('__sep' in item ? item.key : item.id)}
+          ListHeaderComponent={filter === 'past' ? (
+            <Text style={styles.pastHint}>Older than 24 hours</Text>
+          ) : null}
           renderItem={({ item }) => {
             if ('__sep' in item) {
               return (
@@ -844,6 +850,11 @@ const styles = StyleSheet.create({
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   emptyContainer: { flexGrow: 1 },
   list: { paddingHorizontal: 20, paddingBottom: 160 },
+  pastHint: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginBottom: 12,
+  },
   sectionSep: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     marginTop: 4, marginBottom: 12,

@@ -7,6 +7,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, addHours, addMinutes } from 'date-fns';
@@ -34,6 +35,7 @@ export default function NewActivityScreen() {
   const {
     clone,
     cloneFrom,
+    fromTab,
     fromPoster,
     joinMe,
     title: paramTitle,
@@ -45,6 +47,7 @@ export default function NewActivityScreen() {
   } = useLocalSearchParams() as {
     clone?: string;
     cloneFrom?: string;
+    fromTab?: string;
     fromPoster?: string;
     joinMe?: string;
     title?: string;
@@ -54,6 +57,8 @@ export default function NewActivityScreen() {
     placePhotoName?: string;
     activityTime?: string;
   };
+
+  useSetTabHighlight(fromTab ?? 'events');
 
   const isClone = clone === '1';
   const isFromPoster = fromPoster === '1';

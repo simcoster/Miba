@@ -99,7 +99,7 @@ export function ActivityCard({
     <TouchableOpacity
       style={[
         styles.card,
-        past && styles.cardPast,
+        past && fromTab === 'past' && styles.cardPast,
         isPending && !past && styles.cardPending,
         isDeleting && styles.cardDeleting,
       ]}
@@ -139,6 +139,11 @@ export function ActivityCard({
 
         <View style={styles.headerRight}>
           {activity.has_new_messages && <View style={styles.newMsgDot} />}
+          {past && fromTab === 'upcoming' && (
+            <View style={[styles.rsvpBadge, { backgroundColor: Colors.borderLight }]}>
+              <Text style={[styles.rsvpBadgeText, { color: Colors.textSecondary }]}>Started</Text>
+            </View>
+          )}
           {hostingConfig && (
             <View style={[styles.rsvpBadge, { backgroundColor: hostingConfig.bg }]}>
               <Ionicons name={hostingConfig.iconName} size={13} color={hostingConfig.iconColor} />
@@ -158,7 +163,7 @@ export function ActivityCard({
         </View>
       </View>
 
-      <Text style={[styles.title, past && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={2}>
+      <Text style={[styles.title, past && fromTab === 'past' && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={2}>
         {activity.title}
       </Text>
         </View>

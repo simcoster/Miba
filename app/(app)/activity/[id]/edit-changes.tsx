@@ -31,7 +31,7 @@ function formatFieldValue(field: keyof EditableFields, value: string | null | un
 
 export default function EditChangesScreen() {
   const { id, messageId, fromTab } = useLocalSearchParams<{ id: string; messageId: string; fromTab?: string }>();
-  useSetTabHighlight(fromTab);
+  useSetTabHighlight(fromTab ?? 'chats');
 
   const [metadata, setMetadata] = useState<EditMetadata | null>(null);
   const [loading, setLoading] = useState(true);

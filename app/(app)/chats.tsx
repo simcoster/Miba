@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
 import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
+import { getHiddenActivityIds } from '@/lib/hiddenActivities';
 import type { SplashPreset } from '@/lib/splashArt';
 
 type ChatItem = {
@@ -65,11 +66,18 @@ export default function ChatsScreen() {
   const fetchChats = useCallback(async () => {
     if (!user) return;
 
-    const { data: rsvps } = await supabase
-      .from('rsvps')
-      .select('activity_id')
-      .eq('user_id', user.id);
-    const activityIds = [...new Set((rsvps ?? []).map((r: { activity_id: string }) => r.activity_id))];
+    const [rsvpsRes, hiddenIds] = await Promise.all([
+      supabase.from('rsvps').select('activity_id, status').eq('user_id', user.id),
+      getHiddenActivityIds(),
+    ]);
+    const rsvps = rsvpsRes.data ?? [];
+    const declinedOrHiddenIds = new Set<string>([
+      ...rsvps.filter((r: { status: string }) => r.status === 'out').map((r: { activity_id: string }) => r.activity_id),
+      ...hiddenIds,
+    ]);
+    const activityIds = [...new Set(rsvps.map((r: { activity_id: string }) => r.activity_id))].filter(
+      (id) => !declinedOrHiddenIds.has(id)
+    );
     if (activityIds.length === 0) {
       setChats([]);
       return;
@@ -191,15 +199,18 @@ export default function ChatsScreen() {
     );
 
     const [activitiesRes, profilesRes] = await Promise.all([
-      supabase.from('activities').select('id, title, splash_art, place_photo_name').in('id', allActivityIds),
+      supabase.from('activities').select('id, title, splash_art, place_photo_name, status').in('id', allActivityIds),
       supabase.from('profiles').select('id, full_name, avatar_url').in('id', otherUserIds),
     ]);
 
     const activities = new Map(
-      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null; place_photo_name: string | null }) => [
+      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null; place_photo_name: string | null; status?: string }) => [
         a.id,
         a,
       ])
+    );
+    const cancelledActivityIds = new Set(
+      (activitiesRes.data ?? []).filter((a: { status?: string }) => a.status === 'cancelled').map((a: { id: string }) => a.id)
     );
     const profileMap = new Map(
       (profilesRes.data ?? []).map((p: { id: string; full_name: string | null; avatar_url: string | null }) => [
@@ -208,7 +219,9 @@ export default function ChatsScreen() {
       ])
     );
 
-    const mipoChatItems: ChatItem[] = mipoItems.map((i) => {
+    const mipoChatItems: ChatItem[] = mipoItems
+      .filter((i) => !cancelledActivityIds.has(i.activityId))
+      .map((i) => {
       const dm = mipoDms.get(i.activityId)!;
       const otherId = dm.user_a_id === user.id ? dm.user_b_id : dm.user_a_id;
       const profile = profileMap.get(otherId);
@@ -225,7 +238,9 @@ export default function ChatsScreen() {
       };
     });
 
-    const eventChatItems: ChatItem[] = eventItems.map((i) => {
+    const eventChatItems: ChatItem[] = eventItems
+      .filter((i) => !cancelledActivityIds.has(i.activityId))
+      .map((i) => {
       const activity = activities.get(i.activityId);
       return {
         activityId: i.activityId,
@@ -240,7 +255,9 @@ export default function ChatsScreen() {
       };
     });
 
-    const liveLocationChatItems: ChatItem[] = liveLocationItems.map((i) => {
+    const liveLocationChatItems: ChatItem[] = liveLocationItems
+      .filter((i) => !cancelledActivityIds.has(i.activityId))
+      .map((i) => {
       const activity = activities.get(i.activityId);
       return {
         activityId: i.activityId,

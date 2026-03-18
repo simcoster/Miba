@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, usePathname } from 'expo-router';
 
 /** Tab names that appear in the bottom tab bar */
 export type TabName = 'index' | 'events' | 'circles' | 'profile' | 'chats' | 'mipo';
@@ -25,11 +25,19 @@ const TabHighlightContext = createContext<TabHighlightContextType>({
   setEffectiveTab: () => {},
 });
 
+const LOG_TAB = true; // Set to false to disable tab highlight logs
+
 export function TabHighlightProvider({ children }: { children: React.ReactNode }) {
-  const [effectiveTab, setEffectiveTab] = useState<TabName | null>(null);
+  const [effectiveTab, setEffectiveTabState] = useState<TabName | null>(null);
+  const setEffectiveTab = React.useCallback((tab: TabName | null) => {
+    if (LOG_TAB) {
+      console.log('[TabHighlight] setEffectiveTab:', tab, 'stack:', new Error().stack?.split('\n').slice(2, 5).join('\n'));
+    }
+    setEffectiveTabState(tab);
+  }, []);
 
   return (
-    <TabHighlightContext.Provider value={{ effectiveTab, setEffectiveTab }}>
+    <TabHighlightContext.Provider value={{ effectiveTab: effectiveTab, setEffectiveTab }}>
       {children}
     </TabHighlightContext.Provider>
   );
@@ -44,21 +52,38 @@ export function useSetTabHighlight(fromTab: string | undefined) {
   const { setEffectiveTab } = useTabHighlight();
   useEffect(() => {
     const tab = fromTabToTabName(fromTab);
+    if (LOG_TAB) console.log('[TabHighlight] useSetTabHighlight: fromTab=', fromTab, '-> tab=', tab);
     setEffectiveTab(tab);
-    return () => setEffectiveTab(null);
+    return () => {
+      if (LOG_TAB) console.log('[TabHighlight] useSetTabHighlight cleanup: setting null');
+      setEffectiveTab(null);
+    };
   }, [fromTab, setEffectiveTab]);
 }
 
 /** Call from main tab screens (index, events, circles, profile, chats, mipo) to clear highlight when user taps that tab */
 export function useClearTabHighlightOnFocus() {
   const { setEffectiveTab } = useTabHighlight();
+  const pathname = usePathname();
   useFocusEffect(
     React.useCallback(() => {
+      if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus: tab gained focus, pathname=', pathname);
       // Defer clear so that when navigating to a child (e.g. circle/[id], activity/[id]),
       // the child's useSetTabHighlight runs first. If we lose focus before the timeout,
       // we cancel the clear so the highlight stays.
-      const id = setTimeout(() => setEffectiveTab(null), 0);
-      return () => clearTimeout(id);
-    }, [setEffectiveTab])
+      const id = setTimeout(() => {
+        // Don't clear when we're on a nested route (activity, circle) — the child screen
+        // set the effectiveTab and we should preserve it.
+        const isNestedRoute = pathname?.includes('/activity/') || pathname?.includes('/circle/');
+        if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus timeout: pathname=', pathname, 'isNestedRoute=', isNestedRoute, 'willClear=', !isNestedRoute);
+        if (!isNestedRoute) {
+          setEffectiveTab(null);
+        }
+      }, 0);
+      return () => {
+        if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus: tab lost focus, cancelling timeout');
+        clearTimeout(id);
+      };
+    }, [setEffectiveTab, pathname])
   );
 }

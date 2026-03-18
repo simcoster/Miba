@@ -17,7 +17,7 @@ class MapErrorBoundary extends React.Component<
   }
 }
 import * as Location from 'expo-location';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useGlobalSearchParams, useRouter } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday, isYesterday } from 'date-fns';
@@ -50,9 +50,12 @@ function formatMessageTime(dateStr: string): string {
 }
 
 export default function ActivityChatScreen() {
-  const { id, fromTab } = useLocalSearchParams<{ id: string; fromTab?: string }>();
+  const localParams = useLocalSearchParams<{ id: string; fromTab?: string }>();
+  const globalParams = useGlobalSearchParams<{ fromTab?: string }>();
+  const { id } = localParams;
+  const fromTab = localParams.fromTab ?? globalParams.fromTab;
   const { user } = useAuth();
-  useSetTabHighlight(fromTab);
+  useSetTabHighlight(fromTab ?? 'chats');
   const router = useRouter();
 
   const insets = useSafeAreaInsets();

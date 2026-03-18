@@ -16,7 +16,7 @@ import {
   Pressable,
   Dimensions,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useGlobalSearchParams, useRouter } from 'expo-router';
 import { useMipo } from '@/contexts/MipoContext';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,10 +57,13 @@ function formatPostTime(dateStr: string): string {
 type PostWithComments = Post & { comments: PostComment[] };
 
 export default function ActivityBoardScreen() {
-  const { id, fromTab } = useLocalSearchParams<{ id: string; fromTab?: string }>();
+  const localParams = useLocalSearchParams<{ id: string; fromTab?: string }>();
+  const globalParams = useGlobalSearchParams<{ fromTab?: string }>();
+  const { id } = localParams;
+  const fromTab = localParams.fromTab ?? globalParams.fromTab;
   const { user } = useAuth();
   const { setVisible } = useMipo();
-  useSetTabHighlight(fromTab);
+  useSetTabHighlight(fromTab ?? 'chats');
   const router = useRouter();
   const insets = useSafeAreaInsets();
 

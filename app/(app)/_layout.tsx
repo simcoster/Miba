@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Tabs, useRouter } from 'expo-router';
+import { Tabs, useRouter, usePathname } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
@@ -26,9 +26,22 @@ function TabIcon({ name, focused, label }: {
   );
 }
 
+const LOG_TAB = true;
+
 function TabIconWithHighlight({ tabName, focused, children }: { tabName: TabName; focused: boolean; children: (focused: boolean) => React.ReactNode }) {
   const { effectiveTab } = useTabHighlight();
-  const effectiveFocused = focused || effectiveTab === tabName;
+  const pathname = usePathname();
+  // Infer fallback tab when effectiveTab is null — ensures one tab is always highlighted
+  const fallbackTab: TabName | null =
+    pathname?.includes('/activity/new') ? 'events'
+    : pathname?.includes('/activity/') ? 'chats'  // board, chat, post-chat, event detail
+    : pathname?.includes('/circle/') ? 'circles'
+    : null;
+  const resolvedTab = effectiveTab ?? fallbackTab;
+  const effectiveFocused = focused || resolvedTab === tabName;
+  if (LOG_TAB) {
+    console.log('[TabHighlight] TabIcon', tabName, 'focused=', focused, 'effectiveTab=', effectiveTab, 'fallbackTab=', fallbackTab, '-> effectiveFocused=', effectiveFocused);
+  }
   return <>{children(effectiveFocused)}</>;
 }
 
