@@ -687,27 +687,28 @@ export default function ActivityDetailScreen() {
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
       <View style={styles.titleSection}>
+        {((activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt))) ? (
+          <View style={styles.splashBlock}>
+            <SplashArt
+              preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
+              imageUri={
+                isEditing && editPlacePhotoName
+                  ? getCoverImageUrl(editPlacePhotoName)
+                  : activity.place_photo_name
+                    ? getCoverImageUrl(activity.place_photo_name)
+                    : undefined
+              }
+              height={90}
+              opacity={0.5}
+              resizeMode="cover"
+            />
+          </View>
+        ) : isEditing ? (
+          <TouchableOpacity style={styles.splashThumbPlaceholder} onPress={() => setShowEditSplashPicker(true)}>
+            <Ionicons name="image-outline" size={24} color={Colors.primary} />
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.titleRow}>
-          {(activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt)) ? (
-            <View style={styles.splashThumb}>
-              <SplashArt
-                preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
-                imageUri={
-                  isEditing && editPlacePhotoName
-                    ? getCoverImageUrl(editPlacePhotoName)
-                    : activity.place_photo_name
-                      ? getCoverImageUrl(activity.place_photo_name)
-                      : undefined
-                }
-                height={56}
-                opacity={1}
-              />
-            </View>
-          ) : isEditing ? (
-            <TouchableOpacity style={styles.splashThumbPlaceholder} onPress={() => setShowEditSplashPicker(true)}>
-              <Ionicons name="image-outline" size={24} color={Colors.primary} />
-            </TouchableOpacity>
-          ) : null}
           <View style={styles.titleContent}>
             {isEditing ? (
               <>
@@ -1446,9 +1447,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
+  splashBlock: { marginHorizontal: -20, marginTop: -8, marginBottom: 12, overflow: 'hidden', borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 8 },
-  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
-  splashThumbPlaceholder: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  splashThumbPlaceholder: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginBottom: 8 },
   titleContent: { flex: 1, minWidth: 0 },
   editSection: { marginBottom: 16 },
   editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
@@ -1462,9 +1463,9 @@ const styles = StyleSheet.create({
   splashPickerOptionLabel: { fontSize: 10, fontWeight: '600', color: Colors.textSecondary, marginTop: 4 },
   splashPickerOptionText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
   content: { padding: 20, paddingBottom: 60 },
-  title: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 12, paddingVertical: 8, paddingHorizontal: 4 },
+  title: { fontSize: 28, fontWeight: '800', color: '#000', lineHeight: 34, marginBottom: 12, paddingVertical: 8, paddingHorizontal: 4 },
   titleRtl: { textAlign: 'right' },
-  titlePast: { color: Colors.textSecondary },
+  titlePast: { color: '#000' },
   cancelBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.dangerLight, borderRadius: 12, padding: 12, marginBottom: 12 },
   cancelText: { fontSize: 14, color: Colors.danger, fontWeight: '600' },
   limitedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
@@ -1563,7 +1564,7 @@ const styles = StyleSheet.create({
   noteInput: { fontSize: 14, color: Colors.text, lineHeight: 20, minHeight: 25 },
   noteSaveBtn: { marginLeft: 'auto', backgroundColor: Colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3 },
   noteSaveBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
-  titleInput: { fontSize: 26, fontWeight: '800', color: Colors.text, lineHeight: 32, marginBottom: 12, borderBottomWidth: 2, borderBottomColor: Colors.primary, paddingBottom: 4 },
+  titleInput: { fontSize: 26, fontWeight: '800', color: '#000', lineHeight: 32, marginBottom: 12, borderBottomWidth: 2, borderBottomColor: Colors.primary, paddingBottom: 4 },
   creatorFooter: { flexDirection: 'row', gap: 10, marginTop: 8, marginBottom: 8 },
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' },
   menuCard: {

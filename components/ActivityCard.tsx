@@ -108,13 +108,12 @@ export function ActivityCard({
       disabled={isDeleting}
     >
       <View style={styles.cardContent}>
-      <View style={styles.titleRow}>
-        {getActivityCoverProps(activity) && (
-          <View style={styles.splashThumb}>
-            <SplashArt {...getActivityCoverProps(activity)!} height={56} opacity={1} />
+      {getActivityCoverProps(activity) ? (
+        <View style={styles.splashBlockWrapper}>
+          <View style={styles.splashBlock}>
+            <SplashArt {...getActivityCoverProps(activity)!} height={90} opacity={0.5} resizeMode="cover" />
           </View>
-        )}
-        <View style={styles.titleContent}>
+          <View style={styles.badgesOverlay}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           {activity.status === 'cancelled' && (
@@ -162,8 +161,59 @@ export function ActivityCard({
           )}
         </View>
       </View>
-
-      <Text style={[styles.title, past && fromTab === 'past' && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={2}>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            {activity.status === 'cancelled' && (
+              <View style={styles.cancelledBadge}>
+                <Text style={styles.cancelledBadgeText}>Cancelled</Text>
+              </View>
+            )}
+            {isHidden && (
+              <View style={[styles.rsvpBadge, { backgroundColor: HIDDEN_CONFIG.bg }]}>
+                <Ionicons name={HIDDEN_CONFIG.iconName} size={13} color={HIDDEN_CONFIG.iconColor} />
+                <Text style={[styles.rsvpBadgeText, { color: HIDDEN_CONFIG.textColor }]}>
+                  {HIDDEN_CONFIG.label}
+                </Text>
+              </View>
+            )}
+            {activity.is_new && !visitedDetails && !(isHost && myRsvp?.status === 'in') && (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>New</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.headerRight}>
+            {activity.has_new_messages && <View style={styles.newMsgDot} />}
+            {past && fromTab === 'upcoming' && (
+              <View style={[styles.rsvpBadge, { backgroundColor: Colors.borderLight }]}>
+                <Text style={[styles.rsvpBadgeText, { color: Colors.textSecondary }]}>Started</Text>
+              </View>
+            )}
+            {hostingConfig && (
+              <View style={[styles.rsvpBadge, { backgroundColor: hostingConfig.bg }]}>
+                <Ionicons name={hostingConfig.iconName} size={13} color={hostingConfig.iconColor} />
+                <Text style={[styles.rsvpBadgeText, { color: hostingConfig.textColor }]}>
+                  {hostingConfig.label}
+                </Text>
+              </View>
+            )}
+            {rsvpConfig && (
+              <View style={[styles.rsvpBadge, { backgroundColor: rsvpConfig.bg }]}>
+                <Ionicons name={rsvpConfig.iconName} size={13} color={rsvpConfig.iconColor} />
+                <Text style={[styles.rsvpBadgeText, { color: rsvpConfig.textColor }]}>
+                  {rsvpConfig.label}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+      <View style={styles.titleRow}>
+        <View style={styles.titleContent}>
+      <Text style={[styles.title, past && fromTab === 'past' && styles.titlePast, isHebrew(activity.title) && styles.titleRtl]} numberOfLines={1} ellipsizeMode="tail">
         {activity.title}
       </Text>
         </View>
@@ -282,8 +332,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.borderLight,
   },
   cardContent: { padding: 16 },
+  splashBlockWrapper: { position: 'relative' as const, marginHorizontal: -16, marginTop: -16, marginBottom: 12 },
+  splashBlock: { overflow: 'hidden', borderTopLeftRadius: 17, borderTopRightRadius: 17 },
+  badgesOverlay: { position: 'absolute' as const, top: 0, left: 0, right: 0, padding: 16 },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 10 },
-  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
   titleContent: { flex: 1, minWidth: 0 },
   cardPast: { opacity: 0.6 },
   cardDeleting: { opacity: 0.5 },

@@ -13,9 +13,11 @@ type SplashArtProps = {
   height?: number;
   /** Opacity 0–1. Default 0.2 for background use behind text. */
   opacity?: number;
+  /** 'cover' crops to fill; 'contain' scales to fit; 'stretch' stretches to fill (may distort). Default cover. */
+  resizeMode?: 'cover' | 'contain' | 'stretch';
 };
 
-export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2 }: SplashArtProps) {
+export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2, resizeMode = 'cover' }: SplashArtProps) {
   const [remoteFailed, setRemoteFailed] = useState(false);
   useEffect(() => {
     setRemoteFailed(false);
@@ -32,7 +34,7 @@ export function SplashArt({ preset, imageUri, style, height = 120, opacity = 0.2
       <Image
         source={source}
         style={[styles.image, { height, opacity }, style]}
-        resizeMode="cover"
+        resizeMode={resizeMode}
         onError={() => setRemoteFailed(true)}
       />
     </View>

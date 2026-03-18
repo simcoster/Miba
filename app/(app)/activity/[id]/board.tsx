@@ -679,18 +679,19 @@ export default function ActivityBoardScreen() {
         }
         disabled={!id}
       >
-        <View style={styles.titleRow}>
+        <View style={[styles.titleRow, (activityDetails?.place_photo_name || activityDetails?.splash_art) && styles.titleRowWithSplash]}>
           {(activityDetails?.place_photo_name || activityDetails?.splash_art) && (
-            <View style={styles.splashThumb}>
+            <View style={styles.splashBackground}>
               <SplashArt
                 preset={getActivityCoverProps(activityDetails)?.preset}
                 imageUri={getActivityCoverProps(activityDetails)?.imageUri}
-                height={56}
-                opacity={1}
+                height={90}
+                opacity={0.5}
+                resizeMode="cover"
               />
             </View>
           )}
-          <View style={styles.titleContent}>
+          <View style={[styles.titleContent, (activityDetails?.place_photo_name || activityDetails?.splash_art) && styles.titleContentOverlay]}>
             <Text style={[styles.boardTitle, isHebrew(activityTitle || '') && styles.boardTitleRtl]} numberOfLines={2}>
               {activityTitle || 'Board'}
             </Text>
@@ -1086,8 +1087,10 @@ const styles = StyleSheet.create({
 
   titleSection: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  splashThumb: { width: 56, height: 56, borderRadius: 12, overflow: 'hidden', flexShrink: 0 },
+  titleRowWithSplash: { position: 'relative' as const, marginHorizontal: -20, marginTop: -8, minHeight: 90 },
+  splashBackground: { position: 'absolute' as const, top: 0, left: 0, right: 0, overflow: 'hidden', borderTopLeftRadius: 12, borderTopRightRadius: 12 },
   titleContent: { flex: 1, minWidth: 0 },
+  titleContentOverlay: { padding: 20, paddingTop: 16 },
   boardTitle: { fontSize: 28, fontWeight: '800', color: Colors.text, lineHeight: 34, marginBottom: 4, paddingVertical: 8, paddingHorizontal: 4 },
   boardTitleRtl: { textAlign: 'right' },
   boardSubtitle: { fontSize: 14, color: Colors.textSecondary },
