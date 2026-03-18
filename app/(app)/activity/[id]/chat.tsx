@@ -98,6 +98,7 @@ export default function ActivityChatScreen() {
         .from('messages')
         .select('*, profile:profiles(id, full_name, avatar_url)')
         .eq('activity_id', id)
+        .is('post_id', null)
         .order('created_at', { ascending: true }),
     ]);
 
@@ -142,7 +143,8 @@ export default function ActivityChatScreen() {
     const { data } = await supabase
       .from('chat_location_shares')
       .select('activity_id, user_id, lat, lng, updated_at')
-      .eq('activity_id', id);
+      .eq('activity_id', id)
+      .is('post_id', null);
     const rows = (data ?? []) as { activity_id: string; user_id: string; lat: number; lng: number; updated_at: string }[];
     if (rows.length === 0) {
       setLocationShares([]);
@@ -263,6 +265,7 @@ export default function ActivityChatScreen() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
         async (payload) => {
+          if ((payload.new as Message & { post_id?: string | null })?.post_id) return;
           const { data } = await supabase
             .from('messages')
             .select('*, profile:profiles(id, full_name, avatar_url)')
@@ -279,6 +282,7 @@ export default function ActivityChatScreen() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
         (payload) => {
+          if ((payload.new as Message & { post_id?: string | null })?.post_id) return;
           // System messages can be updated in-place when edits are merged.
           setMessages(prev =>
             prev.map(m => m.id === (payload.new as Message).id ? { ...m, ...(payload.new as Message) } : m)
@@ -289,6 +293,7 @@ export default function ActivityChatScreen() {
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'messages', filter: `activity_id=eq.${id}` },
         (payload) => {
+          if ((payload.old as Message & { post_id?: string | null })?.post_id) return;
           setMessages(prev => prev.filter(m => m.id !== (payload.old as Message).id));
         }
       )

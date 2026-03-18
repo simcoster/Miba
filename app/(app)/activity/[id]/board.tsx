@@ -31,9 +31,19 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
+import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
+import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
+import * as Location from 'expo-location';
+import { addMinutes } from 'date-fns';
 
 const DROPDOWN_WIDTH = 110;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+const LIVE_LOCATION_TIME_OPTIONS = [
+  { label: '20 minutes', minutes: 20 },
+  { label: '1 hour', minutes: 60 },
+  { label: '5 hours', minutes: 300 },
+] as const;
 
 function formatPostTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -75,12 +85,21 @@ export default function ActivityBoardScreen() {
   const [commentSending, setCommentSending] = useState<Record<string, boolean>>({});
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [showNewPostModal, setShowNewPostModal] = useState(false);
+  const [newPostMode, setNewPostMode] = useState<'text' | 'live_location'>('text');
+  const [showLiveLocationTimePicker, setShowLiveLocationTimePicker] = useState(false);
+  const [liveLocationPosting, setLiveLocationPosting] = useState(false);
+  const [permissionError, setPermissionError] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
   const [postMenuPostId, setPostMenuPostId] = useState<string | null>(null);
   const [postMenuPosition, setPostMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const [commentMenuComment, setCommentMenuComment] = useState<PostComment | null>(null);
   const [commentMenuPosition, setCommentMenuPosition] = useState<{ x: number; y: number; width: number } | null>(null);
   const postButtonRefs = useRef<Record<string, View | null>>({});
   const commentButtonRefs = useRef<Record<string, View | null>>({});
+  const liveLocationExpiryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isHebrew = (s: string) => /[\u0590-\u05FF]/.test(s);
 
@@ -162,6 +181,14 @@ export default function ActivityBoardScreen() {
     });
   }, [fetchInitial, markRead]);
 
+  useEffect(() => {
+    return () => {
+      if (liveLocationExpiryIntervalRef.current) {
+        clearInterval(liveLocationExpiryIntervalRef.current);
+      }
+    };
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchInitial();
@@ -207,11 +234,110 @@ export default function ActivityBoardScreen() {
       if (error) throw error;
       setPostText('');
       setShowNewPostModal(false);
+      setNewPostMode('text');
       await fetchPosts();
     } catch (e) {
       Alert.alert('Could not post', (e as Error).message ?? 'Please try again.');
     } finally {
       setPosting(false);
+    }
+  };
+
+  const handleShareLiveLocation = async (minutes: number) => {
+    if (!user || !id) return;
+    const { data: activePost } = await supabase
+      .from('posts')
+      .select('id')
+      .eq('activity_id', id)
+      .eq('post_type', 'live_location')
+      .is('chat_closed_at', null)
+      .maybeSingle();
+    if (activePost) {
+      Alert.alert(
+        'Live location active',
+        'There is already an active live location for this event. Only one can be active at a time.'
+      );
+      return;
+    }
+    setShowLiveLocationTimePicker(false);
+    const permResult = await checkMipoVisibleModePermissions();
+    if (!permResult.ok) {
+      setPermissionError({
+        visible: true,
+        title: permResult.missingPrecise ? 'Precise location required' : 'Location required',
+        message: permResult.message ?? 'Please enable location access in Settings.',
+      });
+      return;
+    }
+    setLiveLocationPosting(true);
+    try {
+      await Location.enableNetworkProviderAsync().catch(() => {});
+      let loc: Location.LocationObject | null = null;
+      try {
+        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      } catch {
+        loc = await Location.getLastKnownPositionAsync();
+      }
+      if (!loc) {
+        throw new Error('Could not get your location. Make sure GPS and location services are on.');
+      }
+      const now = new Date();
+      const expiresAt = addMinutes(now, minutes);
+      const { data: post, error: postError } = await supabase
+        .from('posts')
+        .insert({
+          activity_id: id,
+          user_id: user.id,
+          content: 'Live Location',
+          post_type: 'live_location',
+          creator_expires_at: expiresAt.toISOString(),
+        })
+        .select('id')
+        .single();
+      if (postError || !post) throw postError ?? new Error('Could not create post');
+      const { error: shareError } = await supabase.from('chat_location_shares').insert({
+        activity_id: id,
+        post_id: post.id,
+        user_id: user.id,
+        lat: loc.coords.latitude,
+        lng: loc.coords.longitude,
+        updated_at: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+      });
+      if (shareError) {
+        await supabase.from('posts').delete().eq('id', post.id);
+        throw shareError;
+      }
+      const sub = await startLiveLocationPostWatch(
+        post.id,
+        user.id,
+        expiresAt,
+        id,
+        (err) => Alert.alert('Error', err.message)
+      );
+      if (!sub) {
+        await supabase.from('chat_location_shares').delete().eq('post_id', post.id).eq('user_id', user.id);
+        await supabase.from('posts').delete().eq('id', post.id);
+        throw new Error('Could not start location tracking.');
+      }
+      setShowNewPostModal(false);
+      setNewPostMode('text');
+      await fetchPosts();
+      router.push(`/(app)/activity/${id}/post-chat/${post.id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`);
+      if (liveLocationExpiryIntervalRef.current) clearInterval(liveLocationExpiryIntervalRef.current);
+      liveLocationExpiryIntervalRef.current = setInterval(() => {
+        if (new Date() >= expiresAt) {
+          if (liveLocationExpiryIntervalRef.current) {
+            clearInterval(liveLocationExpiryIntervalRef.current);
+            liveLocationExpiryIntervalRef.current = null;
+          }
+          turnOffLiveLocationPost(post.id, user.id);
+        }
+      }, 30000);
+    } catch (e) {
+      Alert.alert('Could not share live location', (e as Error).message ?? 'Please try again.');
+    } finally {
+      setLiveLocationPosting(false);
     }
   };
 
@@ -357,6 +483,32 @@ export default function ActivityBoardScreen() {
   const renderPost = ({ item: post }: { item: PostWithComments }) => {
     const isMe = post.user_id === user?.id;
     const isEditing = editingPostId === post.id;
+    const isLiveLocation = post.post_type === 'live_location';
+    const isExpired = isLiveLocation && !!post.chat_closed_at;
+
+    if (isLiveLocation) {
+      return (
+        <TouchableOpacity
+          style={styles.postCard}
+          onPress={() => router.push(`/(app)/activity/${id}/post-chat/${post.id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.postHeader}>
+            <View style={styles.liveLocationIconWrap}>
+              <Ionicons name="map" size={24} color={Colors.primary} />
+            </View>
+            <View style={styles.postHeaderText}>
+              <Text style={styles.postAuthor}>Live Location</Text>
+              <Text style={styles.postTime}>
+                {post.profile?.full_name ?? 'Someone'}
+                {isExpired ? ' · Expired' : ''}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+          </View>
+        </TouchableOpacity>
+      );
+    }
 
     return (
       <View style={styles.postCard}>
@@ -656,6 +808,8 @@ export default function ActivityBoardScreen() {
                 onPress={() => {
                   setShowNewPostModal(false);
                   setPostText('');
+                  setNewPostMode('text');
+                  setShowLiveLocationTimePicker(false);
                 }}
               />
               <View style={[styles.newPostModal, { paddingBottom: insets.bottom + 20 }]}>
@@ -665,37 +819,76 @@ export default function ActivityBoardScreen() {
                     onPress={() => {
                       setShowNewPostModal(false);
                       setPostText('');
+                      setNewPostMode('text');
+                      setShowLiveLocationTimePicker(false);
                     }}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Ionicons name="close" size={24} color={Colors.text} />
                   </TouchableOpacity>
                 </View>
-                <TextInput
-                  style={styles.newPostInput}
-                  value={postText}
-                  onChangeText={setPostText}
-                  placeholder="What's on your mind?"
-                  placeholderTextColor={Colors.textSecondary}
-                  multiline
-                  maxLength={2000}
-                  autoFocus
-                  textAlignVertical="top"
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.publishBtn,
-                    (!postText.trim() || posting) && styles.publishBtnDisabled,
-                  ]}
-                  onPress={handlePost}
-                  disabled={!postText.trim() || posting}
-                >
-                  {posting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.publishBtnText}>Publish</Text>
-                  )}
-                </TouchableOpacity>
+                {showLiveLocationTimePicker ? (
+                  <View style={styles.liveLocationTimePicker}>
+                    <Text style={styles.liveLocationTimePickerTitle}>Share live location for</Text>
+                    {LIVE_LOCATION_TIME_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt.minutes}
+                        style={styles.liveLocationTimeOption}
+                        onPress={() => handleShareLiveLocation(opt.minutes)}
+                        disabled={liveLocationPosting}
+                      >
+                        {liveLocationPosting ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <Ionicons name="time-outline" size={20} color={Colors.primary} />
+                        )}
+                        <Text style={styles.liveLocationTimeOptionText}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={styles.liveLocationTimeCancel}
+                      onPress={() => setShowLiveLocationTimePicker(false)}
+                      disabled={liveLocationPosting}
+                    >
+                      <Text style={styles.liveLocationTimeCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.shareLiveLocationBtn}
+                      onPress={() => setShowLiveLocationTimePicker(true)}
+                    >
+                      <Ionicons name="map-outline" size={22} color={Colors.primary} />
+                      <Text style={styles.shareLiveLocationBtnText}>Share live location</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={styles.newPostInput}
+                      value={postText}
+                      onChangeText={setPostText}
+                      placeholder="What's on your mind?"
+                      placeholderTextColor={Colors.textSecondary}
+                      multiline
+                      maxLength={2000}
+                      autoFocus
+                      textAlignVertical="top"
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.publishBtn,
+                        (!postText.trim() || posting) && styles.publishBtnDisabled,
+                      ]}
+                      onPress={handlePost}
+                      disabled={!postText.trim() || posting}
+                    >
+                      {posting ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.publishBtnText}>Publish</Text>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </KeyboardAvoidingView>
           </Modal>
@@ -752,6 +945,29 @@ export default function ActivityBoardScreen() {
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
+          </Modal>
+
+          <Modal
+            visible={permissionError.visible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setPermissionError((p) => ({ ...p, visible: false }))}
+          >
+            <Pressable
+              style={styles.dropdownOverlay}
+              onPress={() => setPermissionError((p) => ({ ...p, visible: false }))}
+            >
+              <Pressable style={styles.permissionErrorCard} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.permissionErrorTitle}>{permissionError.title}</Text>
+                <Text style={styles.permissionErrorMessage}>{permissionError.message}</Text>
+                <TouchableOpacity
+                  style={styles.permissionErrorBtn}
+                  onPress={() => setPermissionError((p) => ({ ...p, visible: false }))}
+                >
+                  <Text style={styles.permissionErrorBtnText}>OK</Text>
+                </TouchableOpacity>
+              </Pressable>
+            </Pressable>
           </Modal>
 
           <Modal
@@ -880,6 +1096,57 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   newPostModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  shareLiveLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: Colors.accentLight,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  shareLiveLocationBtnText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  liveLocationTimePicker: { marginBottom: 16 },
+  liveLocationTimePickerTitle: { fontSize: 16, color: Colors.text, marginBottom: 12 },
+  liveLocationTimeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  liveLocationTimeOptionText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  liveLocationTimeCancel: { paddingVertical: 12, alignItems: 'center' },
+  liveLocationTimeCancelText: { fontSize: 15, color: Colors.textSecondary },
+  liveLocationIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.accentLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  permissionErrorCard: {
+    marginHorizontal: 24,
+    padding: 20,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  permissionErrorTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 8 },
+  permissionErrorMessage: { fontSize: 15, color: Colors.textSecondary, marginBottom: 16, lineHeight: 22 },
+  permissionErrorBtn: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  permissionErrorBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
   newPostInput: {
     backgroundColor: Colors.background,
     borderRadius: 12,

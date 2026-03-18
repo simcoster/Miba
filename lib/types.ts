@@ -116,6 +116,8 @@ export type Message = {
   metadata?: EditMetadata | null;
   created_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  /** When set, message belongs to a live location post chat; when null, Mipo activity chat */
+  post_id?: string | null;
 };
 
 export type Post = {
@@ -126,6 +128,9 @@ export type Post = {
   created_at: string;
   updated_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  post_type?: 'text' | 'live_location';
+  creator_expires_at?: string | null;
+  chat_closed_at?: string | null;
 };
 
 export type PostComment = {

@@ -23,6 +23,8 @@ type ChatItem = {
   subtitle: string;
   lastMessageAt: string;
   isMipoDm: boolean;
+  isLiveLocation?: boolean;
+  postId?: string;
   splashArt?: SplashPreset | null;
   placePhotoName?: string | null;
   avatarUri?: string | null;
@@ -73,21 +75,27 @@ export default function ChatsScreen() {
       return;
     }
 
-    const [messagesRes, postsRes, mipoDmsRes] = await Promise.all([
+    const [messagesRes, postsRes, mipoDmsRes, liveLocationPostsRes] = await Promise.all([
       supabase
         .from('messages')
-        .select('activity_id, content, type, created_at')
+        .select('activity_id, content, type, created_at, post_id')
         .in('activity_id', activityIds)
         .order('created_at', { ascending: false }),
       supabase
         .from('posts')
-        .select('activity_id, content, created_at')
+        .select('activity_id, content, created_at, post_type')
         .in('activity_id', activityIds)
         .order('created_at', { ascending: false }),
       supabase
         .from('mipo_dm_activities')
         .select('activity_id, user_a_id, user_b_id')
         .in('activity_id', activityIds),
+      supabase
+        .from('posts')
+        .select('id, activity_id, created_at')
+        .in('activity_id', activityIds)
+        .eq('post_type', 'live_location')
+        .is('chat_closed_at', null),
     ]);
 
     const mipoDms = new Map(
@@ -98,22 +106,34 @@ export default function ChatsScreen() {
     );
     const mipoActivityIds = new Set(mipoDms.keys());
 
-    // Mipo: latest from messages
+    // Mipo: latest from messages (post_id IS NULL)
     const latestMessageByActivity = new Map<
       string,
       { content: string; type: string; created_at: string }
     >();
     for (const m of messagesRes.data ?? []) {
+      if ((m as { post_id?: string | null }).post_id) continue;
       if (!latestMessageByActivity.has(m.activity_id)) {
         latestMessageByActivity.set(m.activity_id, m);
       }
     }
 
-    // Events (board): latest from posts
+    // Events (board): latest from posts (text posts only, exclude live_location)
     const latestPostByActivity = new Map<string, { content: string; created_at: string }>();
     for (const p of postsRes.data ?? []) {
+      if ((p as { post_type?: string }).post_type === 'live_location') continue;
       if (!latestPostByActivity.has(p.activity_id)) {
         latestPostByActivity.set(p.activity_id, p);
+      }
+    }
+
+    // Live location posts: latest message per post
+    const latestMessageByPostId = new Map<string, { content: string; type: string; created_at: string }>();
+    for (const m of messagesRes.data ?? []) {
+      const postId = (m as { post_id?: string | null }).post_id;
+      if (!postId) continue;
+      if (!latestMessageByPostId.has(postId)) {
+        latestMessageByPostId.set(postId, m);
       }
     }
 
@@ -145,9 +165,21 @@ export default function ChatsScreen() {
         };
       });
 
+    const liveLocationItems: { activityId: string; postId: string; subtitle: string; lastMessageAt: string }[] =
+      (liveLocationPostsRes.data ?? []).map((p: { id: string; activity_id: string; created_at: string }) => {
+        const latest = latestMessageByPostId.get(p.id);
+        return {
+          activityId: p.activity_id,
+          postId: p.id,
+          subtitle: latest ? formatLastMessage({ type: latest.type, content: latest.content }) : 'Live Location',
+          lastMessageAt: latest?.created_at ?? p.created_at,
+        };
+      });
+
     const allActivityIds = [
       ...mipoItems.map((i) => i.activityId),
       ...eventItems.map((i) => i.activityId),
+      ...liveLocationItems.map((i) => i.activityId),
     ];
     if (allActivityIds.length === 0) {
       setChats([]);
@@ -208,7 +240,24 @@ export default function ChatsScreen() {
       };
     });
 
-    const items = [...mipoChatItems, ...eventChatItems];
+    const liveLocationChatItems: ChatItem[] = liveLocationItems.map((i) => {
+      const activity = activities.get(i.activityId);
+      return {
+        activityId: i.activityId,
+        postId: i.postId,
+        title: activity?.title ?? 'Event',
+        subtitle: i.subtitle,
+        lastMessageAt: i.lastMessageAt,
+        isMipoDm: false,
+        isLiveLocation: true,
+        splashArt: activity?.splash_art as SplashPreset | null | undefined,
+        placePhotoName: activity?.place_photo_name ?? undefined,
+        avatarUri: undefined,
+        avatarName: undefined,
+      };
+    });
+
+    const items = [...mipoChatItems, ...eventChatItems, ...liveLocationChatItems];
     items.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
     setChats(items);
   }, [user]);
@@ -242,11 +291,17 @@ export default function ChatsScreen() {
         router.push(
           item.isMipoDm
             ? `/(app)/activity/${item.activityId}/chat?fromTab=chats`
-            : `/(app)/activity/${item.activityId}/board?fromTab=chats`
+            : item.isLiveLocation && item.postId
+              ? `/(app)/activity/${item.activityId}/post-chat/${item.postId}?fromTab=chats`
+              : `/(app)/activity/${item.activityId}/board?fromTab=chats`
         )
       }
     >
-      {hasActivityCover({ place_photo_name: item.placePhotoName, splash_art: item.splashArt }) ? (
+      {item.isLiveLocation ? (
+        <View style={styles.liveLocationIcon}>
+          <Ionicons name="location" size={28} color={Colors.primary} />
+        </View>
+      ) : hasActivityCover({ place_photo_name: item.placePhotoName, splash_art: item.splashArt }) ? (
         <View style={styles.splashCircle}>
           <SplashArt {...getActivityCoverProps({ place_photo_name: item.placePhotoName, splash_art: item.splashArt })!} height={52} opacity={1} />
         </View>
@@ -259,7 +314,12 @@ export default function ChatsScreen() {
       )}
       <View style={styles.chatContent}>
         <View style={styles.chatHeader}>
-          <Text style={styles.chatTitle} numberOfLines={1}>{item.title}</Text>
+          <View style={styles.chatTitleRow}>
+            {item.isLiveLocation && (
+              <Ionicons name="location" size={14} color={Colors.primary} style={styles.chatTitleIcon} />
+            )}
+            <Text style={styles.chatTitle} numberOfLines={1}>{item.isLiveLocation ? `${item.title} · Live Location` : item.title}</Text>
+          </View>
           <Text style={styles.chatTime}>{formatChatTime(item.lastMessageAt)}</Text>
         </View>
         {item.subtitle ? (
@@ -334,6 +394,9 @@ const styles = StyleSheet.create({
   subTabTextActive: { color: '#fff' },
   listContent: { paddingHorizontal: 20, paddingVertical: 12 },
   splashCircle: { width: 52, height: 52, borderRadius: 26, overflow: 'hidden', flexShrink: 0 },
+  liveLocationIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.accentLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  chatTitleRow: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 },
+  chatTitleIcon: { marginRight: 4 },
   chatRow: {
     flexDirection: 'row',
     alignItems: 'center',

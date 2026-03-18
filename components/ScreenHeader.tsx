@@ -34,9 +34,11 @@ type ScreenHeaderProps = {
   rightActions?: RightAction[];
   /** Peek button: shows on press-in, hides on press-out (e.g. for hold-to-preview). */
   rightActionPeek?: RightActionPeek;
+  /** Optional content shown above the right actions (e.g. end time text). */
+  rightActionPrefix?: React.ReactNode;
 };
 
-export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitlePress, rightAction, rightActions, rightActionPeek }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitlePress, rightAction, rightActions, rightActionPeek, rightActionPrefix }: ScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -65,25 +67,25 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitl
           )}
         </View>
         {hasRightContent ? (
-          <View style={styles.rightActions}>
+          <View style={styles.rightColumn}>
+            {rightActionPrefix && <View style={styles.rightActionPrefix}>{rightActionPrefix}</View>}
+            <View style={styles.rightActions}>
             {actions.map((a, i) => (
               <TouchableOpacity
                 key={i}
                 onPress={a.loading ? undefined : a.onPress}
                 disabled={a.loading}
-                style={styles.rightButton}
+                style={[styles.rightButton, a.label && styles.rightButtonWithLabel]}
               >
-                {a.label
-                  ? <Text style={styles.rightButtonLabel}>{a.label}</Text>
-                  : a.loading ? (
-                    <ActivityIndicator size="small" color={Colors.primary} />
-                  ) : (
-                    <View>
-                      <Ionicons name={a.icon} size={24} color={Colors.primary} />
-                      {a.badge && <View style={styles.badge} />}
-                    </View>
-                  )
-                }
+                {a.loading ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : (
+                  <View style={styles.rightButtonContent}>
+                    <Ionicons name={a.icon} size={22} color={Colors.primary} />
+                    {a.label ? <Text style={styles.rightButtonLabel}>{a.label}</Text> : null}
+                    {a.badge && <View style={styles.badge} />}
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
             {rightActionPeek && (
@@ -96,6 +98,7 @@ export function ScreenHeader({ title, subtitle, showBack = false, onBack, onTitl
                 <Ionicons name={rightActionPeek.icon} size={24} color={Colors.primary} />
               </Pressable>
             )}
+            </View>
           </View>
         ) : (
           <View style={styles.placeholder} />
@@ -116,9 +119,13 @@ const styles = StyleSheet.create({
   titleTouchable: { alignSelf: 'flex-start' },
   title: { fontSize: 22, fontWeight: '700', color: Colors.text },
   subtitle: { fontSize: 13, color: Colors.textSecondary, marginTop: 1 },
+  rightColumn: { alignItems: 'flex-end' },
+  rightActionPrefix: { marginBottom: 4 },
   rightActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  rightButton: { width: 44, height: 40, alignItems: 'flex-end', justifyContent: 'center' },
-  rightButtonLabel: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  rightButton: { height: 40, alignItems: 'flex-end', justifyContent: 'center', minWidth: 44 },
+  rightButtonWithLabel: { paddingLeft: 8 },
+  rightButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rightButtonLabel: { fontSize: 15, fontWeight: '600', color: Colors.primary },
   placeholder: { width: 44 },
   badge: {
     position: 'absolute', top: -1, right: -1,

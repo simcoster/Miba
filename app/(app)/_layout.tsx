@@ -187,6 +187,7 @@ function TabBarContent() {
       <Tabs.Screen name="activity/new"                    options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/index"            options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/chat"             options={{ href: null }} />
+      <Tabs.Screen name="activity/[id]/post-chat/[postId]" options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/board"            options={{ href: null }} />
       <Tabs.Screen name="activity/[id]/edit-changes"     options={{ href: null }} />
     </Tabs>

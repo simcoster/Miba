@@ -54,6 +54,7 @@ export default function ActivityDetailScreen() {
   const [rsvpLoading, setRsvpLoading] = useState(false);
 
   const [hasUnread, setHasUnread] = useState(false);
+  const [activeLiveLocationPostId, setActiveLiveLocationPostId] = useState<string | null>(null);
 
   // Invite-edit state
   const [showAddSearch, setShowAddSearch] = useState(false);
@@ -128,6 +129,15 @@ export default function ActivityDetailScreen() {
         going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
       } as Activity;
       setActivity(act);
+
+      const { data: livePost } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('activity_id', id)
+        .eq('post_type', 'live_location')
+        .is('chat_closed_at', null)
+        .maybeSingle();
+      setActiveLiveLocationPostId(livePost?.id ?? null);
       // Mark RSVP as seen for badge clearing. Board read is set when user opens the board.
       // Do NOT set miba_activity_last_seen here — that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
@@ -203,7 +213,10 @@ export default function ActivityDetailScreen() {
     }
   }, [id, user]);
 
-  useFocusEffect(useCallback(() => { checkUnread(); }, [checkUnread]));
+  useFocusEffect(useCallback(() => {
+    checkUnread();
+    fetchActivity();
+  }, [checkUnread, fetchActivity]));
 
   const handleBack = useCallback(() => {
     if (fromTab === 'declined' && activity?.my_rsvp && (activity.my_rsvp.status === 'in' || activity.my_rsvp.status === 'maybe')) {
@@ -787,6 +800,15 @@ export default function ActivityDetailScreen() {
               )}
             </View>
           )}
+          {!past && activity.status === 'active' && !isEditing && activeLiveLocationPostId && (
+            <TouchableOpacity
+              style={styles.liveLocationBtn}
+              onPress={() => router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`)}
+            >
+              <Ionicons name="location" size={22} color={Colors.primary} />
+              <Text style={styles.liveLocationBtnText}>live location shared</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* DateTimePicker for edit mode */}
@@ -1366,6 +1388,20 @@ const styles = StyleSheet.create({
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
   actionBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
   actionBtnMaps: { padding: 12, marginLeft: 'auto' },
+  liveLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.accentLight,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  liveLocationBtnText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   suggestionModal: {
     backgroundColor: Colors.surface,
