@@ -272,7 +272,7 @@ export default function ChatsScreen() {
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      <ScreenHeader title="Chats" subtitle="Mipo & event conversations" />
+      <ScreenHeader title="Chats" subtitle="event discussions and chats" />
 
       <View style={styles.subTabRow}>
         <TouchableOpacity
