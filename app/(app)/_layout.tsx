@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Tabs, useRouter, usePathname } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, BackHandler, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
@@ -71,6 +71,23 @@ function MipoTabIcon({ focused }: { focused: boolean }) {
       <Text style={[styles.tabLabel, (focused || isActive) && styles.tabLabelActive, isActive && styles.tabLabelMipoActive]} numberOfLines={1} allowFontScaling={false}>Mipo</Text>
     </View>
   );
+}
+
+function AndroidBackHandler() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      const isRoot = !pathname?.includes('/activity/') && !pathname?.includes('/circle/');
+      if (isRoot) {
+        BackHandler.exitApp();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [pathname]);
+  return null;
 }
 
 function NotificationHandler() {
@@ -211,6 +228,7 @@ export default function AppLayout() {
     <ContactImportGate>
     <TabHighlightProvider>
     <NotificationHandler />
+    <AndroidBackHandler />
     <TabBarContent />
     </TabHighlightProvider>
     </ContactImportGate>
