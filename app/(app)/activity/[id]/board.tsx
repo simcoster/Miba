@@ -29,6 +29,7 @@ import type { Post, PostComment } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { LocationDisplay } from '@/components/LocationDisplay';
+import { RichText } from '@/components/RichText';
 import { SplashArt } from '@/components/SplashArt';
 import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
@@ -761,7 +762,7 @@ export default function ActivityBoardScreen() {
                       </View>
                       <View style={[styles.peekMetaValueWrap, styles.peekDescWrap]}>
                         <Text style={styles.peekMetaLabel}>About</Text>
-                        <Text style={styles.peekDescText}>{activityDetails.description}</Text>
+                        <RichText style={styles.peekDescText}>{activityDetails.description}</RichText>
                       </View>
                     </View>
                   ) : null}
@@ -877,6 +878,7 @@ export default function ActivityBoardScreen() {
                       onPress={async () => {
                         const permResult = await checkMipoVisibleModePermissions();
                         if (!permResult.ok) {
+                          if (!user) return;
                           const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id, id);
                           if (turnedOffMipo || turnedOffLiveLocation) {
                             if (turnedOffMipo) setVisible(false, null);

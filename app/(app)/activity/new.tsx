@@ -725,17 +725,22 @@ export default function NewActivityScreen() {
             <Text style={styles.addCoverBtnText}>{description.trim() ? 'Change details' : 'Details'}</Text>
           </TouchableOpacity>
           {showDetailsInput && (
-            <TextInput
-              style={[styles.input, styles.textArea, { marginTop: 10 }]}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Any extra info…"
-              placeholderTextColor={Colors.textSecondary}
-              maxLength={300}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
+            <>
+              <TextInput
+                style={[styles.input, styles.textArea, { marginTop: 10 }]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Any extra info… Use **bold**, *italic*, and paste URLs for links."
+                placeholderTextColor={Colors.textSecondary}
+                maxLength={500}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+              <Text style={[styles.formatHint, { marginTop: 6 }]}>
+                Supports **bold**, *italic*, [link](url), and colors: [primary]text[/primary]
+              </Text>
+            </>
           )}
         </View>
 
@@ -1350,6 +1355,7 @@ const styles = StyleSheet.create({
   titleLabel: { marginTop: 0 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  formatHint: { fontSize: 12, color: Colors.textSecondary },
   splashPickerWrap: { paddingHorizontal: 20, paddingTop: 12 },
   splashScrollContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   splashOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: Colors.surface },

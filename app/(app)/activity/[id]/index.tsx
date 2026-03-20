@@ -28,6 +28,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
 import { LocationDisplay } from '@/components/LocationDisplay';
+import { RichText } from '@/components/RichText';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
 import { parseLocation, buildLocationWithPlace, buildGoogleMapsUrl } from '@/lib/locationUtils';
@@ -954,23 +955,28 @@ export default function ActivityDetailScreen() {
               <Text style={styles.addCoverBtnText}>{editDesc.trim() ? 'Change details' : 'Add details'}</Text>
             </TouchableOpacity>
             {showEditDetailsInput && (
-              <TextInput
-                style={[styles.editInput, styles.editTextArea, { marginTop: 10 }]}
-                value={editDesc}
-                onChangeText={setEditDesc}
-                placeholder="Any extra info…"
-                placeholderTextColor={Colors.textSecondary}
-                maxLength={300}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
+              <>
+                <TextInput
+                  style={[styles.editInput, styles.editTextArea, { marginTop: 10 }]}
+                  value={editDesc}
+                  onChangeText={setEditDesc}
+                  placeholder="Any extra info… Use **bold**, *italic*, and paste URLs for links."
+                  placeholderTextColor={Colors.textSecondary}
+                  maxLength={500}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+                <Text style={[styles.formatHint, { marginTop: 6 }]}>
+                  Supports **bold**, *italic*, [link](url), and colors: [primary]text[/primary]
+                </Text>
+              </>
             )}
           </View>
         ) : activity.description ? (
           <View style={styles.descCard}>
             <ScrollView style={styles.descScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Text style={styles.descText}>{activity.description}</Text>
+              <RichText style={styles.descText}>{activity.description}</RichText>
             </ScrollView>
           </View>
         ) : null}
@@ -1457,6 +1463,7 @@ const styles = StyleSheet.create({
   editSectionLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   addCoverBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   addCoverBtnText: { fontSize: 14, color: Colors.primary, fontWeight: '500' },
+  formatHint: { fontSize: 12, color: Colors.textSecondary },
   splashPickerContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   splashPickerOption: { alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 2, borderColor: Colors.border, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: Colors.surface },
   splashPickerOptionActive: { borderColor: Colors.primary, backgroundColor: Colors.accentLight },
