@@ -1,4 +1,4 @@
--- Revert host ping limit to 1 per day (prod).
+-- Restore host ping 24h rate limit (reverting the test-only "limit disabled" change).
 create or replace function public.host_ping_invitees(p_activity_id uuid)
 returns jsonb
 language plpgsql
