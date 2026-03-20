@@ -22,7 +22,9 @@
     "update:internal": "eas update --branch internal --message \"Update\"",
     "update:preview": "eas update --branch preview --message \"Update\"",
     "build:cancel": "node scripts/cancel-build.js",
-    "credits": "node scripts/check-eas-credits.js"
+    "credits": "node scripts/check-eas-credits.js",
+    "branch": "node scripts/branch.js",
+    "merge": "node scripts/merge.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -8,7 +8,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isPast, addHours } from 'date-fns';
+import { format, isPast, addHours, isToday, isTomorrow } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Activity, isJoinMeNow } from '@/lib/types';
@@ -420,7 +420,7 @@ export default function EventsScreen() {
     ? allActivities
     : allActivities.filter(a => !hiddenIds.has(a.id));
 
-  const getFilteredList = (activities: Activity[]): ListItem[] => {
+  const getFilteredList = (activities: Activity[], showPastInUpcoming: boolean): ListItem[] => {
     // Event is "past" (moves to Past tab) only if start time was >24h ago
     const isPast24h = (s: string) => isPast(addHours(new Date(s), 24));
     const notPast24h = (s: string) => !isPast24h(s);
@@ -430,50 +430,45 @@ export default function EventsScreen() {
         const isHost = (a: Activity) => a.created_by === user?.id;
         const notExpired = (a: Activity) =>
           !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
-        // Limited section: open limited events (not closed), future, user marked in or maybe (not pending)
-        const limited = activities.filter(a =>
-          future(a.activity_time) && a.is_limited && !a.limited_closed_at &&
-          (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
-        );
-        // Join me! section: join me events, not expired, user in or maybe or hosting
-        const joinMe = activities
-          .filter(a =>
-            a.is_join_me && notExpired(a) &&
-            (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || isHost(a))
-          )
-          .sort((a, b) => (isJoinMeNow(a) ? 0 : 1) - (isJoinMeNow(b) ? 0 : 1) || a.activity_time.localeCompare(b.activity_time));
-        // Non-limited, non-join_me
-        const hosting = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && !a.is_join_me && isHost(a) &&
-          (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe')
-        );
-        const going = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && !a.is_join_me && a.my_rsvp?.status === 'in' && !isHost(a)
-        );
-        const maybe = activities.filter(a =>
-          future(a.activity_time) && !a.is_limited && !a.is_join_me && a.my_rsvp?.status === 'maybe' && !isHost(a)
-        );
+        // Pool: all activities that belong in upcoming (same criteria as before)
+        const pool = activities.filter(a => {
+          if (!future(a.activity_time)) return false;
+          if (a.is_limited && !a.limited_closed_at && (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe'))
+            return true;
+          if (a.is_join_me && notExpired(a) && (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || isHost(a)))
+            return true;
+          if (!a.is_limited && !a.is_join_me && (a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe'))
+            return true;
+          return false;
+        });
+        const sortByTimeWithNowFirst = (a: Activity, b: Activity) =>
+          (isJoinMeNow(a) ? 0 : 1) - (isJoinMeNow(b) ? 0 : 1) || a.activity_time.localeCompare(b.activity_time);
+
+        const past = pool.filter(a => isPast(new Date(a.activity_time))).sort(sortByTimeWithNowFirst);
+        const today = pool.filter(a =>
+          !isPast(new Date(a.activity_time)) && (isJoinMeNow(a) || isToday(new Date(a.activity_time)))
+        ).sort(sortByTimeWithNowFirst);
+        const tomorrow = pool.filter(a => isTomorrow(new Date(a.activity_time))).sort(sortByTimeWithNowFirst);
+        const later = pool.filter(a =>
+          !isJoinMeNow(a) && !isToday(new Date(a.activity_time)) && !isTomorrow(new Date(a.activity_time))
+        ).sort(sortByTimeWithNowFirst);
 
         const result: ListItem[] = [];
-        if (limited.length > 0) {
-          result.push({ __sep: true, key: 'limited-sep', label: 'Limited' });
-          result.push(...limited);
+        if (showPastInUpcoming && past.length > 0) {
+          result.push({ __sep: true, key: 'past-sep', label: 'Past' });
+          result.push(...past);
         }
-        if (joinMe.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'joinme-sep', label: 'Join me!' });
-          result.push(...joinMe);
+        if (today.length > 0) {
+          result.push({ __sep: true, key: 'today-sep', label: 'Today' });
+          result.push(...today);
         }
-        if (hosting.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'hosting-sep', label: 'Hosting' });
-          result.push(...hosting);
+        if (tomorrow.length > 0) {
+          result.push({ __sep: true, key: 'tomorrow-sep', label: 'Tomorrow' });
+          result.push(...tomorrow);
         }
-        if (going.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'going-sep', label: "You're in" });
-          result.push(...going);
-        }
-        if (maybe.length > 0) {
-          if (result.length > 0) result.push({ __sep: true, key: 'maybe-sep', label: 'Maybe' });
-          result.push(...maybe);
+        if (later.length > 0) {
+          result.push({ __sep: true, key: 'later-sep', label: 'Later' });
+          result.push(...later);
         }
         return result;
       }
@@ -512,7 +507,7 @@ export default function EventsScreen() {
     }
   };
 
-  const listData = getFilteredList(activitiesToShow);
+  const listData = getFilteredList(activitiesToShow, showHidden);
 
   const hour = new Date().getHours();
   const firstName = profile?.full_name?.split(' ')[0] ?? '';
