@@ -72,6 +72,10 @@ export default function ActivityDetailScreen() {
   const [addSearching, setAddSearching] = useState(false);
   const [addLoading, setAddLoading] = useState<string | null>(null);
   const [pingLoading, setPingLoading] = useState(false);
+  const [lastPingAt, setLastPingAt] = useState<string | null>(null);
+  const [showPingBubble, setShowPingBubble] = useState(false);
+  const [pingBubblePosition, setPingBubblePosition] = useState<{ iconX: number; y: number } | null>(null);
+  const pingIconRef = useRef<View>(null);
 
   // Activity edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -125,6 +129,7 @@ export default function ActivityDetailScreen() {
     const { data, error } = await supabase.from('activities').select(`
       *,
       host:profiles!activities_created_by_fkey(id, full_name, avatar_url),
+      host_pings(pinged_at),
       rsvps(*, profile:profiles(id, full_name, avatar_url))
     `).eq('id', id).maybeSingle();
 
@@ -136,17 +141,32 @@ export default function ActivityDetailScreen() {
     }
     if (!data) {
       setActivity(null);
+      setLastPingAt(null);
       setActivityDeleted(true);
       return;
     }
     if (data) {
       setActivityDeleted(false);
+      let hostPings: { pinged_at: string }[] | undefined;
+      if (data.created_by === user.id) {
+        const { data: hp } = await supabase.from('host_pings').select('pinged_at').eq('activity_id', id).maybeSingle();
+        hostPings = hp ? [hp] : [];
+      } else {
+        const embedded = data.host_pings;
+        hostPings = Array.isArray(embedded) ? embedded : embedded ? [embedded as { pinged_at: string }] : [];
+      }
       const act = {
         ...data,
+        host_pings: hostPings,
         my_rsvp: (data.rsvps as Rsvp[])?.find(r => r.user_id === user.id) ?? null,
         going_count: (data.rsvps as Rsvp[])?.filter(r => r.status === 'in').length ?? 0,
       } as Activity;
       setActivity(act);
+      if (data.created_by === user.id) {
+        setLastPingAt(hostPings[0]?.pinged_at ?? null);
+      } else {
+        setLastPingAt(null);
+      }
 
       const { data: livePost } = await supabase
         .from('posts')
@@ -203,7 +223,7 @@ export default function ActivityDetailScreen() {
   }, [id, activity?.id]);
 
   // Bug fix: reset edit mode when navigating to a different activity
-  useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [id]);
+  useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); setLastPingAt(null); }, [id]);
   useEffect(() => { if (!isEditing) setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [isEditing]);
   useEffect(() => { if (!showPosterModal) setPosterScale(1); }, [showPosterModal]);
 
@@ -390,8 +410,18 @@ export default function ActivityDetailScreen() {
     ]);
   };
 
+  const pingCooldownEnds = lastPingAt ? addMinutes(new Date(lastPingAt), 24 * 60) : null;
+  const pingOnCooldown = pingCooldownEnds ? new Date() < pingCooldownEnds : false;
+  const pingHoursLeft = pingOnCooldown && pingCooldownEnds
+    ? Math.max(1, Math.ceil((pingCooldownEnds.getTime() - Date.now()) / (60 * 60 * 1000)))
+    : 0;
+
   const handlePing = async () => {
     if (!id || !isCreator) return;
+    if (pingOnCooldown) {
+      Toast.show({ type: 'info', text1: `You can only ping once every 24 hours, please try again in ${pingHoursLeft} hours` });
+      return;
+    }
     setPingLoading(true);
     try {
       const result = await postHostPing(id);
@@ -399,8 +429,18 @@ export default function ActivityDetailScreen() {
         Toast.show({ type: 'success', text1: 'Ping sent!' });
         await fetchActivity();
       } else {
-        reportError(new Error(result.error ?? 'RPC error'), { action: 'host_ping' });
-        Toast.show({ type: 'error', text1: result.error ?? 'Could not ping' });
+        const isRateLimit = result.error?.toLowerCase().includes('once per day') ?? false;
+        if (isRateLimit) {
+          await fetchActivity();
+          const { data: hp } = await supabase.from('host_pings').select('pinged_at').eq('activity_id', id).maybeSingle();
+          const hoursLeft = hp?.pinged_at
+            ? Math.max(1, Math.ceil((addMinutes(new Date(hp.pinged_at), 24 * 60).getTime() - Date.now()) / (60 * 60 * 1000)))
+            : 24;
+          Toast.show({ type: 'info', text1: `You can only ping once every 24 hours, please try again in ${hoursLeft} hours` });
+        } else {
+          reportError(new Error(result.error ?? 'RPC error'), { action: 'host_ping' });
+          Toast.show({ type: 'error', text1: result.error ?? 'Could not ping' });
+        }
       }
     } catch (e) {
       reportError(e, { action: 'host_ping' });
@@ -1107,22 +1147,6 @@ export default function ActivityDetailScreen() {
                   </Text>
                 </TouchableOpacity>
               )}
-              {isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0 && (
-                <TouchableOpacity
-                  style={[styles.addInviteBtn, pingLoading && { opacity: 0.6 }]}
-                  onPress={handlePing}
-                  disabled={pingLoading}
-                >
-                  {pingLoading ? (
-                    <ActivityIndicator size="small" color={Colors.primary} />
-                  ) : (
-                    <>
-                      <Ionicons name="notifications-outline" size={16} color={Colors.primary} />
-                      <Text style={styles.addInviteBtnText}>Ping</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
               {isCreator && activity.status === 'active' && !past && (
                 <TouchableOpacity
                   style={[styles.addInviteBtn, showAddSearch && styles.addInviteBtnActive]}
@@ -1366,6 +1390,45 @@ export default function ActivityDetailScreen() {
               })}
             </View>
           )}
+
+          {/* Ping row — below invited list, right-aligned with info button */}
+          {isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0 && (
+            <View style={styles.pingRow}>
+              <View style={{ flex: 1 }} />
+              <View style={styles.pingRowRight}>
+                <View ref={pingIconRef} collapsable={false}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      pingIconRef.current?.measureInWindow((x, y) => {
+                        setPingBubblePosition({ iconX: x, y });
+                        setShowPingBubble(true);
+                      });
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.addInviteBtn,
+                    (pingLoading || pingOnCooldown) && styles.pingBtnDisabled,
+                  ]}
+                  onPress={handlePing}
+                  disabled={pingLoading}
+                >
+                  {pingLoading ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="notifications-outline" size={16} color={pingOnCooldown ? Colors.textSecondary : Colors.primary} />
+                      <Text style={[styles.addInviteBtnText, pingOnCooldown && { color: Colors.textSecondary }]}>Ping</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Updates feed — hidden for join me events */}
@@ -1411,6 +1474,30 @@ export default function ActivityDetailScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Ping info bubble */}
+      <Modal visible={showPingBubble} transparent animationType="fade">
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setShowPingBubble(false)}
+        />
+        {pingBubblePosition && showPingBubble && (
+          <Pressable
+            style={[
+              styles.pingBubble,
+              styles.pingBubbleLeft,
+              {
+                left: 24,
+                right: Dimensions.get('window').width - pingBubblePosition.iconX + 8,
+                top: pingBubblePosition.y,
+              },
+            ]}
+            onPress={() => setShowPingBubble(false)}
+          >
+            <Text style={styles.pingBubbleText}>Send a reminder to people who haven't responded yet.\nYou can use this once every 24 hours.</Text>
+          </Pressable>
+        )}
       </Modal>
 
       {/* Suggest time/location modal (invited users) */}
@@ -1648,6 +1735,13 @@ const styles = StyleSheet.create({
   addInviteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   addInviteBtnActive: { borderColor: Colors.border, backgroundColor: Colors.surface },
   addInviteBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  pingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  pingRowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pingBtnDisabled: { opacity: 0.6, borderColor: Colors.textSecondary, backgroundColor: Colors.border },
+  pingBubble: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 },
+  pingBubbleRight: { position: 'absolute' as const, minWidth: 160, maxWidth: 280 },
+  pingBubbleLeft: { position: 'absolute' as const, minWidth: 160 },
+  pingBubbleText: { fontSize: 14, color: Colors.text },
   addSearchSection: { marginBottom: 12 },
   addSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 10, gap: 8, marginBottom: 6 },
   addSearchInput: { flex: 1, fontSize: 15, color: Colors.text, paddingVertical: 10 },

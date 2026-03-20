@@ -73,6 +73,8 @@ export type Activity = {
   poster_image_url?: string | null;
   /** Host profile (from created_by). Host is the event creator. */
   host?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
+  /** Last host ping per activity (for 24h cooldown). Host can read via RLS. */
+  host_pings?: { pinged_at: string }[];
   rsvps?: Rsvp[];
   my_rsvp?: Rsvp | null;
   going_count?: number;

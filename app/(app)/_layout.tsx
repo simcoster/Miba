@@ -140,7 +140,7 @@ function NotificationHandler() {
       const data = response.notification.request.content.data as { type?: string; activityId?: string };
       if (data?.type === 'mipo_proximity') {
         router.push('/(app)/mipo');
-      } else if (data?.activityId && ['chat', 'new_post', 'new_comment', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled', 'host_ping'].includes(data.type ?? '')) {
+      } else if (data?.activityId && ['chat', 'new_post', 'new_comment', 'rsvp_host', 'new_invite', 'limited_reopened', 'event_cancelled', 'event_deleted', 'host_ping'].includes(data.type ?? '')) {
         if (data.type === 'chat') {
           router.push(`/(app)/activity/${data.activityId}/chat?fromTab=chats`);
         } else if (data.type === 'new_post' || data.type === 'new_comment') {
