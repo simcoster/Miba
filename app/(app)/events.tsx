@@ -245,18 +245,8 @@ export default function EventsScreen() {
   }, [user]);
 
   useEffect(() => {
-    console.log('[Events:Tab] URL param tab changed:', tab);
     if (tab === 'upcoming') setFilter('upcoming');
   }, [tab]);
-
-  useEffect(() => {
-    console.log('[Events:Tab] filter state changed:', filter);
-  }, [filter]);
-
-  useEffect(() => {
-    console.log('[Events:Tab] EventsScreen mounted');
-    return () => console.log('[Events:Tab] EventsScreen unmounted');
-  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -627,10 +617,7 @@ export default function EventsScreen() {
           <TouchableOpacity
             key={t.id}
             style={[styles.filterTab, filter === t.id && styles.filterTabActive]}
-            onPress={() => {
-              console.log('[Events:Tab] Tab pressed:', t.id, '-> setFilter');
-              setFilter(t.id);
-            }}
+            onPress={() => setFilter(t.id)}
           >
             <Text style={[styles.filterText, filter === t.id && styles.filterTextActive]}>
               {t.label}

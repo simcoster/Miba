@@ -23,6 +23,8 @@ import { Activity, Profile, Rsvp, EditableFields, isJoinMeNow, JOIN_ME_NOW_ACTIV
 import { postEditSystemMessage } from '@/lib/postEditSystemMessage';
 import { postEditSuggestionMessage } from '@/lib/postEditSuggestionMessage';
 import { postRsvpChangeMessage } from '@/lib/postRsvpChangeMessage';
+import { postHostPing } from '@/lib/postHostPing';
+import { reportError } from '@/lib/reportError';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { ActivityUpdatesFeed } from '@/components/ActivityUpdatesFeed';
@@ -69,6 +71,7 @@ export default function ActivityDetailScreen() {
   const [addResults, setAddResults] = useState<Profile[]>([]);
   const [addSearching, setAddSearching] = useState(false);
   const [addLoading, setAddLoading] = useState<string | null>(null);
+  const [pingLoading, setPingLoading] = useState(false);
 
   // Activity edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -385,6 +388,26 @@ export default function ActivityDetailScreen() {
         await fetchActivity();
       }},
     ]);
+  };
+
+  const handlePing = async () => {
+    if (!id || !isCreator) return;
+    setPingLoading(true);
+    try {
+      const result = await postHostPing(id);
+      if (result.ok) {
+        Toast.show({ type: 'success', text1: 'Ping sent!' });
+        await fetchActivity();
+      } else {
+        reportError(new Error(result.error ?? 'RPC error'), { action: 'host_ping' });
+        Toast.show({ type: 'error', text1: result.error ?? 'Could not ping' });
+      }
+    } catch (e) {
+      reportError(e, { action: 'host_ping' });
+      Toast.show({ type: 'error', text1: (e as Error).message ?? 'Could not ping' });
+    } finally {
+      setPingLoading(false);
+    }
   };
 
   const handleCancel = () => Alert.alert('Delete Activity', 'This will permanently delete the event and all its discussions, location chats, and live location sessions. Continue?', [
@@ -1082,6 +1105,22 @@ export default function ActivityDetailScreen() {
                       ? (showFullList ? 'Show I\'m in only' : `Show full list (${going.length + maybe.length + notGoing.length + pending.length})`)
                       : (showDeclined ? 'Hide declined' : `Show declined (${notGoing.length})`)}
                   </Text>
+                </TouchableOpacity>
+              )}
+              {isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0 && (
+                <TouchableOpacity
+                  style={[styles.addInviteBtn, pingLoading && { opacity: 0.6 }]}
+                  onPress={handlePing}
+                  disabled={pingLoading}
+                >
+                  {pingLoading ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="notifications-outline" size={16} color={Colors.primary} />
+                      <Text style={styles.addInviteBtnText}>Ping</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               )}
               {isCreator && activity.status === 'active' && !past && (

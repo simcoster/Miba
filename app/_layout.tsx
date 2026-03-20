@@ -1,5 +1,7 @@
 import '@/lib/mipoLocationTask'; // Register background location task early
 import '@/lib/liveLocationPostTask'; // Register live location post task early
+import { installGlobalErrorHandler } from '@/lib/reportError';
+installGlobalErrorHandler();
 
 // Log when bundle loads (helps trace OAuth redirect — Metro may disconnect when app is backgrounded)
 if (__DEV__) {

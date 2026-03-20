@@ -26,8 +26,6 @@ function TabIcon({ name, focused, label }: {
   );
 }
 
-const LOG_TAB = true;
-
 function TabIconWithHighlight({ tabName, focused, children }: { tabName: TabName; focused: boolean; children: (focused: boolean) => React.ReactNode }) {
   const { effectiveTab } = useTabHighlight();
   const pathname = usePathname();
@@ -39,9 +37,6 @@ function TabIconWithHighlight({ tabName, focused, children }: { tabName: TabName
     : null;
   const resolvedTab = effectiveTab ?? fallbackTab;
   const effectiveFocused = focused || resolvedTab === tabName;
-  if (LOG_TAB) {
-    console.log('[TabHighlight] TabIcon', tabName, 'focused=', focused, 'effectiveTab=', effectiveTab, 'fallbackTab=', fallbackTab, '-> effectiveFocused=', effectiveFocused);
-  }
   return <>{children(effectiveFocused)}</>;
 }
 

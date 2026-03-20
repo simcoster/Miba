@@ -11,7 +11,8 @@ export type UpdateItem =
   | { type: 'new_invite' }
   | { type: 'limited_reopened' }
   | { type: 'new_messages' }
-  | { type: 'rsvp_changes'; count: number; bucketTime: number };
+  | { type: 'rsvp_changes'; count: number; bucketTime: number }
+  | { type: 'host_ping'; timestamp: number };
 
 export type EventUpdate = {
   activity: Activity;
@@ -143,6 +144,24 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
     rsvpByActivity[r.activity_id][bucket] = (rsvpByActivity[r.activity_id][bucket] ?? 0) + 1;
   });
 
+  const hostPingActivityIds = activityIds.filter((aid) => {
+    const a = enriched.find((x) => x.id === aid);
+    return a && (a.my_rsvp?.status === 'pending' || a.my_rsvp?.status === 'maybe') && !isPast(new Date(a.activity_time));
+  });
+  const hostPingByActivity: Record<string, string> = {};
+  if (hostPingActivityIds.length > 0) {
+    const { data: hostPingMessages } = await supabase
+      .from('messages')
+      .select('activity_id, created_at')
+      .in('activity_id', hostPingActivityIds)
+      .eq('type', 'system')
+      .eq('content', 'host_ping')
+      .order('created_at', { ascending: false });
+    (hostPingMessages ?? []).forEach((m: { activity_id: string; created_at: string }) => {
+      if (!hostPingByActivity[m.activity_id]) hostPingByActivity[m.activity_id] = m.created_at;
+    });
+  }
+
   const grouped: EventUpdate[] = [];
   const groupedIds = new Set<string>();
 
@@ -207,6 +226,19 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
         const bucketTime = parseInt(bucketStr, 10);
         updates.push({ type: 'rsvp_changes', count, bucketTime });
         if (bucketTime > latestTimestamp) latestTimestamp = bucketTime;
+      }
+    }
+    const hostPingAt = hostPingByActivity[activity.id];
+    if (
+      hostPingAt &&
+      (activity.my_rsvp?.status === 'pending' || activity.my_rsvp?.status === 'maybe') &&
+      !isPast(new Date(activity.activity_time))
+    ) {
+      const hostPingIsNew = lastSeen == null || lastSeen === '' || new Date(hostPingAt) > new Date(lastSeen);
+      if (hostPingIsNew) {
+        const t = new Date(hostPingAt).getTime();
+        updates.push({ type: 'host_ping', timestamp: t });
+        if (t > latestTimestamp) latestTimestamp = t;
       }
     }
     if (updates.length > 0) {

@@ -1,5 +1,6 @@
 -- Allow activity creators to delete their poster from storage when deleting an activity.
 -- Poster path is {activity_id}.jpg in the posters bucket.
+DROP POLICY IF EXISTS "Creators can delete own activity posters" ON storage.objects;
 CREATE POLICY "Creators can delete own activity posters"
   ON storage.objects FOR DELETE
   TO authenticated

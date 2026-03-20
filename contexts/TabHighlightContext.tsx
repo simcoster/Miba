@@ -25,14 +25,9 @@ const TabHighlightContext = createContext<TabHighlightContextType>({
   setEffectiveTab: () => {},
 });
 
-const LOG_TAB = true; // Set to false to disable tab highlight logs
-
 export function TabHighlightProvider({ children }: { children: React.ReactNode }) {
   const [effectiveTab, setEffectiveTabState] = useState<TabName | null>(null);
   const setEffectiveTab = React.useCallback((tab: TabName | null) => {
-    if (LOG_TAB) {
-      console.log('[TabHighlight] setEffectiveTab:', tab, 'stack:', new Error().stack?.split('\n').slice(2, 5).join('\n'));
-    }
     setEffectiveTabState(tab);
   }, []);
 
@@ -52,12 +47,8 @@ export function useSetTabHighlight(fromTab: string | undefined) {
   const { setEffectiveTab } = useTabHighlight();
   useEffect(() => {
     const tab = fromTabToTabName(fromTab);
-    if (LOG_TAB) console.log('[TabHighlight] useSetTabHighlight: fromTab=', fromTab, '-> tab=', tab);
     setEffectiveTab(tab);
-    return () => {
-      if (LOG_TAB) console.log('[TabHighlight] useSetTabHighlight cleanup: setting null');
-      setEffectiveTab(null);
-    };
+    return () => setEffectiveTab(null);
   }, [fromTab, setEffectiveTab]);
 }
 
@@ -67,7 +58,6 @@ export function useClearTabHighlightOnFocus() {
   const pathname = usePathname();
   useFocusEffect(
     React.useCallback(() => {
-      if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus: tab gained focus, pathname=', pathname);
       // Defer clear so that when navigating to a child (e.g. circle/[id], activity/[id]),
       // the child's useSetTabHighlight runs first. If we lose focus before the timeout,
       // we cancel the clear so the highlight stays.
@@ -75,15 +65,11 @@ export function useClearTabHighlightOnFocus() {
         // Don't clear when we're on a nested route (activity, circle) — the child screen
         // set the effectiveTab and we should preserve it.
         const isNestedRoute = pathname?.includes('/activity/') || pathname?.includes('/circle/');
-        if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus timeout: pathname=', pathname, 'isNestedRoute=', isNestedRoute, 'willClear=', !isNestedRoute);
         if (!isNestedRoute) {
           setEffectiveTab(null);
         }
       }, 0);
-      return () => {
-        if (LOG_TAB) console.log('[TabHighlight] useClearTabHighlightOnFocus: tab lost focus, cancelling timeout');
-        clearTimeout(id);
-      };
+      return () => clearTimeout(id);
     }, [setEffectiveTab, pathname])
   );
 }
