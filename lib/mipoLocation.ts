@@ -29,8 +29,10 @@ export type MipoVisibleModePermissionResult = {
  * Returns a result object with ok and optional details about what's missing.
  */
 export async function checkMipoVisibleModePermissions(): Promise<MipoVisibleModePermissionResult> {
+  console.log('[Mipo] checkMipoVisibleModePermissions called');
   // Request foreground first so we have permission to check
   const fg = await requestForegroundPermissionsAsync();
+  console.log('[Mipo] requestForegroundPermissionsAsync result:', fg.status, 'android:', (fg as { android?: { accuracy?: string } }).android?.accuracy);
   if (fg.status !== 'granted') {
     return {
       ok: false,
@@ -78,7 +80,9 @@ export async function checkMipoVisibleModePermissions(): Promise<MipoVisibleMode
  * Request foreground location permission. Returns true if granted.
  */
 export async function requestLocationPermission(): Promise<boolean> {
+  console.log('[Mipo] requestLocationPermission called');
   const { status } = await requestForegroundPermissionsAsync();
+  console.log('[Mipo] requestForegroundPermissionsAsync result:', status);
   return status === 'granted';
 }
 
@@ -225,8 +229,10 @@ export async function startMipoLocationWatch(
   userId: string,
   onError?: (error: Error) => void
 ): Promise<LocationSubscription | null> {
+  console.log('[Mipo] startMipoLocationWatch called for userId:', userId);
   const foregroundGranted = await requestLocationPermission();
   if (!foregroundGranted) {
+    console.log('[Mipo] startMipoLocationWatch: permission denied');
     onError?.(new Error('Location permission denied'));
     return null;
   }
@@ -241,6 +247,7 @@ export async function startMipoLocationWatch(
   }
 
   await setMipoActiveUserId(userId);
+  console.log('[Mipo] startMipoLocationWatch: starting location updates');
   await startLocationUpdatesAsync(MIPO_LOCATION_TASK_NAME, {
     accuracy: Location.Accuracy.High,
     distanceInterval: 10,

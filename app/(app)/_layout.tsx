@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Tabs, useRouter, usePathname } from 'expo-router';
-import { View, Text, StyleSheet, BackHandler, Platform } from 'react-native';
+import { View, Text, StyleSheet, BackHandler, Platform, DeviceEventEmitter } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
@@ -12,6 +12,29 @@ import { TabHighlightProvider, useTabHighlight, type TabName } from '@/contexts/
 import { ContactImportModal } from '@/components/ContactImportModal';
 import { hasOfferedImport } from '@/lib/contactImport';
 import { useAuth } from '@/contexts/AuthContext';
+import { LOCATION_PERMISSION_DENIED_EVENT } from '@/lib/locationPermissionDenied';
+
+function LocationPermissionDeniedHandler() {
+  const { setVisible } = useMipo();
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      LOCATION_PERMISSION_DENIED_EVENT,
+      (payload: { source: 'mipo' | 'live_location' }) => {
+        const isMipo = payload.source === 'mipo';
+        Toast.show({
+          type: 'info',
+          text1: isMipo ? 'Mipo visible mode turned off' : 'Live location stopped',
+          text2: 'Location access was denied. Enable it in Settings to use this feature again.',
+          visibilityTime: 4000,
+        });
+        if (isMipo) setVisible(false, null);
+      }
+    );
+    return () => sub.remove();
+  }, [setVisible]);
+  return null;
+}
+
 function TabIcon({ name, focused, label }: {
   name: React.ComponentProps<typeof Ionicons>['name'];
   focused: boolean;
@@ -268,6 +291,7 @@ export default function AppLayout() {
   }, []);
   return (
     <MipoProvider>
+    <LocationPermissionDeniedHandler />
     <ContactImportGate>
     <TabHighlightProvider>
     <NotificationHandler />

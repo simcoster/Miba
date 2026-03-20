@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import {
   getBackgroundPermissionsAsync,
+  requestForegroundPermissionsAsync,
   startLocationUpdatesAsync,
   stopLocationUpdatesAsync,
 } from 'expo-location';
@@ -16,10 +17,7 @@ import {
   clearLiveLocationPostActive,
   getLiveLocationPostActive,
 } from './liveLocationPostTask';
-import {
-  requestLocationPermission,
-  requestBackgroundLocationPermission,
-} from './mipoLocation';
+import { requestBackgroundLocationPermission } from './mipoLocation';
 
 export type LiveLocationPostSubscription = {
   remove: () => Promise<void>;
@@ -36,7 +34,10 @@ export async function startLiveLocationPostWatch(
   activityId: string,
   onError?: (error: Error) => void
 ): Promise<LiveLocationPostSubscription | null> {
-  const foregroundGranted = await requestLocationPermission();
+  console.log('[LiveLocationPost] startLiveLocationPostWatch called for postId:', postId);
+  const { status } = await requestForegroundPermissionsAsync();
+  const foregroundGranted = status === 'granted';
+  console.log('[LiveLocationPost] requestForegroundPermissionsAsync result:', status);
   if (!foregroundGranted) {
     onError?.(new Error('Location permission denied'));
     return null;
@@ -57,19 +58,27 @@ export async function startLiveLocationPostWatch(
   }
 
   await setLiveLocationPostActive(postId, userId, expiresAt?.toISOString() ?? null);
-  await startLocationUpdatesAsync(LIVE_LOCATION_POST_TASK_NAME, {
-    accuracy: Location.Accuracy.High,
-    distanceInterval: 10,
-    timeInterval: 5000,
-    showsBackgroundLocationIndicator: true,
-    ...(Platform.OS === 'android' && {
-      foregroundService: {
-        notificationTitle: 'Live location',
-        notificationBody: 'Sharing your location with the event.',
-        notificationColor: '#F97316',
-      },
-    }),
-  });
+  try {
+    console.log('[LiveLocationPost] calling startLocationUpdatesAsync');
+    await startLocationUpdatesAsync(LIVE_LOCATION_POST_TASK_NAME, {
+      accuracy: Location.Accuracy.High,
+      distanceInterval: 10,
+      timeInterval: 5000,
+      showsBackgroundLocationIndicator: true,
+      ...(Platform.OS === 'android' && {
+        foregroundService: {
+          notificationTitle: 'Live location',
+          notificationBody: 'Sharing your location with the event.',
+          notificationColor: '#F97316',
+        },
+      }),
+    });
+    console.log('[LiveLocationPost] startLocationUpdatesAsync succeeded');
+  } catch (e) {
+    console.warn('[LiveLocationPost] startLocationUpdatesAsync failed:', (e as Error).message, '| full:', e);
+    await clearLiveLocationPostActive();
+    return null;
+  }
 
   return {
     remove: async () => {
@@ -77,6 +86,17 @@ export async function startLiveLocationPostWatch(
       await clearLiveLocationPostActive();
     },
   };
+}
+
+/**
+ * If the user has any active live location share, turn it off.
+ * Returns true if we turned it off. Use when permission is denied and we need to clean up.
+ */
+export async function turnOffActiveLiveLocationIfAny(userId: string): Promise<boolean> {
+  const active = await getLiveLocationPostActive();
+  if (!active || active.userId !== userId) return false;
+  await turnOffLiveLocationPost(active.postId, userId);
+  return true;
 }
 
 /**

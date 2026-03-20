@@ -40,6 +40,7 @@ import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { requestLocationPermission, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { turnOffLiveLocationPost } from '@/lib/liveLocationPost';
+import Toast from 'react-native-toast-message';
 import Colors from '@/constants/Colors';
 
 type LocationShare = {
@@ -247,11 +248,14 @@ export default function PostChatScreen() {
 
   useEffect(() => {
     if (!postId || !user || !sharingLocation || !post) return;
+    let stopped = false;
     const poll = async () => {
+      if (stopped) return;
       try {
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
+        if (stopped) return;
         await supabase
           .from('chat_location_shares')
           .update({
@@ -261,11 +265,38 @@ export default function PostChatScreen() {
           })
           .eq('post_id', postId)
           .eq('user_id', user.id);
-      } catch {}
+      } catch (e) {
+        if (stopped) return;
+        stopped = true;
+        console.warn('[PostChat] Location poll failed, stopping:', (e as Error).message);
+        if (locationPollRef.current) {
+          clearInterval(locationPollRef.current);
+          locationPollRef.current = null;
+        }
+        if (post?.user_id === user.id) {
+          await turnOffLiveLocationPost(postId, user.id);
+        } else {
+          await supabase
+            .from('chat_location_shares')
+            .delete()
+            .eq('post_id', postId)
+            .eq('user_id', user.id);
+        }
+        setPost((p) => (p ? { ...p, chat_closed_at: post?.user_id === user.id ? new Date().toISOString() : p.chat_closed_at } : null));
+        setLocationShares((prev) => prev.filter((s) => s.user_id !== user.id));
+        setSharingLocation(false);
+        Toast.show({
+          type: 'info',
+          text1: 'Location sharing stopped',
+          text2: 'Location was disabled. Enable it in Settings to share again.',
+          visibilityTime: 4000,
+        });
+      }
     };
     poll();
     locationPollRef.current = setInterval(poll, 8000);
     return () => {
+      stopped = true;
       if (locationPollRef.current) {
         clearInterval(locationPollRef.current);
         locationPollRef.current = null;
@@ -349,10 +380,12 @@ export default function PostChatScreen() {
           setSharingLocation(false);
         }
       } else {
-        Alert.alert(
-          'Location required',
-          'Please enable location access to share your live location.'
-        );
+        Toast.show({
+          type: 'info',
+          text1: 'Location required',
+          text2: 'Location access was denied. Enable it in Settings to share your live location.',
+          visibilityTime: 4000,
+        });
       }
       return;
     }

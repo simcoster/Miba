@@ -38,6 +38,7 @@ import { isJoinMeNow } from '@/lib/types';
 import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
 import { addMinutes } from 'date-fns';
+import Toast from 'react-native-toast-message';
 
 const DROPDOWN_WIDTH = 110;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -252,8 +253,9 @@ export default function ActivityBoardScreen() {
     }
   };
 
-  const handleShareLiveLocation = async (minutes: number) => {
+  const handleShareLiveLocation = async (minutes: number | null) => {
     if (!user || !id) return;
+    console.log('[Board] handleShareLiveLocation called, minutes:', minutes);
     const { data: activePost } = await supabase
       .from('posts')
       .select('id')
@@ -277,10 +279,11 @@ export default function ActivityBoardScreen() {
         await fetchPosts();
         return;
       }
-      setPermissionError({
-        visible: true,
-        title: permResult.missingPrecise ? 'Precise location required' : 'Location required',
-        message: permResult.message ?? 'Please enable location access in Settings.',
+      Toast.show({
+        type: 'info',
+        text1: permResult.missingPrecise ? 'Precise location required' : 'Location required',
+        text2: permResult.message ?? 'Enable location access in Settings to share live location.',
+        visibilityTime: 4000,
       });
       return;
     }
@@ -297,7 +300,7 @@ export default function ActivityBoardScreen() {
         throw new Error('Could not get your location. Make sure GPS and location services are on.');
       }
       const now = new Date();
-      const expiresAt = addMinutes(now, minutes);
+      const expiresAt = minutes !== null ? addMinutes(now, minutes) : null;
       const { data: post, error: postError } = await supabase
         .from('posts')
         .insert({
@@ -305,7 +308,7 @@ export default function ActivityBoardScreen() {
           user_id: user.id,
           content: 'Live Location',
           post_type: 'live_location',
-          creator_expires_at: expiresAt.toISOString(),
+          creator_expires_at: expiresAt?.toISOString() ?? null,
         })
         .select('id')
         .single();
@@ -317,7 +320,7 @@ export default function ActivityBoardScreen() {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,
         updated_at: now.toISOString(),
-        expires_at: expiresAt.toISOString(),
+        expires_at: expiresAt?.toISOString() ?? null,
       });
       if (shareError) {
         await supabase.from('posts').delete().eq('id', post.id);
@@ -333,22 +336,32 @@ export default function ActivityBoardScreen() {
       if (!sub) {
         await supabase.from('chat_location_shares').delete().eq('post_id', post.id).eq('user_id', user.id);
         await supabase.from('posts').delete().eq('id', post.id);
-        throw new Error('Could not start location tracking.');
+        Toast.show({
+          type: 'info',
+          text1: 'Location required',
+          text2: 'Location access was denied. Enable it in Settings to share live location.',
+          visibilityTime: 4000,
+        });
+        return;
       }
       setShowNewPostModal(false);
       setNewPostMode('text');
       await fetchPosts();
       router.push(`/(app)/activity/${id}/post-chat/${post.id}?fromTab=${encodeURIComponent(fromTab ?? 'chats')}`);
       if (liveLocationExpiryIntervalRef.current) clearInterval(liveLocationExpiryIntervalRef.current);
-      liveLocationExpiryIntervalRef.current = setInterval(() => {
-        if (new Date() >= expiresAt) {
-          if (liveLocationExpiryIntervalRef.current) {
-            clearInterval(liveLocationExpiryIntervalRef.current);
-            liveLocationExpiryIntervalRef.current = null;
+      if (expiresAt) {
+        liveLocationExpiryIntervalRef.current = setInterval(() => {
+          if (new Date() >= expiresAt) {
+            if (liveLocationExpiryIntervalRef.current) {
+              clearInterval(liveLocationExpiryIntervalRef.current);
+              liveLocationExpiryIntervalRef.current = null;
+            }
+            turnOffLiveLocationPost(post.id, user.id);
           }
-          turnOffLiveLocationPost(post.id, user.id);
-        }
-      }, 30000);
+        }, 30000);
+      } else {
+        liveLocationExpiryIntervalRef.current = null;
+      }
     } catch (e) {
       Alert.alert('Could not share live location', (e as Error).message ?? 'Please try again.');
     } finally {
@@ -885,14 +898,19 @@ export default function ActivityBoardScreen() {
                             await fetchPosts();
                             return;
                           }
-                          setPermissionError({
-                            visible: true,
-                            title: permResult.missingPrecise ? 'Precise location required' : 'Location required',
-                            message: permResult.message ?? 'Please enable location access in Settings.',
+                          Toast.show({
+                            type: 'info',
+                            text1: permResult.missingPrecise ? 'Precise location required' : 'Location required',
+                            text2: permResult.message ?? 'Enable location access in Settings to share live location.',
+                            visibilityTime: 4000,
                           });
                           return;
                         }
-                        setShowLiveLocationTimePicker(true);
+                        if (activityDetails?.is_join_me) {
+                          handleShareLiveLocation(null);
+                        } else {
+                          setShowLiveLocationTimePicker(true);
+                        }
                       }}
                     >
                       <Ionicons name="map-outline" size={22} color={Colors.primary} />

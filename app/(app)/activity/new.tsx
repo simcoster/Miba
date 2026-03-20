@@ -572,7 +572,12 @@ export default function NewActivityScreen() {
       if (isJoinMe && joinMeUseLiveLocation) {
         const permResult = await checkMipoVisibleModePermissions();
         if (!permResult.ok) {
-          Alert.alert('Location required', permResult.message ?? 'Please enable location access to share live location.');
+          Toast.show({
+            type: 'info',
+            text1: 'Location required',
+            text2: permResult.message ?? 'Enable location access in Settings to share live location.',
+            visibilityTime: 4000,
+          });
           router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
           return;
         }
@@ -588,7 +593,8 @@ export default function NewActivityScreen() {
             throw new Error('Could not get your location.');
           }
           const now = new Date();
-          const expiresAt = joinMeExpiresAt ? new Date(joinMeExpiresAt) : null;
+          // Join me live location never expires (unlike planned events)
+          const expiresAt: Date | null = null;
           const { data: post, error: postError } = await supabase
             .from('posts')
             .insert({
@@ -596,7 +602,7 @@ export default function NewActivityScreen() {
               user_id: user.id,
               content: 'Live Location',
               post_type: 'live_location',
-              creator_expires_at: expiresAt?.toISOString() ?? null,
+              creator_expires_at: null,
             })
             .select('id')
             .single();
@@ -608,7 +614,7 @@ export default function NewActivityScreen() {
             lat: loc.coords.latitude,
             lng: loc.coords.longitude,
             updated_at: now.toISOString(),
-            expires_at: expiresAt?.toISOString() ?? null,
+            expires_at: null,
           });
           if (shareError) {
             await supabase.from('posts').delete().eq('id', post.id);
@@ -617,14 +623,21 @@ export default function NewActivityScreen() {
           const sub = await startLiveLocationPostWatch(
             post.id,
             user.id,
-            expiresAt,
+            null,
             activityId,
             (err) => Alert.alert('Error', err.message)
           );
           if (!sub) {
             await supabase.from('chat_location_shares').delete().eq('post_id', post.id).eq('user_id', user.id);
             await supabase.from('posts').delete().eq('id', post.id);
-            throw new Error('Could not start location sharing.');
+            Toast.show({
+              type: 'info',
+              text1: 'Location required',
+              text2: 'Location access was denied. Enable it in Settings to share live location.',
+              visibilityTime: 4000,
+            });
+            router.replace(`/(app)/activity/${activityId}?fromTab=upcoming`);
+            return;
           }
         } catch (e) {
           Alert.alert('Could not start live location', (e as Error).message ?? 'Please try again.');

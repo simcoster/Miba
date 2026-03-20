@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Profile } from '@/lib/types';
 import { hasLocationPermission, isMipoLocationHeartbeatStale, turnOffMipoVisibleMode } from '@/lib/mipoLocation';
+import { turnOffActiveLiveLocationIfAny } from '@/lib/liveLocationPost';
 
 export type MipoVisibleState = {
   isVisible: boolean;
@@ -150,19 +151,27 @@ export function MipoProvider({ children }: { children: React.ReactNode }) {
   }, [visibleState.isVisible, user, refreshNearby]);
 
   const checkAndTurnOffIfServiceStopped = useCallback(async () => {
-    if (!user || !visibleState.isVisible) return;
+    if (!user) return;
     try {
       const hasPermission = await hasLocationPermission();
       if (!hasPermission) {
-        await turnOffMipoVisibleMode(user.id, 'location_permission_revoked');
-        setVisible(false, null);
-        Toast.show({
-          type: 'info',
-          text1: 'Mipo visible mode turned off',
-          text2: 'Location disabled. Re-enable in Mipo tab.',
-        });
+        let turnedOffMipo = false;
+        if (visibleState.isVisible) {
+          await turnOffMipoVisibleMode(user.id, 'location_permission_revoked');
+          setVisible(false, null);
+          turnedOffMipo = true;
+        }
+        const turnedOffLiveLocation = await turnOffActiveLiveLocationIfAny(user.id);
+        if (turnedOffMipo || turnedOffLiveLocation) {
+          Toast.show({
+            type: 'info',
+            text1: turnedOffMipo && turnedOffLiveLocation ? 'Location sharing turned off' : turnedOffMipo ? 'Mipo visible mode turned off' : 'Live location stopped',
+            text2: 'Location access was denied. Enable it in Settings to use this feature again.',
+          });
+        }
         return;
       }
+      if (!visibleState.isVisible) return;
       const stale = await isMipoLocationHeartbeatStale(user.id);
       if (stale) {
         await turnOffMipoVisibleMode(user.id, 'heartbeat_stale');

@@ -355,6 +355,7 @@ export default function MipoScreen() {
       });
       return;
     }
+    console.log('[Mipo] handleTurnOnVisible: checking permissions');
     const permResult = await checkMipoVisibleModePermissions();
     if (!permResult.ok) {
       const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(user.id);
@@ -367,11 +368,11 @@ export default function MipoScreen() {
         : permResult.missingBackground
           ? 'Background location required'
           : 'Location required';
-      setPermissionErrorModal({
-        visible: true,
-        title,
-        message: permResult.message ?? 'Mipo needs location permissions to work. Please enable them in Settings.',
-        permissionKind: 'location',
+      Toast.show({
+        type: 'info',
+        text1: title,
+        text2: permResult.message ?? 'Enable location access in Settings to use Mipo visible mode.',
+        visibilityTime: 4000,
       });
       return;
     }
@@ -418,13 +419,13 @@ export default function MipoScreen() {
           if (turnedOffMipo) setVisible(false, null);
           return;
         }
-        setPermissionErrorModal({
-          visible: true,
-          title: 'Location required',
-          message: Platform.OS === 'ios'
-            ? 'Mipo needs "Allow all the time" location access to notify you when friends are nearby. Please enable it in Settings > Privacy > Location Services > Miba.'
-            : 'Could not start location tracking. Please check that location permissions are enabled in Settings.',
-          permissionKind: 'location',
+        Toast.show({
+          type: 'info',
+          text1: 'Location required',
+          text2: Platform.OS === 'ios'
+            ? 'Mipo needs "Allow all the time" location access. Enable it in Settings > Privacy > Location Services > Miba.'
+            : 'Location access was denied. Enable it in Settings to use Mipo visible mode.',
+          visibilityTime: 4000,
         });
         return;
       }
@@ -551,6 +552,7 @@ export default function MipoScreen() {
         throw rsvpError;
       }
 
+      // Join me live location never expires (unlike planned events)
       const { data: post, error: postError } = await supabase
         .from('posts')
         .insert({
@@ -558,7 +560,7 @@ export default function MipoScreen() {
           user_id: user.id,
           content: 'Live Location',
           post_type: 'live_location',
-          creator_expires_at: joinMeExpiresAt,
+          creator_expires_at: null,
         })
         .select('id')
         .single();
@@ -574,7 +576,7 @@ export default function MipoScreen() {
         lat: session.lat,
         lng: session.lng,
         updated_at: now.toISOString(),
-        expires_at: joinMeExpiresAt,
+        expires_at: null,
       });
       if (shareError) {
         await supabase.from('posts').delete().eq('id', post.id);

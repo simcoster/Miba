@@ -8,6 +8,7 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LocationObject } from 'expo-location';
 import { supabase } from '@/lib/supabase';
+import { isLocationPermissionError, emitLocationPermissionDenied } from '@/lib/locationPermissionDenied';
 
 export const LIVE_LOCATION_POST_TASK_NAME = 'live-location-post-background';
 const LIVE_LOCATION_POST_ID_KEY = 'live_location_post_id';
@@ -53,8 +54,28 @@ export async function getLiveLocationPostActive(): Promise<{
 TaskManager.defineTask<{ locations: LocationObject[] }>(
   LIVE_LOCATION_POST_TASK_NAME,
   async ({ data, error }) => {
+    if (__DEV__ && !error && data?.locations?.length) {
+      console.log('[LiveLocationPost] Task received location update');
+    }
     if (error) {
-      console.warn('[LiveLocationPost] Background location task error:', error.message);
+      console.warn('[LiveLocationPost] Background location task error:', error.message, '| full:', JSON.stringify(error));
+      const stored = await getLiveLocationPostActive();
+      try {
+        await Location.stopLocationUpdatesAsync(LIVE_LOCATION_POST_TASK_NAME);
+      } catch (e) {
+        console.warn('[LiveLocationPost] stopLocationUpdatesAsync failed:', e);
+      }
+      await clearLiveLocationPostActive();
+      if (stored) {
+        await supabase.from('chat_location_shares').delete().eq('post_id', stored.postId).eq('user_id', stored.userId);
+        await supabase.from('posts').update({ chat_closed_at: new Date().toISOString() }).eq('id', stored.postId);
+      }
+      if (isLocationPermissionError(error)) {
+        console.log('[LiveLocationPost] Emitting permission-denied (error matched permission/accuracy pattern)');
+        emitLocationPermissionDenied('live_location');
+      } else {
+        console.log('[LiveLocationPost] Stopped due to error (not permission pattern) — prevents repeated retries');
+      }
       return;
     }
     if (!data?.locations?.length) return;
