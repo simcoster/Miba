@@ -431,12 +431,12 @@ export default function EventsScreen() {
     : allActivities.filter(a => !hiddenIds.has(a.id));
 
   const getFilteredList = (activities: Activity[]): ListItem[] => {
-    // Event is "past" (moves to Past tab) only if start time was >24h ago
-    const isPast24h = (s: string) => isPast(addHours(new Date(s), 24));
-    const notPast24h = (s: string) => !isPast24h(s);
+    // Event is "past" (moves to Past tab) only if start time was >12h ago
+    const isPast12h = (s: string) => isPast(addHours(new Date(s), 12));
+    const notPast12h = (s: string) => !isPast12h(s);
     switch (filter) {
       case 'upcoming': {
-        const future = (s: string) => notPast24h(s); // future or within last 24h
+        const future = (s: string) => notPast12h(s); // future or within last 12h
         const isHost = (a: Activity) => a.created_by === user?.id;
         const notExpired = (a: Activity) =>
           !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
@@ -491,7 +491,7 @@ export default function EventsScreen() {
         return [...activities]
           .reverse()
           .filter(a => {
-            if (mipoDmActivityIds.has(a.id) || !isPast24h(a.activity_time)) return false;
+            if (mipoDmActivityIds.has(a.id) || !isPast12h(a.activity_time)) return false;
             const rsvpIn = a.my_rsvp?.status === 'in' || a.my_rsvp?.status === 'maybe' || a.my_rsvp?.status === 'pending';
             const limitedClosed = a.is_limited && a.limited_closed_at && (a.created_by === user?.id || a.my_rsvp?.status === 'in');
             return rsvpIn || limitedClosed;
@@ -500,7 +500,7 @@ export default function EventsScreen() {
         const notExpired = (a: Activity) =>
           !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
         const pending = activities.filter(a =>
-          a.my_rsvp?.status === 'pending' && notPast24h(a.activity_time) && notExpired(a)
+          a.my_rsvp?.status === 'pending' && notPast12h(a.activity_time) && notExpired(a)
         );
         const joinMe = pending
           .filter(a => a.is_join_me)
@@ -679,7 +679,7 @@ export default function EventsScreen() {
           data={listData}
           keyExtractor={item => ('__sep' in item ? item.key : item.id)}
           ListHeaderComponent={filter === 'past' ? (
-            <Text style={styles.pastHint}>Older than 24 hours</Text>
+            <Text style={styles.pastHint}>Older than 12 hours</Text>
           ) : null}
           renderItem={({ item }) => {
             if ('__sep' in item) {

@@ -54,7 +54,7 @@ export function ContactImportModal({ visible, onDismiss }: Props) {
           </View>
           <Text style={styles.title}>Find friends on Miba</Text>
           <Text style={styles.body}>
-            Import your contacts to see when they join. We'll notify you so you can add them to your circles.
+            Import your Google contacts to see when they join. We'll notify you so you can add them to your circles.
           </Text>
           {error && <Text style={styles.error}>{error}</Text>}
           <View style={styles.buttons}>
@@ -66,7 +66,7 @@ export function ContactImportModal({ visible, onDismiss }: Props) {
               {loading ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.btnPrimaryText}>Import contacts</Text>
+                <Text style={styles.btnPrimaryText}>Import contacts from Google</Text>
               )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.btn} onPress={handleNotNow} disabled={loading}>
