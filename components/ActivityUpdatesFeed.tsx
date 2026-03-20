@@ -53,7 +53,7 @@ function formatUpdateTime(dateStr: string): string {
   return format(d, 'MMM d, h:mm a');
 }
 
-export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string; hostId: string | null }) {
+export function ActivityUpdatesFeed({ activityId, hostId, activityTitle }: { activityId: string; hostId: string | null; activityTitle?: string }) {
   const router = useRouter();
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +71,23 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
     if (error || !data) {
       setLoading(false);
       return;
+    }
+
+    const changedUserIds = [...new Set(
+      (data as SystemMessage[])
+        .filter(m => m.content === 'rsvp_changed')
+        .map(m => (m.metadata as RsvpChangeMetadata)?.changed_user_id)
+        .filter(Boolean) as string[]
+    )];
+    const changedUserNames: Record<string, string> = {};
+    if (changedUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', changedUserIds);
+      (profiles ?? []).forEach((p: { id: string; full_name: string | null }) => {
+        changedUserNames[p.id] = p.full_name?.trim() || 'Someone';
+      });
     }
 
     const items: UpdateItem[] = [];
@@ -125,14 +142,16 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
         });
       } else if (msg.content === 'rsvp_changed') {
         const meta = msg.metadata as RsvpChangeMetadata | null;
-        const oldLabel = meta?.old_status ? STATUS_LABEL(meta.old_status) : '?';
         const newLabel = meta?.new_status ? STATUS_LABEL(meta.new_status) : '?';
         const changedUserId = meta?.changed_user_id;
+        const eventPart = activityTitle ? ` ${activityTitle}` : '';
+        const eventPartForHost = activityTitle ? ` to ${activityTitle}` : '';
         let text: string;
         if (changedUserId && changedUserId !== msg.user_id) {
-          text = `changed someone's status to '${newLabel}'`;
+          const inviteeName = changedUserNames[changedUserId] ?? 'Someone';
+          text = `changed ${inviteeName}'s reply${eventPartForHost}. '${newLabel}'`;
         } else {
-          text = `changed their status to '${newLabel}'`;
+          text = `replied to${eventPart}. '${newLabel}'`;
         }
         items.push({
           id: msg.id,
@@ -172,7 +191,7 @@ export function ActivityUpdatesFeed({ activityId, hostId }: { activityId: string
     setDismissedIds(dismissed);
     setUpdates(filtered);
     setLoading(false);
-  }, [activityId, hostId]);
+  }, [activityId, hostId, activityTitle]);
 
   const handleDismiss = useCallback(
     async (item: UpdateItem) => {

@@ -26,4 +26,5 @@ if (!name) {
 }
 
 execSync(`git checkout -b ${name}`, { stdio: 'inherit' });
-console.log(`Created and checked out branch: ${name}`);
+execSync(`git push -u origin ${name}`, { stdio: 'inherit' });
+console.log(`Created, checked out, and pushed branch: ${name}`);

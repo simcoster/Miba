@@ -1433,7 +1433,7 @@ export default function ActivityDetailScreen() {
 
         {/* Updates feed — hidden for join me events */}
         {!isEditing && !activity.is_join_me && (
-          <ActivityUpdatesFeed activityId={id} hostId={activity.created_by} />
+          <ActivityUpdatesFeed activityId={id} hostId={activity.created_by} activityTitle={activity.title} />
         )}
 
         {/* Save — visible only while editing */}

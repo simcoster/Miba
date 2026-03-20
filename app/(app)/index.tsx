@@ -111,7 +111,7 @@ export default function UpdatesScreen() {
     return format(d, 'EEE, MMM d · h:mm a');
   };
 
-  const renderUpdateLabel = (item: UpdateItem) => {
+  const renderUpdateLabel = (item: UpdateItem, activityTitle?: string) => {
     switch (item.type) {
       case 'new_invite':
         return (
@@ -136,12 +136,22 @@ export default function UpdatesScreen() {
         );
       case 'rsvp_changes':
         return (
-          <View style={styles.updateChip}>
-            <Ionicons name="people-outline" size={14} color={Colors.primary} />
-            <Text style={styles.updateChipText}>
-              {item.count} {item.count === 1 ? 'person' : 'people'} changed their RSVP
-            </Text>
-          </View>
+          <>
+            {item.changes.map((c, i) => {
+              const iconName = c.status === 'in' ? 'checkmark-circle' : c.status === 'maybe' ? 'help-circle' : 'close-circle';
+              const iconColor = c.status === 'in' ? Colors.success : c.status === 'maybe' ? Colors.warning : Colors.danger;
+              const label = c.status === 'in' ? "I'm in!" : c.status === 'maybe' ? 'Maybe' : "Can't go";
+              const eventPart = activityTitle ? ` ${activityTitle}` : '';
+              return (
+                <View key={i} style={styles.updateChip}>
+                  <Ionicons name={iconName} size={14} color={iconColor} />
+                  <Text style={styles.updateChipText}>
+                    {c.userName} replied to{eventPart}. '{label}'
+                  </Text>
+                </View>
+              );
+            })}
+          </>
         );
       case 'host_ping':
         return (
@@ -312,7 +322,7 @@ export default function UpdatesScreen() {
                 </View>
                 <View style={styles.updatesRow}>
                   {item.data.updates.map((u, i) => (
-                    <View key={i}>{renderUpdateLabel(u)}</View>
+                    <View key={i}>{renderUpdateLabel(u, item.data.activity.title)}</View>
                   ))}
                 </View>
                 </View>

@@ -7,11 +7,17 @@ import { enrichWithSeenStatus } from '@/lib/enrichWithSeenStatus';
 const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 const RSVP_CHANGES_CUTOFF_DAYS = 7;
 
+export type RsvpChangeItem = {
+  userName: string;
+  status: 'in' | 'maybe' | 'out';
+  bucketTime: number;
+};
+
 export type UpdateItem =
   | { type: 'new_invite' }
   | { type: 'limited_reopened' }
   | { type: 'new_messages' }
-  | { type: 'rsvp_changes'; count: number; bucketTime: number }
+  | { type: 'rsvp_changes'; changes: RsvpChangeItem[] }
   | { type: 'host_ping'; timestamp: number };
 
 export type EventUpdate = {
@@ -127,21 +133,31 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
 
   const { data: rsvpChanges } = await supabase
     .from('rsvps')
-    .select('activity_id, updated_at, created_at')
+    .select('activity_id, user_id, status, updated_at, created_at, profile:profiles(full_name)')
     .in('activity_id', activityIds)
     .neq('user_id', userId)
+    .in('status', ['in', 'maybe', 'out'])
     .gt('updated_at', cutoffIso);
 
-  const rsvpByActivity: Record<string, Record<number, number>> = {};
-  (rsvpChanges ?? []).forEach((r: { activity_id: string; updated_at: string; created_at: string }) => {
+  type RsvpChangeRow = { activity_id: string; user_id: string; status: string; updated_at: string; created_at: string; profile: { full_name: string | null } | null };
+  const rsvpByActivity: Record<string, RsvpChangeItem[]> = {};
+  const seenByUserAndBucket = new Map<string, Set<string>>();
+  (rsvpChanges ?? []).forEach((r: RsvpChangeRow) => {
     const updated = new Date(r.updated_at).getTime();
     const created = new Date(r.created_at).getTime();
     if (updated <= created) return;
     const lastSeen = rsvpSeenMap[r.activity_id];
     if (lastSeen && updated <= new Date(lastSeen).getTime()) return;
     const bucket = Math.floor(updated / THIRTY_MINUTES_MS) * THIRTY_MINUTES_MS;
-    if (!rsvpByActivity[r.activity_id]) rsvpByActivity[r.activity_id] = {};
-    rsvpByActivity[r.activity_id][bucket] = (rsvpByActivity[r.activity_id][bucket] ?? 0) + 1;
+    const userBucketKey = `${r.user_id}:${bucket}`;
+    if (!seenByUserAndBucket.has(r.activity_id)) seenByUserAndBucket.set(r.activity_id, new Set());
+    if (seenByUserAndBucket.get(r.activity_id)!.has(userBucketKey)) return;
+    seenByUserAndBucket.get(r.activity_id)!.add(userBucketKey);
+    const profile = Array.isArray(r.profile) ? r.profile[0] : r.profile;
+    const userName = profile?.full_name?.trim() || 'Someone';
+    const status = r.status as 'in' | 'maybe' | 'out';
+    if (!rsvpByActivity[r.activity_id]) rsvpByActivity[r.activity_id] = [];
+    rsvpByActivity[r.activity_id].push({ userName, status, bucketTime: bucket });
   });
 
   const hostPingActivityIds = activityIds.filter((aid) => {
@@ -220,13 +236,11 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
       const msgTime = activity.latest_message_at ? new Date(activity.latest_message_at).getTime() : Date.now();
       latestTimestamp = Math.max(latestTimestamp, msgTime);
     }
-    const buckets = rsvpByActivity[activity.id];
-    if (buckets) {
-      for (const [bucketStr, count] of Object.entries(buckets)) {
-        const bucketTime = parseInt(bucketStr, 10);
-        updates.push({ type: 'rsvp_changes', count, bucketTime });
-        if (bucketTime > latestTimestamp) latestTimestamp = bucketTime;
-      }
+    const changes = rsvpByActivity[activity.id];
+    if (changes?.length) {
+      updates.push({ type: 'rsvp_changes', changes });
+      const maxBucket = Math.max(...changes.map(c => c.bucketTime));
+      if (maxBucket > latestTimestamp) latestTimestamp = maxBucket;
     }
     const hostPingAt = hostPingByActivity[activity.id];
     if (

@@ -16,5 +16,6 @@ if (currentBranch === 'main') {
 
 execSync('git checkout main', { stdio: 'inherit' });
 execSync(`git merge --squash ${currentBranch}`, { stdio: 'inherit' });
-execSync(`git commit -m "Merge ${currentBranch} into main"`, { stdio: 'inherit' });
+const commitMessage = currentBranch.replace(/-/g, ' ');
+execSync(`git commit -m "${commitMessage}"`, { stdio: 'inherit' });
 console.log(`Squash-merged ${currentBranch} into main`);
