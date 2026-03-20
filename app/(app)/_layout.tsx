@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs, useRouter, usePathname } from 'expo-router';
 import { View, Text, StyleSheet, BackHandler, Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
@@ -75,18 +76,60 @@ function MipoTabIcon({ focused }: { focused: boolean }) {
 
 function AndroidBackHandler() {
   const pathname = usePathname();
+  const router = useRouter();
+  const doubleBackToExitPressedRef = useRef(false);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (Platform.OS !== 'android') return;
+
+    const isRoot = !pathname?.includes('/activity/') && !pathname?.includes('/circle/');
+    const isUpdates = !pathname || pathname === '/' || pathname === '/index';
+
+    // Reset double-back state when navigating away from Updates
+    if (!isUpdates) {
+      doubleBackToExitPressedRef.current = false;
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+        exitTimerRef.current = null;
+      }
+    }
+
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      const isRoot = !pathname?.includes('/activity/') && !pathname?.includes('/circle/');
-      if (isRoot) {
-        BackHandler.exitApp();
+      if (!isRoot) return false; // Let nested screens (activity, circle) handle back
+
+      if (isUpdates) {
+        if (doubleBackToExitPressedRef.current) {
+          BackHandler.exitApp();
+          return true;
+        }
+        doubleBackToExitPressedRef.current = true;
+        Toast.show({
+          type: 'info',
+          text1: 'Press back again to exit',
+          position: 'bottom',
+          bottomOffset: 100,
+        });
+        exitTimerRef.current = setTimeout(() => {
+          doubleBackToExitPressedRef.current = false;
+          exitTimerRef.current = null;
+        }, 1000);
         return true;
       }
-      return false;
+
+      // On other root tabs: go to Updates (home)
+      router.replace('/(app)');
+      return true;
     });
-    return () => sub.remove();
-  }, [pathname]);
+
+    return () => {
+      sub.remove();
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+      }
+    };
+  }, [pathname, router]);
+
   return null;
 }
 
