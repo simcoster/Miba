@@ -801,8 +801,13 @@ export default function PostChatScreen() {
                   key="event"
                   coordinate={{ latitude: eventLocationCoords.lat, longitude: eventLocationCoords.lng }}
                   title={activityTitle || 'Event'}
-                  pinColor="#E53935"
-                />
+                  anchor={{ x: 0.5, y: 1 }}
+                  tracksViewChanges={true}
+                >
+                  <View style={styles.eventMarker}>
+                    <Text style={styles.eventMarkerArrow}>▼</Text>
+                  </View>
+                </Marker>
               )}
               {locationShares.map((s) => (
                 <Marker
@@ -1008,4 +1013,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   mapFallbackText: { fontSize: 14, color: Colors.textSecondary },
+  eventMarker: {
+    width: 32,
+    height: 32,
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventMarkerArrow: {
+    fontSize: 16,
+    color: '#fff',
+  },
 });
