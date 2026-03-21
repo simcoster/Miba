@@ -40,6 +40,9 @@ import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { requestLocationPermission, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { turnOffLiveLocationPost, getLocationQuickThenAccurate } from '@/lib/liveLocationPost';
+import { parseLocation } from '@/lib/locationUtils';
+import { fetchPlaceDetails } from '@/lib/placesApi';
+import * as Crypto from 'expo-crypto';
 import Toast from 'react-native-toast-message';
 import Colors from '@/constants/Colors';
 
@@ -88,6 +91,7 @@ export default function PostChatScreen() {
   } | null>(null);
   const [activityTitle, setActivityTitle] = useState('');
   const [activityIsJoinMe, setActivityIsJoinMe] = useState(false);
+  const [eventLocationCoords, setEventLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -146,12 +150,31 @@ export default function PostChatScreen() {
     if (postData) setPost(postData);
     const { data: actData } = await supabase
       .from('activities')
-      .select('title, is_join_me')
+      .select('title, is_join_me, location')
       .eq('id', id)
       .single();
     if (actData) {
       setActivityTitle(actData.title ?? '');
       setActivityIsJoinMe(!!actData.is_join_me);
+      const parsed = parseLocation((actData as { location?: string | null }).location);
+      if (parsed?.placeId) {
+        const token = Crypto.randomUUID();
+        const details = await fetchPlaceDetails(parsed.placeId, token);
+        if (details?.location) {
+          const address = details.formattedAddress || parsed.displayName || parsed.address || 'unknown';
+          console.log('placed destination marker at', address);
+          setEventLocationCoords({
+            lat: details.location.latitude,
+            lng: details.location.longitude,
+          });
+        } else {
+          setEventLocationCoords(null);
+        }
+      } else {
+        setEventLocationCoords(null);
+      }
+    } else {
+      setEventLocationCoords(null);
     }
   }, [postId, id]);
 
@@ -601,33 +624,33 @@ export default function PostChatScreen() {
     );
   };
 
-  if (locationShares.length > 0) {
+  const allPoints = [
+    ...locationShares.map((s) => ({ lat: s.lat, lng: s.lng })),
+    ...(eventLocationCoords ? [eventLocationCoords] : []),
+  ];
+  if (allPoints.length > 0) {
     hasEverHadLocationSharesRef.current = true;
     lastMapRegionRef.current =
-      locationShares.length >= 2
+      allPoints.length >= 2
         ? {
-            latitude:
-              locationShares.reduce((s, x) => s + x.lat, 0) /
-              locationShares.length,
-            longitude:
-              locationShares.reduce((s, x) => s + x.lng, 0) /
-              locationShares.length,
+            latitude: allPoints.reduce((s, x) => s + x.lat, 0) / allPoints.length,
+            longitude: allPoints.reduce((s, x) => s + x.lng, 0) / allPoints.length,
             latitudeDelta: 0.02,
             longitudeDelta: 0.02,
           }
         : {
-            latitude: locationShares[0].lat,
-            longitude: locationShares[0].lng,
+            latitude: allPoints[0].lat,
+            longitude: allPoints[0].lng,
             latitudeDelta: 0.01,
             longitudeDelta: 0.01,
           };
   }
   const showMap =
-    (locationShares.length > 0 || hasEverHadLocationSharesRef.current) &&
+    (locationShares.length > 0 || eventLocationCoords || hasEverHadLocationSharesRef.current) &&
     Platform.OS !== 'web';
   showMapRef.current = showMap;
   const mapRegion =
-    locationShares.length > 0
+    allPoints.length > 0
       ? lastMapRegionRef.current
       : hasEverHadLocationSharesRef.current
         ? lastMapRegionRef.current
@@ -769,10 +792,18 @@ export default function PostChatScreen() {
             }
           >
             <MapView
-              key={locationShares.map((s) => s.user_id).sort().join(',')}
+              key={[locationShares.map((s) => s.user_id).sort().join(','), eventLocationCoords ? 'event' : ''].join('|')}
               style={styles.map}
               initialRegion={mapRegion}
             >
+              {eventLocationCoords && (
+                <Marker
+                  key="event"
+                  coordinate={{ latitude: eventLocationCoords.lat, longitude: eventLocationCoords.lng }}
+                  title={activityTitle || 'Event'}
+                  pinColor="#E53935"
+                />
+              )}
               {locationShares.map((s) => (
                 <Marker
                   key={s.user_id}
