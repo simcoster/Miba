@@ -35,7 +35,7 @@ import { getActivityCoverProps } from '@/lib/activityCover';
 import Colors from '@/constants/Colors';
 import { checkMipoVisibleModePermissions, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { isJoinMeNow } from '@/lib/types';
-import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
+import { startLiveLocationPostWatch, turnOffLiveLocationPost, getLocationQuickThenAccurate } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
 import { addMinutes } from 'date-fns';
 import Toast from 'react-native-toast-message';
@@ -290,12 +290,20 @@ export default function ActivityBoardScreen() {
     setLiveLocationPosting(true);
     try {
       await Location.enableNetworkProviderAsync().catch(() => {});
-      let loc: Location.LocationObject | null = null;
-      try {
-        loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      } catch {
-        loc = await Location.getLastKnownPositionAsync();
-      }
+      let postIdForUpdate: string | null = null;
+      const loc = await getLocationQuickThenAccurate((highLoc) => {
+        if (postIdForUpdate) {
+          supabase
+            .from('chat_location_shares')
+            .update({
+              lat: highLoc.coords.latitude,
+              lng: highLoc.coords.longitude,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('post_id', postIdForUpdate)
+            .eq('user_id', user.id);
+        }
+      });
       if (!loc) {
         throw new Error('Could not get your location. Make sure GPS and location services are on.');
       }
@@ -313,6 +321,7 @@ export default function ActivityBoardScreen() {
         .select('id')
         .single();
       if (postError || !post) throw postError ?? new Error('Could not create post');
+      postIdForUpdate = post.id;
       const { error: shareError } = await supabase.from('chat_location_shares').insert({
         activity_id: id,
         post_id: post.id,

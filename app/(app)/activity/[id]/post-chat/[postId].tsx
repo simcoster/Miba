@@ -39,7 +39,7 @@ import { Message } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { requestLocationPermission, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
-import { turnOffLiveLocationPost } from '@/lib/liveLocationPost';
+import { turnOffLiveLocationPost, getLocationQuickThenAccurate } from '@/lib/liveLocationPost';
 import Toast from 'react-native-toast-message';
 import Colors from '@/constants/Colors';
 
@@ -274,7 +274,7 @@ export default function PostChatScreen() {
           locationPollRef.current = null;
         }
         if (post?.user_id === user.id) {
-          await turnOffLiveLocationPost(postId, user.id);
+          await turnOffLiveLocationPost(postId, user.id, false);
         } else {
           await supabase
             .from('chat_location_shares')
@@ -282,7 +282,7 @@ export default function PostChatScreen() {
             .eq('post_id', postId)
             .eq('user_id', user.id);
         }
-        setPost((p) => (p ? { ...p, chat_closed_at: post?.user_id === user.id ? new Date().toISOString() : p.chat_closed_at } : null));
+        setPost((p) => (p ? { ...p } : null));
         setLocationShares((prev) => prev.filter((s) => s.user_id !== user.id));
         setSharingLocation(false);
         Toast.show({
@@ -391,9 +391,18 @@ export default function PostChatScreen() {
     }
     setShareLocationLoading(true);
     try {
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+      const loc = await getLocationQuickThenAccurate((highLoc) => {
+        supabase
+          .from('chat_location_shares')
+          .update({
+            lat: highLoc.coords.latitude,
+            lng: highLoc.coords.longitude,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('post_id', postId)
+          .eq('user_id', user.id);
       });
+      if (!loc) throw new Error('Could not get your location.');
       const { error } = await supabase.from('chat_location_shares').insert({
         activity_id: post.activity_id,
         post_id: postId,

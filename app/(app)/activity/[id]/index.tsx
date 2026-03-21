@@ -39,6 +39,7 @@ import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
 import { deleteActivity } from '@/lib/deleteActivity';
 import { markActivityVisited } from '@/lib/visitedActivities';
+import { createAndStartLiveLocationForActivity, startSharingLocationInChat } from '@/lib/liveLocationPost';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -61,6 +62,8 @@ export default function ActivityDetailScreen() {
 
   const [hasUnread, setHasUnread] = useState(false);
   const [activeLiveLocationPostId, setActiveLiveLocationPostId] = useState<string | null>(null);
+  const [userIsSharingLiveLocation, setUserIsSharingLiveLocation] = useState(false);
+  const [shareLiveLocationLoading, setShareLiveLocationLoading] = useState(false);
 
   // Invite-edit state
   const [showAddSearch, setShowAddSearch] = useState(false);
@@ -176,6 +179,17 @@ export default function ActivityDetailScreen() {
         .is('chat_closed_at', null)
         .maybeSingle();
       setActiveLiveLocationPostId(livePost?.id ?? null);
+      if (livePost?.id) {
+        const { data: userShare } = await supabase
+          .from('chat_location_shares')
+          .select('user_id')
+          .eq('post_id', livePost.id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        setUserIsSharingLiveLocation(!!userShare);
+      } else {
+        setUserIsSharingLiveLocation(false);
+      }
       // Mark RSVP as seen for badge clearing. Board read is set when user opens the board.
       // Do NOT set miba_activity_last_seen here — that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
@@ -948,17 +962,75 @@ export default function ActivityDetailScreen() {
           {!past && activity.status === 'active' && !isEditing && (activity.is_join_me ? true : activeLiveLocationPostId) && (
             <TouchableOpacity
               style={styles.liveLocationBtn}
-              onPress={() => {
+              disabled={shareLiveLocationLoading}
+              onPress={async () => {
                 if (activeLiveLocationPostId) {
-                  router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                  if (!userIsSharingLiveLocation) {
+                    setShareLiveLocationLoading(true);
+                    try {
+                      const ok = await startSharingLocationInChat(activeLiveLocationPostId, id, user!.id);
+                      if (ok) {
+                        setUserIsSharingLiveLocation(true);
+                        router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                      } else {
+                        Toast.show({
+                          type: 'info',
+                          text1: 'Location required',
+                          text2: 'Enable location access in Settings to share live location.',
+                          visibilityTime: 4000,
+                        });
+                      }
+                    } catch (e) {
+                      Toast.show({
+                        type: 'error',
+                        text1: 'Could not share live location',
+                        text2: (e as Error).message ?? 'Please try again.',
+                      });
+                    } finally {
+                      setShareLiveLocationLoading(false);
+                    }
+                  } else {
+                    router.push(`/(app)/activity/${id}/post-chat/${activeLiveLocationPostId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                  }
+                  return;
+                }
+                if (activity.is_join_me) {
+                  setShareLiveLocationLoading(true);
+                  try {
+                    const postId = await createAndStartLiveLocationForActivity(id, user!.id, true, null);
+                    if (postId) {
+                      setActiveLiveLocationPostId(postId);
+                      setUserIsSharingLiveLocation(true);
+                      router.push(`/(app)/activity/${id}/post-chat/${postId}?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
+                    } else {
+                      Toast.show({
+                        type: 'info',
+                        text1: 'Location required',
+                        text2: 'Enable location access in Settings to share live location.',
+                        visibilityTime: 4000,
+                      });
+                    }
+                  } catch (e) {
+                    Toast.show({
+                      type: 'error',
+                      text1: 'Could not share live location',
+                      text2: (e as Error).message ?? 'Please try again.',
+                    });
+                  } finally {
+                    setShareLiveLocationLoading(false);
+                  }
                 } else {
                   router.push(`/(app)/activity/${id}/board?fromTab=${encodeURIComponent(fromTab ?? 'events')}`);
                 }
               }}
             >
-              <Ionicons name="location" size={22} color={Colors.primary} />
+              {shareLiveLocationLoading ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <Ionicons name="location" size={22} color={Colors.primary} />
+              )}
               <Text style={styles.liveLocationBtnText}>
-                {activeLiveLocationPostId ? 'live location shared' : 'Share live location'}
+                {userIsSharingLiveLocation ? 'live location shared' : 'Share live location'}
               </Text>
             </TouchableOpacity>
           )}

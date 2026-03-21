@@ -4,8 +4,122 @@
  */
 import { Platform } from 'react-native';
 import * as Location from 'expo-location';
+
+const LOCATION_RETRY_DELAY_MS = 3000;
+
+/**
+ * Phase 1: Fire getLastKnownPositionAsync and getCurrentPositionAsync(Low) in parallel.
+ * Whichever returns first → place the pin and continue with Low.
+ * If both fail (e.g. location just re-enabled, GPS warming up), retry Low after a delay.
+ * Phase 2: When Low has returned, call getCurrentPositionAsync(High). When High returns, hot-swap (onHighAccuracy).
+ */
+export async function getLocationQuickThenAccurate(
+  onHighAccuracy: (loc: Location.LocationObject) => void | Promise<void>
+): Promise<Location.LocationObject | null> {
+  const lastKnownP = Location.getLastKnownPositionAsync();
+  let lowP = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+
+  // Phase 1: first of lastKnown or Low → place pin; retry Low if both fail (only for transient errors)
+  let resolved = false;
+  let lowSettled = false;
+  let lowResult: Location.LocationObject | null = null;
+  let lowError: string | null = null;
+
+  const tryResolve = (resolve: (loc: Location.LocationObject | null) => void, loc: Location.LocationObject | null) => {
+    if (resolved) return;
+    if (loc) {
+      resolved = true;
+      resolve(loc);
+    }
+  };
+
+  const isTransientLocationError = (msg: string) =>
+    msg.includes('unavailable') || msg.includes('timeout') || msg.includes('timed out');
+
+  const first = await new Promise<Location.LocationObject | null>((resolve) => {
+    lastKnownP.then((loc) => {
+      console.log('[LiveLocation] getLastKnownPositionAsync returned', loc ? 'ok' : 'null');
+      tryResolve(resolve, loc);
+    }).catch((e) => {
+      console.log('[LiveLocation] getLastKnownPositionAsync failed', (e as Error).message);
+    });
+
+    const handleLowResult = (loc: Location.LocationObject | null, err?: string) => {
+      lowSettled = true;
+      lowResult = loc;
+      if (err) lowError = err;
+      if (loc) {
+        console.log('[LiveLocation] getCurrentPositionAsync(Low) returned');
+        tryResolve(resolve, loc);
+      }
+    };
+
+    lowP.then((loc) => handleLowResult(loc)).catch((e) => {
+      const msg = (e as Error).message;
+      console.log('[LiveLocation] getCurrentPositionAsync(Low) failed', msg);
+      handleLowResult(null, msg);
+    });
+
+    lastKnownP.finally(() => {
+      if (resolved) return;
+      if (lowSettled && !lowResult && lowError && !isTransientLocationError(lowError)) {
+        resolved = true;
+        resolve(null);
+      }
+    });
+
+    // Retry Low only for transient errors (e.g. GPS warming up). Skip retry for "device settings" etc.
+    const retryTimeout = setTimeout(async () => {
+      if (resolved) return;
+      if (!lowSettled) return; // Low still pending, wait for it
+      if (lowResult) return; // Low succeeded
+      if (lowError && !isTransientLocationError(lowError)) {
+        resolved = true;
+        resolve(null);
+        return;
+      }
+      console.log('[LiveLocation] Retrying getCurrentPositionAsync(Low) after', LOCATION_RETRY_DELAY_MS, 'ms');
+      try {
+        lowP = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+        const loc = await lowP;
+        console.log('[LiveLocation] getCurrentPositionAsync(Low) retry returned');
+        tryResolve(resolve, loc);
+      } catch (e) {
+        console.log('[LiveLocation] getCurrentPositionAsync(Low) retry failed', (e as Error).message);
+      }
+    }, LOCATION_RETRY_DELAY_MS);
+
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(retryTimeout);
+        resolve(null);
+      }
+    }, 20000);
+  });
+
+  if (!first) return null;
+
+  // Phase 2: wait for Low (or retry), then call High and hot-swap when it returns
+  (async () => {
+    try {
+      await lowP;
+      console.log('[LiveLocation] Low done, now calling High');
+      const highLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      console.log('[LiveLocation] getCurrentPositionAsync(High) returned');
+      if (highLoc) onHighAccuracy(highLoc);
+    } catch (e) {
+      console.log('[LiveLocation] High failed', (e as Error).message);
+    }
+  })();
+
+  return first;
+}
+
+import { addMinutes } from 'date-fns';
 import {
   getBackgroundPermissionsAsync,
+  getForegroundPermissionsAsync,
   requestForegroundPermissionsAsync,
   startLocationUpdatesAsync,
   stopLocationUpdatesAsync,
@@ -17,7 +131,12 @@ import {
   clearLiveLocationPostActive,
   getLiveLocationPostActive,
 } from './liveLocationPostTask';
-import { requestBackgroundLocationPermission } from './mipoLocation';
+import {
+  requestBackgroundLocationPermission,
+  checkMipoVisibleModePermissions,
+  turnOffLocationSharingIfActiveWhenPermissionDenied,
+  requestLocationPermission,
+} from './mipoLocation';
 
 export type LiveLocationPostSubscription = {
   remove: () => Promise<void>;
@@ -35,9 +154,13 @@ export async function startLiveLocationPostWatch(
   onError?: (error: Error) => void
 ): Promise<LiveLocationPostSubscription | null> {
   console.log('[LiveLocationPost] startLiveLocationPostWatch called for postId:', postId);
-  const { status } = await requestForegroundPermissionsAsync();
+  let { status } = await getForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    const req = await requestForegroundPermissionsAsync();
+    status = req.status;
+    console.log('[LiveLocationPost] requestForegroundPermissionsAsync result:', status);
+  }
   const foregroundGranted = status === 'granted';
-  console.log('[LiveLocationPost] requestForegroundPermissionsAsync result:', status);
   if (!foregroundGranted) {
     onError?.(new Error('Location permission denied'));
     return null;
@@ -120,11 +243,13 @@ export async function turnOffActiveLiveLocationIfForActivity(
 }
 
 /**
- * Stop live location post sharing: stop task, delete creator row, close chat.
+ * Stop live location post sharing: stop task, delete creator row.
+ * @param closeChat - If true (default), sets chat_closed_at. If false, keeps chat open (e.g. when location failed but user may re-enable).
  */
 export async function turnOffLiveLocationPost(
   postId: string,
-  userId: string
+  userId: string,
+  closeChat: boolean = true
 ): Promise<void> {
   try {
     await stopLocationUpdatesAsync(LIVE_LOCATION_POST_TASK_NAME);
@@ -137,5 +262,123 @@ export async function turnOffLiveLocationPost(
     .delete()
     .eq('post_id', postId)
     .eq('user_id', userId);
-  await supabase.from('posts').update({ chat_closed_at: new Date().toISOString() }).eq('id', postId);
+  if (closeChat) {
+    await supabase.from('posts').update({ chat_closed_at: new Date().toISOString() }).eq('id', postId);
+  }
+}
+
+/**
+ * Create live location post and start sharing. For join me: pass isJoinMe=true (never expires).
+ * Returns postId or null. Caller should navigate to post-chat on success.
+ * For join me: if a live location post already exists, returns its id (join me has only 1).
+ */
+export async function createAndStartLiveLocationForActivity(
+  activityId: string,
+  userId: string,
+  isJoinMe: boolean,
+  minutes: number | null,
+  options?: { setVisible?: (v: boolean, expiresAt: Date | null) => void }
+): Promise<string | null> {
+  if (isJoinMe) {
+    const { data: existing } = await supabase
+      .from('posts')
+      .select('id')
+      .eq('activity_id', activityId)
+      .eq('post_type', 'live_location')
+      .is('chat_closed_at', null)
+      .maybeSingle();
+    if (existing) return existing.id;
+  }
+  const permResult = await checkMipoVisibleModePermissions();
+  if (!permResult.ok) {
+    const { turnedOffMipo, turnedOffLiveLocation } = await turnOffLocationSharingIfActiveWhenPermissionDenied(userId, activityId);
+    if (turnedOffMipo && options?.setVisible) options.setVisible(false, null);
+    return null;
+  }
+  await Location.enableNetworkProviderAsync().catch(() => {});
+  let postIdForUpdate: string | null = null;
+  const loc = await getLocationQuickThenAccurate((highLoc) => {
+    if (postIdForUpdate) {
+      supabase
+        .from('chat_location_shares')
+        .update({
+          lat: highLoc.coords.latitude,
+          lng: highLoc.coords.longitude,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('post_id', postIdForUpdate)
+        .eq('user_id', userId);
+    }
+  });
+  if (!loc) return null;
+  const now = new Date();
+  const expiresAt = isJoinMe || minutes === null ? null : addMinutes(now, minutes);
+  const { data: post, error: postError } = await supabase
+    .from('posts')
+    .insert({
+      activity_id: activityId,
+      user_id: userId,
+      content: 'Live Location',
+      post_type: 'live_location',
+      creator_expires_at: expiresAt?.toISOString() ?? null,
+    })
+    .select('id')
+    .single();
+  if (postError || !post) return null;
+  postIdForUpdate = post.id;
+  const { error: shareError } = await supabase.from('chat_location_shares').insert({
+    activity_id: activityId,
+    post_id: post.id,
+    user_id: userId,
+    lat: loc.coords.latitude,
+    lng: loc.coords.longitude,
+    updated_at: now.toISOString(),
+    expires_at: expiresAt?.toISOString() ?? null,
+  });
+  if (shareError) {
+    await supabase.from('posts').delete().eq('id', post.id);
+    return null;
+  }
+  const sub = await startLiveLocationPostWatch(post.id, userId, expiresAt, activityId);
+  if (!sub) {
+    await supabase.from('chat_location_shares').delete().eq('post_id', post.id).eq('user_id', userId);
+    await supabase.from('posts').delete().eq('id', post.id);
+    return null;
+  }
+  return post.id;
+}
+
+/**
+ * Start sharing location in an existing live location chat (add user's pin).
+ * Same as post-chat's "Share location" - inserts row, chat's poll will update it.
+ * Returns true on success.
+ */
+export async function startSharingLocationInChat(
+  postId: string,
+  activityId: string,
+  userId: string
+): Promise<boolean> {
+  const granted = await requestLocationPermission();
+  if (!granted) return false;
+  const loc = await getLocationQuickThenAccurate((highLoc) => {
+    supabase
+      .from('chat_location_shares')
+      .update({
+        lat: highLoc.coords.latitude,
+        lng: highLoc.coords.longitude,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('post_id', postId)
+      .eq('user_id', userId);
+  });
+  if (!loc) return false;
+  const { error } = await supabase.from('chat_location_shares').insert({
+    activity_id: activityId,
+    post_id: postId,
+    user_id: userId,
+    lat: loc.coords.latitude,
+    lng: loc.coords.longitude,
+    updated_at: new Date().toISOString(),
+  });
+  return !error;
 }

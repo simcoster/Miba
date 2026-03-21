@@ -24,7 +24,7 @@ import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterUri, clearPendingPosterUri, setPendingPosterForActivity } from '@/lib/pendingPoster';
 import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
-import { startLiveLocationPostWatch } from '@/lib/liveLocationPost';
+import { startLiveLocationPostWatch, getLocationQuickThenAccurate } from '@/lib/liveLocationPost';
 import * as Location from 'expo-location';
 import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
 import { SplashArt } from '@/components/SplashArt';
@@ -583,12 +583,20 @@ export default function NewActivityScreen() {
         }
         try {
           await Location.enableNetworkProviderAsync().catch(() => {});
-          let loc: Location.LocationObject | null = null;
-          try {
-            loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          } catch {
-            loc = await Location.getLastKnownPositionAsync();
-          }
+          let postIdForUpdate: string | null = null;
+          const loc = await getLocationQuickThenAccurate((highLoc) => {
+            if (postIdForUpdate) {
+              supabase
+                .from('chat_location_shares')
+                .update({
+                  lat: highLoc.coords.latitude,
+                  lng: highLoc.coords.longitude,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('post_id', postIdForUpdate)
+                .eq('user_id', user.id);
+            }
+          });
           if (!loc) {
             throw new Error('Could not get your location.');
           }
@@ -607,6 +615,7 @@ export default function NewActivityScreen() {
             .select('id')
             .single();
           if (postError || !post) throw postError ?? new Error('Could not create post');
+          postIdForUpdate = post.id;
           const { error: shareError } = await supabase.from('chat_location_shares').insert({
             activity_id: activityId,
             post_id: post.id,
