@@ -160,6 +160,13 @@ export default function UpdatesScreen() {
             <Text style={styles.updateChipText}>Host wants to know if you're coming</Text>
           </View>
         );
+      case 'survey_ping':
+        return (
+          <View style={styles.updateChip}>
+            <Ionicons name="stats-chart-outline" size={14} color={Colors.primary} />
+            <Text style={styles.updateChipText}>Host wants your answer on a survey</Text>
+          </View>
+        );
     }
   };
 
