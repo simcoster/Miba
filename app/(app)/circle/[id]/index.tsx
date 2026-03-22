@@ -13,7 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmojiPickerButton } from '@/components/EmojiPickerButton';
-import { importContacts } from '@/lib/contactImport';
+import { importGoogleContacts } from '@/lib/contactImport';
+import { getGoogleContactsAccessToken } from '@/lib/googleContactsAuth';
 import Colors from '@/constants/Colors';
 
 export default function CircleDetailScreen() {
@@ -46,8 +47,8 @@ export default function CircleDetailScreen() {
   const [editEmoji, setEditEmoji] = useState('👥');
   const [saveLoading, setSaveLoading] = useState(false);
 
-  // Import from phone
-  const [phoneImportLoading, setPhoneImportLoading] = useState(false);
+  // Import from Google
+  const [googleImportLoading, setGoogleImportLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!user || !id) return;
@@ -273,23 +274,36 @@ export default function CircleDetailScreen() {
     setRemoveStep(1);
   };
 
-  const handleImportFromPhone = async () => {
+  const handleImportFromGoogle = async () => {
     if (!user) return;
-    setPhoneImportLoading(true);
+    setGoogleImportLoading(true);
     try {
-      const { count, error: err } = await importContacts(user.id);
-      if (err) {
-        Alert.alert('Import failed', err);
-      } else if (count > 0) {
-        Alert.alert('Imported', `Imported ${count} contact${count === 1 ? '' : 's'} from your phone.`);
+      let result = await importGoogleContacts(user.id);
+      if ('needsReauth' in result && result.needsReauth) {
+        const tokenResult = await getGoogleContactsAccessToken();
+        if ('accessToken' in tokenResult) {
+          result = await importGoogleContacts(user.id, tokenResult.accessToken);
+        } else {
+          // User cancelled or error — don't show alert for cancel
+          if (tokenResult.error !== 'Sign-in cancelled') {
+            Alert.alert('Import failed', tokenResult.error);
+          }
+          setGoogleImportLoading(false);
+          return;
+        }
+      }
+      if ('error' in result && result.error) {
+        Alert.alert('Import failed', result.error);
+      } else if (result.count > 0) {
+        Alert.alert('Imported', `Imported ${result.count} contact${result.count === 1 ? '' : 's'} from Google.`);
         fetchAll();
       } else {
-        Alert.alert('No contacts', 'No contacts with emails or phone numbers were found.');
+        Alert.alert('No contacts', 'No contacts with emails or phone numbers were found in your Google account.');
       }
     } catch (e: any) {
       Alert.alert('Import failed', e.message ?? 'Could not import contacts.');
     } finally {
-      setPhoneImportLoading(false);
+      setGoogleImportLoading(false);
     }
   };
 
@@ -330,16 +344,16 @@ export default function CircleDetailScreen() {
             </Text>
             {isOwner && (
               <TouchableOpacity
-                style={[styles.importPhoneBtn, phoneImportLoading && styles.importPhoneBtnDisabled]}
-                onPress={handleImportFromPhone}
-                disabled={phoneImportLoading}
+                style={[styles.importPhoneBtn, googleImportLoading && styles.importPhoneBtnDisabled]}
+                onPress={handleImportFromGoogle}
+                disabled={googleImportLoading}
               >
-                {phoneImportLoading ? (
+                {googleImportLoading ? (
                   <ActivityIndicator size="small" color={Colors.primary} />
                 ) : (
                   <>
-                    <Ionicons name="phone-portrait-outline" size={20} color={Colors.primary} />
-                    <Text style={styles.importPhoneBtnText}>Import contacts from phone</Text>
+                    <Ionicons name="logo-google" size={20} color={Colors.primary} />
+                    <Text style={styles.importPhoneBtnText}>Import contacts from Google</Text>
                   </>
                 )}
               </TouchableOpacity>

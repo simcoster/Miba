@@ -40,9 +40,19 @@ npm install
 3. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client**
 4. Set **Application type**: Web application
 5. Under **Authorized redirect URIs**, add:
-   - `https://qfdxnpryufkgdstergej.supabase.co/auth/v1/callback`
+   - `https://qfdxnpryufkgdstergej.supabase.co/auth/v1/callback` (Supabase login)
+   - `exp://127.0.0.1:8081` (Expo Go dev)
+   - `miba://` (production app — for "Import contacts from Google")
 6. Copy the **Client ID** and **Client Secret** into Supabase → Authentication → Google provider
-7. Under **OAuth consent screen**, add your test email(s)
+7. Add **Client ID** to your app: `EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` in `.env` (same value)
+8. Under **OAuth consent screen**, add your test email(s)
+9. Enable **People API** (APIs & Services → Library → search "People API" → Enable)
+10. For "Import contacts from Google": deploy the Edge Function and set secrets:
+    ```bash
+    supabase functions deploy exchange-google-code
+    supabase secrets set GOOGLE_OAUTH_CLIENT_ID="your-client-id"
+    supabase secrets set GOOGLE_OAUTH_CLIENT_SECRET="your-client-secret"
+    ```
 
 > **Important:** For native mobile deep links, add these redirect URIs in Supabase:
 > `Authentication → URL Configuration → Redirect URLs`:
