@@ -65,7 +65,7 @@ export function ActivityUpdatesFeed({ activityId, hostId, activityTitle }: { act
       .select('id, user_id, content, metadata, created_at, profile:profiles(id, full_name, avatar_url)')
       .eq('activity_id', activityId)
       .eq('type', 'system')
-      .in('content', ['event_edited', 'rsvp_changed', 'edit_suggestion', 'host_ping'])
+      .in('content', ['event_edited', 'rsvp_changed', 'edit_suggestion', 'host_ping', 'survey_ping'])
       .order('created_at', { ascending: false }) as { data: SystemMessage[] | null; error: unknown };
 
     if (error || !data) {
@@ -168,6 +168,15 @@ export function ActivityUpdatesFeed({ activityId, hostId, activityTitle }: { act
           userName: isHost ? 'Host' : userName,
           avatarUrl: profile?.avatar_url ?? null,
           text: 'wants to know if you\'re coming',
+          createdAt: msg.created_at,
+        });
+      } else if (msg.content === 'survey_ping') {
+        items.push({
+          id: msg.id,
+          userId: msg.user_id,
+          userName: isHost ? 'Host' : userName,
+          avatarUrl: profile?.avatar_url ?? null,
+          text: 'wants your answer on a survey',
           createdAt: msg.created_at,
         });
       }

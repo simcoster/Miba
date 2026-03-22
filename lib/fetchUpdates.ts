@@ -18,7 +18,8 @@ export type UpdateItem =
   | { type: 'limited_reopened' }
   | { type: 'new_messages' }
   | { type: 'rsvp_changes'; changes: RsvpChangeItem[] }
-  | { type: 'host_ping'; timestamp: number };
+  | { type: 'host_ping'; timestamp: number }
+  | { type: 'survey_ping'; timestamp: number };
 
 export type EventUpdate = {
   activity: Activity;
@@ -165,6 +166,7 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
     return a && (a.my_rsvp?.status === 'pending' || a.my_rsvp?.status === 'maybe') && !isPast(new Date(a.activity_time));
   });
   const hostPingByActivity: Record<string, string> = {};
+  const surveyPingByActivity: Record<string, string> = {};
   if (hostPingActivityIds.length > 0) {
     const { data: hostPingMessages } = await supabase
       .from('messages')
@@ -175,6 +177,18 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
       .order('created_at', { ascending: false });
     (hostPingMessages ?? []).forEach((m: { activity_id: string; created_at: string }) => {
       if (!hostPingByActivity[m.activity_id]) hostPingByActivity[m.activity_id] = m.created_at;
+    });
+  }
+  if (activityIds.length > 0) {
+    const { data: surveyPingMessages } = await supabase
+      .from('messages')
+      .select('activity_id, created_at')
+      .in('activity_id', activityIds)
+      .eq('type', 'system')
+      .eq('content', 'survey_ping')
+      .order('created_at', { ascending: false });
+    (surveyPingMessages ?? []).forEach((m: { activity_id: string; created_at: string }) => {
+      if (!surveyPingByActivity[m.activity_id]) surveyPingByActivity[m.activity_id] = m.created_at;
     });
   }
 
@@ -252,6 +266,15 @@ export async function fetchUpdates(userId: string): Promise<UpdateEntry[]> {
       if (hostPingIsNew) {
         const t = new Date(hostPingAt).getTime();
         updates.push({ type: 'host_ping', timestamp: t });
+        if (t > latestTimestamp) latestTimestamp = t;
+      }
+    }
+    const surveyPingAt = surveyPingByActivity[activity.id];
+    if (surveyPingAt && !isPast(new Date(activity.activity_time))) {
+      const surveyPingIsNew = lastSeen == null || lastSeen === '' || new Date(surveyPingAt) > new Date(lastSeen);
+      if (surveyPingIsNew) {
+        const t = new Date(surveyPingAt).getTime();
+        updates.push({ type: 'survey_ping', timestamp: t });
         if (t > latestTimestamp) latestTimestamp = t;
       }
     }

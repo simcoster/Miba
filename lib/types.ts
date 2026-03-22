@@ -144,6 +144,12 @@ export type Message = {
   post_id?: string | null;
 };
 
+export type SurveyMetadata = {
+  question: string;
+  options: string[];
+  allow_multiple: boolean;
+};
+
 export type Post = {
   id: string;
   activity_id: string;
@@ -152,9 +158,19 @@ export type Post = {
   created_at: string;
   updated_at: string;
   profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
-  post_type?: 'text' | 'live_location';
+  post_type?: 'text' | 'live_location' | 'survey';
   creator_expires_at?: string | null;
   chat_closed_at?: string | null;
+  survey_metadata?: SurveyMetadata | null;
+};
+
+export type SurveyResponse = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  selected_indices: number[];
+  created_at: string;
+  profile?: Pick<Profile, 'id' | 'full_name' | 'avatar_url'>;
 };
 
 export type PostComment = {

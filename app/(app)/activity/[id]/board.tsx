@@ -25,7 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import type { Post, PostComment } from '@/lib/types';
+import type { Post, PostComment, SurveyResponse } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { LocationDisplay } from '@/components/LocationDisplay';
@@ -36,7 +36,9 @@ import Colors from '@/constants/Colors';
 import { checkMipoVisibleModePermissions, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { isJoinMeNow } from '@/lib/types';
 import { startLiveLocationPostWatch, turnOffLiveLocationPost } from '@/lib/liveLocationPost';
+import { postSurveyPing } from '@/lib/postSurveyPing';
 import * as Location from 'expo-location';
+import Toast from 'react-native-toast-message';
 import { addMinutes } from 'date-fns';
 
 const DROPDOWN_WIDTH = 110;
@@ -55,14 +57,18 @@ function formatPostTime(dateStr: string): string {
   return format(d, 'MMM d, h:mm a');
 }
 
-type PostWithComments = Post & { comments: PostComment[] };
+type PostWithComments = Post & {
+  comments: PostComment[];
+  surveyResponses?: SurveyResponse[];
+  surveyPing?: { pinged_at: string };
+};
 
 export default function ActivityBoardScreen() {
   const localParams = useLocalSearchParams<{ id: string; fromTab?: string }>();
   const globalParams = useGlobalSearchParams<{ fromTab?: string }>();
   const { id } = localParams;
   const fromTab = localParams.fromTab ?? globalParams.fromTab;
-  const { user } = useAuth();
+  const { user, profile: userProfile } = useAuth();
   const { setVisible } = useMipo();
   useSetTabHighlight(fromTab ?? 'chats');
   const router = useRouter();
@@ -93,8 +99,21 @@ export default function ActivityBoardScreen() {
   const [commentSending, setCommentSending] = useState<Record<string, boolean>>({});
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [showNewPostModal, setShowNewPostModal] = useState(false);
-  const [newPostMode, setNewPostMode] = useState<'text' | 'live_location'>('text');
+  const [newPostMode, setNewPostMode] = useState<'text' | 'live_location' | 'survey'>('text');
   const [showLiveLocationTimePicker, setShowLiveLocationTimePicker] = useState(false);
+  const [surveyQuestion, setSurveyQuestion] = useState('');
+  const [surveyOptions, setSurveyOptions] = useState<string[]>(['', '']);
+  const [surveyAllowMultiple, setSurveyAllowMultiple] = useState(false);
+  const [surveyPosting, setSurveyPosting] = useState(false);
+  const [surveyPingLoading, setSurveyPingLoading] = useState<string | null>(null);
+  const [showSurveyPingBubble, setShowSurveyPingBubble] = useState<string | null>(null);
+  const [surveyChartPostId, setSurveyChartPostId] = useState<string | null>(null);
+  const [expandedSurveyPostIds, setExpandedSurveyPostIds] = useState<Set<string>>(new Set());
+  const [editSurveyQuestion, setEditSurveyQuestion] = useState('');
+  const [editSurveyOptions, setEditSurveyOptions] = useState<string[]>([]);
+  const [editSurveyAllowMultiple, setEditSurveyAllowMultiple] = useState(false);
+  const [surveyResponseSending, setSurveyResponseSending] = useState<Record<string, boolean>>({});
+  const [surveySelectedIndices, setSurveySelectedIndices] = useState<Record<string, number[]>>({});
   const [liveLocationPosting, setLiveLocationPosting] = useState(false);
   const [permissionError, setPermissionError] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
@@ -160,6 +179,29 @@ export default function ActivityBoardScreen() {
       .in('post_id', postIds)
       .order('created_at', { ascending: true });
 
+    const surveyPostIds = (postsData as Post[]).filter((p) => p.post_type === 'survey').map((p) => p.id);
+    let surveyResponsesByPost = new Map<string, SurveyResponse[]>();
+    let surveyPingByPost: Record<string, string> = {};
+    if (surveyPostIds.length > 0) {
+      const { data: responsesData } = await supabase
+        .from('survey_responses')
+        .select('*, profile:profiles(id, full_name, avatar_url)')
+        .in('post_id', surveyPostIds)
+        .order('created_at', { ascending: true });
+      for (const r of responsesData ?? []) {
+        const list = surveyResponsesByPost.get(r.post_id) ?? [];
+        list.push(r as SurveyResponse);
+        surveyResponsesByPost.set(r.post_id, list);
+      }
+      const { data: pingsData } = await supabase
+        .from('survey_pings')
+        .select('post_id, pinged_at')
+        .in('post_id', surveyPostIds);
+      for (const r of pingsData ?? []) {
+        surveyPingByPost[r.post_id] = r.pinged_at;
+      }
+    }
+
     const commentsByPost = new Map<string, PostComment[]>();
     for (const c of commentsData ?? []) {
       const list = commentsByPost.get(c.post_id) ?? [];
@@ -170,6 +212,8 @@ export default function ActivityBoardScreen() {
     const postsWithComments: PostWithComments[] = (postsData as Post[]).map((p) => ({
       ...p,
       comments: commentsByPost.get(p.id) ?? [],
+      surveyResponses: surveyResponsesByPost.get(p.id) ?? [],
+      surveyPing: surveyPingByPost[p.id] ? { pinged_at: surveyPingByPost[p.id] } : undefined,
     }));
     setPosts(postsWithComments);
   }, [id]);
@@ -224,11 +268,19 @@ export default function ActivityBoardScreen() {
         },
         () => fetchPosts()
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'survey_responses' },
+        (payload: { new?: { user_id?: string } }) => {
+          if (payload.new?.user_id === user?.id) return;
+          fetchPosts();
+        }
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, fetchPosts]);
+  }, [id, fetchPosts, user?.id]);
 
   const handlePost = async () => {
     const content = postText.trim();
@@ -356,7 +408,125 @@ export default function ActivityBoardScreen() {
     }
   };
 
+  const handlePostSurvey = async () => {
+    const question = surveyQuestion.trim();
+    const trimmed = surveyOptions.map((o) => o.trim());
+    const options = trimmed[trimmed.length - 1] === '' ? trimmed.slice(0, -1).filter(Boolean) : trimmed.filter(Boolean);
+    if (!question || options.length < 2 || !user || !id) {
+      Alert.alert('Invalid survey', 'Please enter a question and at least 2 options.');
+      return;
+    }
+    try {
+      setSurveyPosting(true);
+      const { error } = await supabase.from('posts').insert({
+        activity_id: id,
+        user_id: user.id,
+        content: question,
+        post_type: 'survey',
+        survey_metadata: { question, options, allow_multiple: surveyAllowMultiple },
+      });
+      if (error) throw error;
+      setSurveyQuestion('');
+      setSurveyOptions(['', '']);
+      setSurveyAllowMultiple(false);
+      setShowNewPostModal(false);
+      setNewPostMode('text');
+      await fetchPosts();
+    } catch (e) {
+      Alert.alert('Could not create survey', (e as Error).message ?? 'Please try again.');
+    } finally {
+      setSurveyPosting(false);
+    }
+  };
+
+  const handleSurveyResponse = async (postId: string, selectedIndices: number[]) => {
+    if (!user) return;
+    try {
+      setSurveyResponseSending((prev) => ({ ...prev, [postId]: true }));
+      const { error } = await supabase.from('survey_responses').upsert(
+        { post_id: postId, user_id: user.id, selected_indices: selectedIndices },
+        { onConflict: 'post_id,user_id' }
+      );
+      if (error) throw error;
+      // Optimistically update local state instead of refetching to avoid races that block re-selection
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== postId) return p;
+          const existing = p.surveyResponses ?? [];
+          const myIdx = existing.findIndex((r) => r.user_id === user.id);
+          const myExisting = myIdx >= 0 ? (existing[myIdx] as SurveyResponse) : undefined;
+          const newResponse: SurveyResponse = {
+            id: myExisting?.id ?? '',
+            post_id: postId,
+            user_id: user.id,
+            selected_indices: selectedIndices,
+            created_at: myExisting?.created_at ?? new Date().toISOString(),
+            profile: userProfile ? { id: user.id, full_name: userProfile.full_name, avatar_url: userProfile.avatar_url } : undefined,
+          };
+          const updated =
+            myIdx >= 0 ? [...existing.slice(0, myIdx), newResponse, ...existing.slice(myIdx + 1)] : [...existing, newResponse];
+          return { ...p, surveyResponses: updated };
+        })
+      );
+    } catch (e) {
+      Alert.alert('Could not submit', (e as Error).message ?? 'Please try again.');
+    } finally {
+      setSurveyResponseSending((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const handleSurveyPing = async (postId: string) => {
+    try {
+      setSurveyPingLoading(postId);
+      const result = await postSurveyPing(postId);
+      if (result.ok) {
+        Toast.show({ type: 'success', text1: 'Ping sent!' });
+        await fetchPosts();
+      } else {
+        const isRateLimit = result.error?.toLowerCase().includes('once per day') ?? false;
+        if (isRateLimit) {
+          await fetchPosts();
+          Toast.show({ type: 'info', text1: 'You can only ping once every 24 hours. Try again tomorrow.' });
+        } else {
+          Toast.show({ type: 'error', text1: result.error ?? 'Could not ping' });
+        }
+      }
+    } catch (e) {
+      Toast.show({ type: 'error', text1: (e as Error).message ?? 'Could not ping' });
+    } finally {
+      setSurveyPingLoading(null);
+    }
+  };
+
   const handleEditPost = async (postId: string) => {
+    const post = posts.find((p) => p.id === postId);
+    if (post?.post_type === 'survey') {
+      const question = editSurveyQuestion.trim();
+      const trimmed = editSurveyOptions.map((o) => o.trim());
+      const options = trimmed[trimmed.length - 1] === '' ? trimmed.slice(0, -1).filter(Boolean) : trimmed.filter(Boolean);
+      if (!question || options.length < 2) {
+        Alert.alert('Invalid survey', 'Please enter a question and at least 2 options.');
+        return;
+      }
+      try {
+        const { error } = await supabase
+          .from('posts')
+          .update({
+            content: question,
+            survey_metadata: { question, options, allow_multiple: editSurveyAllowMultiple },
+          })
+          .eq('id', postId);
+        if (error) throw error;
+        setEditingPostId(null);
+        setEditSurveyQuestion('');
+        setEditSurveyOptions([]);
+        setEditSurveyAllowMultiple(false);
+        await fetchPosts();
+      } catch (e) {
+        Alert.alert('Could not update', (e as Error).message ?? 'Please try again.');
+      }
+      return;
+    }
     const content = editPostText.trim();
     if (!content) return;
     try {
@@ -499,6 +669,7 @@ export default function ActivityBoardScreen() {
     const isMe = post.user_id === user?.id;
     const isEditing = editingPostId === post.id;
     const isLiveLocation = post.post_type === 'live_location';
+    const isSurvey = post.post_type === 'survey';
     const isExpired = isLiveLocation && !!post.chat_closed_at;
 
     if (isLiveLocation) {
@@ -522,6 +693,232 @@ export default function ActivityBoardScreen() {
             <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
           </View>
         </TouchableOpacity>
+      );
+    }
+
+    if (isSurvey && post.survey_metadata) {
+      const meta = post.survey_metadata;
+      const options = meta.options ?? [];
+      const allowMultiple = meta.allow_multiple ?? false;
+      const myResponse = post.surveyResponses?.find((r) => r.user_id === user?.id);
+      const selectedIndices = surveySelectedIndices[post.id] ?? myResponse?.selected_indices ?? [];
+      const isCreator = post.user_id === user?.id;
+      const lastPingAt = post.surveyPing?.pinged_at;
+      const pingCooldownEnds = lastPingAt ? addMinutes(new Date(lastPingAt), 24 * 60) : null;
+      const pingOnCooldown = pingCooldownEnds ? new Date() < pingCooldownEnds : false;
+
+      const toggleOption = (idx: number) => {
+        if (allowMultiple) {
+          const next = selectedIndices.includes(idx)
+            ? selectedIndices.filter((i) => i !== idx)
+            : [...selectedIndices, idx];
+          setSurveySelectedIndices((prev) => ({ ...prev, [post.id]: next }));
+          handleSurveyResponse(post.id, next);
+        } else {
+          setSurveySelectedIndices((prev) => ({ ...prev, [post.id]: [idx] }));
+          handleSurveyResponse(post.id, [idx]);
+        }
+      };
+
+      const isExpanded = expandedSurveyPostIds.has(post.id);
+
+      return (
+        <View style={styles.postCard}>
+          <View style={styles.postHeader}>
+            <View style={[styles.liveLocationIconWrap, { backgroundColor: Colors.accentLight }]}>
+              <Ionicons name="stats-chart-outline" size={24} color={Colors.primary} />
+            </View>
+            <View style={styles.postHeaderText}>
+              <Text style={styles.postAuthor}>{post.profile?.full_name ?? 'Someone'}</Text>
+              <Text style={styles.postTime}>{formatPostTime(post.created_at)}</Text>
+            </View>
+            <View style={styles.postHeaderRight}>
+              {isCreator && (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setShowSurveyPingBubble(showSurveyPingBubble === post.id ? null : post.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.pingBtn,
+                      (surveyPingLoading === post.id || pingOnCooldown) && styles.pingBtnDisabled,
+                    ]}
+                    onPress={() => handleSurveyPing(post.id)}
+                    disabled={surveyPingLoading === post.id}
+                  >
+                    {surveyPingLoading === post.id ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <>
+                        <Ionicons name="notifications-outline" size={14} color={pingOnCooldown ? Colors.textSecondary : Colors.primary} />
+                        <Text style={[styles.pingBtnText, pingOnCooldown && { color: Colors.textSecondary }]}>Ping</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+              {isCreator && (
+                <View
+                  ref={(r) => {
+                    if (r) postButtonRefs.current[post.id] = r;
+                  }}
+                  collapsable={false}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      const ref = postButtonRefs.current[post.id];
+                      ref?.measureInWindow((x, y, width, height) => {
+                        setPostMenuPostId(post.id);
+                        setPostMenuPosition({ x, y: y + height, width });
+                      });
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={20} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+          {editingPostId === post.id ? (
+            <View style={styles.surveyEditForm}>
+              <Text style={styles.surveyCreateLabel}>Question</Text>
+              <TextInput
+                style={styles.surveyQuestionInput}
+                value={editSurveyQuestion}
+                onChangeText={setEditSurveyQuestion}
+                placeholder="Ask your question…"
+                placeholderTextColor={Colors.textSecondary}
+                multiline
+                numberOfLines={2}
+                maxLength={500}
+              />
+              <Text style={styles.surveyCreateLabel}>Options</Text>
+              <ScrollView style={styles.surveyOptionsScroll} contentContainerStyle={styles.surveyOptionsList} nestedScrollEnabled>
+                {editSurveyOptions.map((opt, idx) => (
+                  <View key={idx} style={styles.surveyOptionInputRow}>
+                    <Text style={styles.surveyOptionNumber}>{idx + 1}.</Text>
+                    <TextInput
+                      style={styles.surveyOptionInput}
+                      value={opt}
+                      onChangeText={(t) =>
+                        setEditSurveyOptions((prev) => {
+                          const next = [...prev];
+                          next[idx] = t;
+                          if (idx === prev.length - 1 && t.trim()) {
+                            next.push('');
+                          }
+                          return next;
+                        })
+                      }
+                      placeholder={`Option ${idx + 1}`}
+                      placeholderTextColor={Colors.textSecondary}
+                      maxLength={200}
+                    />
+                    {editSurveyOptions.length > 2 && (
+                      <TouchableOpacity
+                        onPress={() => setEditSurveyOptions((prev) => prev.filter((_, i) => i !== idx))}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle" size={22} color={Colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+              <TouchableOpacity
+                style={styles.surveyAllowMultipleRow}
+                onPress={() => setEditSurveyAllowMultiple((v) => !v)}
+              >
+                <Ionicons
+                  name={editSurveyAllowMultiple ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={editSurveyAllowMultiple ? Colors.primary : Colors.textSecondary}
+                />
+                <Text style={styles.surveyAllowMultipleText}>Allow multiple answers</Text>
+              </TouchableOpacity>
+              <View style={styles.postEditActions}>
+                <TouchableOpacity style={styles.postEditSave} onPress={() => handleEditPost(post.id)}>
+                  <Text style={styles.postEditSaveText}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.postEditCancel}
+                  onPress={() => {
+                    setEditingPostId(null);
+                    setEditSurveyQuestion('');
+                    setEditSurveyOptions([]);
+                    setEditSurveyAllowMultiple(false);
+                  }}
+                >
+                  <Text style={styles.postEditCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+          <Text style={styles.surveyQuestion}>{meta.question}</Text>
+          {isExpanded ? (
+          <View style={styles.surveyOptions}>
+            {options.map((opt, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={[
+                  styles.surveyOption,
+                  selectedIndices.includes(idx) && styles.surveyOptionSelected,
+                ]}
+                onPress={() => toggleOption(idx)}
+              >
+                <Text style={styles.surveyOptionNumber}>{idx + 1}.</Text>
+                <Ionicons
+                  name={allowMultiple ? (selectedIndices.includes(idx) ? 'checkbox' : 'square-outline') : (selectedIndices.includes(idx) ? 'radio-button-on' : 'radio-button-off')}
+                  size={22}
+                  color={selectedIndices.includes(idx) ? Colors.primary : Colors.textSecondary}
+                />
+                <Text style={[styles.surveyOptionText, selectedIndices.includes(idx) && { color: Colors.primary, fontWeight: '600' }]}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          ) : (
+            <View style={styles.surveyExpandRow}>
+              <TouchableOpacity
+                style={styles.surveyExpandBtn}
+                onPress={() => setExpandedSurveyPostIds((prev) => new Set(prev).add(post.id))}
+              >
+                <Ionicons name="chevron-down" size={18} color={Colors.primary} />
+                <Text style={styles.surveyExpandBtnText}>Expand to show options</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.surveyPlotBtn} onPress={() => setSurveyChartPostId(post.id)}>
+                <Ionicons name="bar-chart-outline" size={18} color={Colors.primary} />
+                <Text style={styles.surveyPlotBtnText}>Plot</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {isExpanded && (
+            <View style={styles.surveyExpandRow}>
+              <TouchableOpacity
+                style={styles.surveyCollapseBtn}
+                onPress={() => setExpandedSurveyPostIds((prev) => { const next = new Set(prev); next.delete(post.id); return next; })}
+              >
+                <Ionicons name="chevron-up" size={16} color={Colors.textSecondary} />
+                <Text style={styles.surveyCollapseBtnText}>Collapse</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.surveyPlotBtn} onPress={() => setSurveyChartPostId(post.id)}>
+                <Ionicons name="bar-chart-outline" size={18} color={Colors.primary} />
+                <Text style={styles.surveyPlotBtnText}>Plot</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {showSurveyPingBubble === post.id && (
+            <View style={styles.surveyPingBubble}>
+              <Text style={styles.pingBubbleText}>Send a reminder to people who haven't answered yet. You can use this once every 24 hours.</Text>
+            </View>
+          )}
+            </>
+          )}
+        </View>
       );
     }
 
@@ -828,6 +1225,9 @@ export default function ActivityBoardScreen() {
                   setPostText('');
                   setNewPostMode('text');
                   setShowLiveLocationTimePicker(false);
+                  setSurveyQuestion('');
+                  setSurveyOptions(['', '']);
+                  setSurveyAllowMultiple(false);
                 }}
               />
               <View style={[styles.newPostModal, { paddingBottom: insets.bottom + 20 }]}>
@@ -839,13 +1239,107 @@ export default function ActivityBoardScreen() {
                       setPostText('');
                       setNewPostMode('text');
                       setShowLiveLocationTimePicker(false);
+                      setSurveyQuestion('');
+                      setSurveyOptions(['', '']);
+                      setSurveyAllowMultiple(false);
                     }}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Ionicons name="close" size={24} color={Colors.text} />
                   </TouchableOpacity>
                 </View>
-                {showLiveLocationTimePicker ? (
+                {newPostMode === 'survey' ? (
+                  <View style={styles.surveyCreateForm}>
+                    <TouchableOpacity
+                      style={styles.surveyBackBtn}
+                      onPress={() => {
+                        setNewPostMode('text');
+                        setSurveyQuestion('');
+                        setSurveyOptions(['', '']);
+                        setSurveyAllowMultiple(false);
+                      }}
+                    >
+                      <Ionicons name="arrow-back" size={20} color={Colors.primary} />
+                      <Text style={styles.surveyBackBtnText}>Back</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.surveyCreateLabel}>Question</Text>
+                    <TextInput
+                      style={styles.surveyQuestionInput}
+                      value={surveyQuestion}
+                      onChangeText={setSurveyQuestion}
+                      placeholder="Ask your question…"
+                      placeholderTextColor={Colors.textSecondary}
+                      multiline
+                      numberOfLines={2}
+                      maxLength={500}
+                    />
+                    <Text style={styles.surveyCreateLabel}>Options</Text>
+                    <ScrollView style={styles.surveyOptionsScroll} contentContainerStyle={styles.surveyOptionsList} nestedScrollEnabled>
+                      {surveyOptions.map((opt, idx) => (
+                        <View key={idx} style={styles.surveyOptionInputRow}>
+                          <Text style={styles.surveyOptionNumber}>{idx + 1}.</Text>
+                          <TextInput
+                            style={styles.surveyOptionInput}
+                            value={opt}
+                            onChangeText={(t) =>
+                              setSurveyOptions((prev) => {
+                                const next = [...prev];
+                                next[idx] = t;
+                                if (idx === prev.length - 1 && t.trim()) {
+                                  next.push('');
+                                }
+                                return next;
+                              })
+                            }
+                            placeholder={`Option ${idx + 1}`}
+                            placeholderTextColor={Colors.textSecondary}
+                            maxLength={200}
+                          />
+                          {surveyOptions.length > 2 && (
+                            <TouchableOpacity
+                              onPress={() => setSurveyOptions((prev) => prev.filter((_, i) => i !== idx))}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Ionicons name="close-circle" size={22} color={Colors.textSecondary} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ))}
+                    </ScrollView>
+                    <TouchableOpacity
+                      style={styles.surveyAllowMultipleRow}
+                      onPress={() => setSurveyAllowMultiple((v) => !v)}
+                    >
+                      <Ionicons
+                        name={surveyAllowMultiple ? 'checkbox' : 'square-outline'}
+                        size={22}
+                        color={surveyAllowMultiple ? Colors.primary : Colors.textSecondary}
+                      />
+                      <Text style={styles.surveyAllowMultipleText}>Allow multiple answers</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.publishBtn,
+                        (surveyPosting ||
+                          !surveyQuestion.trim() ||
+                          surveyOptions.filter((o) => o.trim()).length < 2) &&
+                          styles.publishBtnDisabled,
+                      ]}
+                      onPress={handlePostSurvey}
+                      disabled={
+                        surveyPosting ||
+                        !surveyQuestion.trim() ||
+                        surveyOptions.filter((o) => o.trim()).length < 2
+                      }
+                    >
+                      {surveyPosting ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.publishBtnText}>Publish survey</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ) : showLiveLocationTimePicker ? (
                   <View style={styles.liveLocationTimePicker}>
                     <Text style={styles.liveLocationTimePickerTitle}>Share live location for</Text>
                     {LIVE_LOCATION_TIME_OPTIONS.map((opt) => (
@@ -873,6 +1367,15 @@ export default function ActivityBoardScreen() {
                   </View>
                 ) : (
                   <>
+                    <TouchableOpacity
+                      style={styles.shareLiveLocationBtn}
+                      onPress={() => {
+                        setNewPostMode('survey');
+                      }}
+                    >
+                      <Ionicons name="stats-chart-outline" size={22} color={Colors.primary} />
+                      <Text style={styles.shareLiveLocationBtnText}>Create survey</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.shareLiveLocationBtn}
                       onPress={async () => {
@@ -958,6 +1461,12 @@ export default function ActivityBoardScreen() {
                     if (post) {
                       setEditingPostId(post.id);
                       setEditPostText(post.content);
+                      if (post.post_type === 'survey' && post.survey_metadata) {
+                        const meta = post.survey_metadata;
+                        setEditSurveyQuestion(meta.question ?? post.content);
+                        setEditSurveyOptions([...(meta.options ?? []), '']);
+                        setEditSurveyAllowMultiple(meta.allow_multiple ?? false);
+                      }
                     }
                     setPostMenuPostId(null);
                     setPostMenuPosition(null);
@@ -1002,6 +1511,81 @@ export default function ActivityBoardScreen() {
                 >
                   <Text style={styles.permissionErrorBtnText}>OK</Text>
                 </TouchableOpacity>
+              </Pressable>
+            </Pressable>
+          </Modal>
+
+          <Modal
+            visible={surveyChartPostId != null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setSurveyChartPostId(null)}
+          >
+            <Pressable style={styles.dropdownOverlay} onPress={() => setSurveyChartPostId(null)}>
+              <Pressable style={styles.surveyChartModal} onPress={(e) => e.stopPropagation()}>
+                {(() => {
+                  const post = posts.find((p) => p.id === surveyChartPostId);
+                  if (!post || post.post_type !== 'survey' || !post.survey_metadata) return null;
+                  const meta = post.survey_metadata;
+                  const options = meta.options ?? [];
+                  const counts = options.map((_, idx) =>
+                    (post.surveyResponses ?? []).filter((r) => r.selected_indices?.includes(idx)).length
+                  );
+                  const maxCount = Math.max(0, ...counts);
+                  const totalResponses = (post.surveyResponses ?? []).length;
+                  return (
+                    <>
+                      <Text style={styles.surveyChartTitle}>{meta.question}</Text>
+                      <ScrollView style={styles.surveyChartScroll} showsVerticalScrollIndicator={false}>
+                        {totalResponses === 0 ? (
+                          <Text style={styles.surveyChartEmpty}>No responses yet</Text>
+                        ) : (
+                          <View style={styles.surveyChartBars}>
+                            {options.map((opt, idx) => {
+                              const count = counts[idx];
+                              const pct = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                              const isTop = maxCount > 0 && count === maxCount;
+                              const respondents = (post.surveyResponses ?? []).filter((r) => r.selected_indices?.includes(idx));
+                              const maxAvatars = 6;
+                              const shown = respondents.slice(0, maxAvatars);
+                              const extra = respondents.length - maxAvatars;
+                              return (
+                                <View key={idx} style={styles.surveyChartOption}>
+                                  <View style={styles.surveyChartRow}>
+                                    <Text style={styles.surveyChartLabel} numberOfLines={1}>{opt}</Text>
+                                    <View style={styles.surveyChartBarWrap}>
+                                      <View
+                                        style={[
+                                          styles.surveyChartBar,
+                                          { width: `${pct}%` },
+                                          isTop ? styles.surveyChartBarTop : styles.surveyChartBarNormal,
+                                        ]}
+                                      />
+                                    </View>
+                                    <Text style={styles.surveyChartCount}>{count}</Text>
+                                  </View>
+                                  {respondents.length > 0 && (
+                                    <View style={styles.surveyChartAvatars}>
+                                      {shown.map((r) => (
+                                        <Avatar key={r.id} uri={r.profile?.avatar_url} name={r.profile?.full_name} size={20} />
+                                      ))}
+                                      {extra > 0 && (
+                                        <Text style={styles.surveyChartExtra}>+{extra}</Text>
+                                      )}
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </ScrollView>
+                      <TouchableOpacity style={styles.surveyChartClose} onPress={() => setSurveyChartPostId(null)}>
+                        <Text style={styles.surveyChartCloseText}>Close</Text>
+                      </TouchableOpacity>
+                    </>
+                  );
+                })()}
               </Pressable>
             </Pressable>
           </Modal>
@@ -1358,4 +1942,142 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   commentPostBtnDisabled: { backgroundColor: Colors.border, opacity: 0.6 },
+
+  postHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  pingBtnDisabled: { opacity: 0.6, borderColor: Colors.textSecondary },
+  pingBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  surveyQuestion: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 12 },
+  surveyOptions: { gap: 4 },
+  surveyOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+  },
+  surveyOptionSelected: { backgroundColor: Colors.accentLight },
+  surveyOptionText: { fontSize: 15, color: Colors.text, flex: 1 },
+  surveySubmitBtn: {
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  surveyPingBubble: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  pingBubbleText: { fontSize: 14, color: Colors.text, lineHeight: 20 },
+
+  surveyCreateForm: { marginBottom: 16 },
+  surveyEditForm: { marginTop: 8 },
+  surveyBackBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
+  surveyBackBtnText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  surveyCreateLabel: { fontSize: 14, fontWeight: '600', color: Colors.text, marginBottom: 8 },
+  surveyQuestionInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.text,
+    minHeight: 44,
+    maxHeight: 60,
+    textAlignVertical: 'top',
+  },
+  surveyOptionsScroll: { maxHeight: 200 },
+  surveyOptionsList: { gap: 8, paddingRight: 4 },
+  surveyOptionNumber: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary, minWidth: 20 },
+  surveyOptionInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  surveyOptionInput: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.text,
+  },
+  surveyAllowMultipleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  surveyAllowMultipleText: { fontSize: 15, color: Colors.text },
+
+  surveyChartModal: {
+    marginHorizontal: 24,
+    marginVertical: 80,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    maxHeight: SCREEN_HEIGHT * 0.7,
+  },
+  surveyChartTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  surveyChartScroll: { maxHeight: SCREEN_HEIGHT * 0.5 },
+  surveyChartEmpty: { fontSize: 15, color: Colors.textSecondary, marginBottom: 16 },
+  surveyChartBars: { gap: 12, marginBottom: 16 },
+  surveyChartOption: { gap: 4 },
+  surveyChartRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  surveyChartAvatars: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 4 },
+  surveyChartExtra: { fontSize: 12, color: Colors.textSecondary, marginLeft: 2 },
+  surveyChartLabel: { fontSize: 14, color: Colors.text, flex: 1, minWidth: 0 },
+  surveyChartBarWrap: { flex: 1, height: 24, backgroundColor: Colors.borderLight, borderRadius: 6, overflow: 'hidden', justifyContent: 'center' },
+  surveyChartBar: { height: '100%', borderRadius: 6 },
+  surveyChartBarNormal: { backgroundColor: Colors.primary },
+  surveyChartBarTop: { backgroundColor: Colors.success },
+  surveyChartCount: { fontSize: 14, fontWeight: '700', color: Colors.text, minWidth: 24, textAlign: 'right' },
+  surveyChartClose: { paddingVertical: 12, alignItems: 'center', borderTopWidth: 1, borderTopColor: Colors.borderLight },
+  surveyChartCloseText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  surveyExpandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  surveyPlotBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  surveyPlotBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  surveyExpandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+  },
+  surveyExpandBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  surveyCollapseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  surveyCollapseBtnText: { fontSize: 13, color: Colors.textSecondary },
 });
