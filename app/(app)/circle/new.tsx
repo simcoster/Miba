@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import Toast from 'react-native-toast-message';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSetTabHighlight } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
@@ -22,7 +22,7 @@ import Colors from '@/constants/Colors';
 export default function NewCircleScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { fromTab } = useLocalSearchParams<{ fromTab?: string }>();
+  const { fromTab, activityId } = useLocalSearchParams<{ fromTab?: string; activityId?: string }>();
   useSetTabHighlight(fromTab);
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('👥');
@@ -47,6 +47,35 @@ export default function NewCircleScreen() {
   useEffect(() => {
     fetchCircles();
   }, [fetchCircles]);
+
+  const syncFromActivity = useCallback(async () => {
+    if (!activityId || !user) return;
+    const { data } = await supabase
+      .from('rsvps')
+      .select('user_id, profile:profiles(id, full_name, avatar_url)')
+      .eq('activity_id', activityId)
+      .neq('user_id', user.id);
+    const fromEvent = new Map<string, Profile>();
+    (data ?? []).forEach((r: any) => {
+      const p = Array.isArray(r.profile) ? r.profile?.[0] : r.profile;
+      if (p && r.user_id) fromEvent.set(r.user_id, p as Profile);
+    });
+    setSelectedMembers(prev => {
+      const next = new Map(fromEvent);
+      for (const [id, p] of prev) {
+        if (!fromEvent.has(id)) next.set(id, p);
+      }
+      return next;
+    });
+  }, [activityId, user]);
+
+  useEffect(() => {
+    if (activityId) syncFromActivity();
+  }, [activityId, syncFromActivity]);
+
+  useFocusEffect(useCallback(() => {
+    if (activityId) syncFromActivity();
+  }, [activityId, syncFromActivity]));
 
   const addFromCircle = async (circle: Circle) => {
     if (!user) return;
@@ -103,7 +132,14 @@ export default function NewCircleScreen() {
 
       const { error: e1 } = await supabase
         .from('circles')
-        .insert({ id: circleId, name: name.trim(), description: null, emoji, created_by: user.id });
+        .insert({
+          id: circleId,
+          name: name.trim(),
+          description: null,
+          emoji,
+          created_by: user.id,
+          ...(activityId ? { linked_activity_id: activityId } : {}),
+        });
       if (e1) {
         console.error('Circle insert error:', e1.code, e1.message, e1.details, e1.hint);
         throw e1;

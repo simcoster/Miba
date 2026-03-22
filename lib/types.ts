@@ -32,6 +32,7 @@ export type Circle = {
   created_by: string | null;
   created_at: string;
   is_all_friends?: boolean;
+  linked_activity_id?: string | null;
   member_count?: number;
   is_owner?: boolean;
 };

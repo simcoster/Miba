@@ -39,6 +39,7 @@ import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
 import { deleteActivity } from '@/lib/deleteActivity';
 import { markActivityVisited } from '@/lib/visitedActivities';
+import { getAllFriendsMemberIds, addUsersToAllFriends } from '@/lib/allFriends';
 import * as Calendar from 'expo-calendar';
 import Colors from '@/constants/Colors';
 
@@ -76,6 +77,10 @@ export default function ActivityDetailScreen() {
   const [showPingBubble, setShowPingBubble] = useState(false);
   const [pingBubblePosition, setPingBubblePosition] = useState<{ iconX: number; y: number } | null>(null);
   const pingIconRef = useRef<View>(null);
+
+  const [allFriendsIds, setAllFriendsIds] = useState<Set<string>>(new Set());
+  const [addToFriendsLoading, setAddToFriendsLoading] = useState<string | null>(null);
+  const [linkedCircleId, setLinkedCircleId] = useState<string | null>(null);
 
   // Activity edit state
   const [isEditing, setIsEditing] = useState(false);
@@ -142,6 +147,7 @@ export default function ActivityDetailScreen() {
     if (!data) {
       setActivity(null);
       setLastPingAt(null);
+      setLinkedCircleId(null);
       setActivityDeleted(true);
       return;
     }
@@ -176,6 +182,15 @@ export default function ActivityDetailScreen() {
         .is('chat_closed_at', null)
         .maybeSingle();
       setActiveLiveLocationPostId(livePost?.id ?? null);
+
+      const { data: linkedCircle } = await supabase
+        .from('circles')
+        .select('id')
+        .eq('linked_activity_id', id)
+        .eq('created_by', user.id)
+        .maybeSingle();
+      setLinkedCircleId(linkedCircle?.id ?? null);
+
       // Mark RSVP as seen for badge clearing. Board read is set when user opens the board.
       // Do NOT set miba_activity_last_seen here — that would cause ActivityUpdatesFeed to filter out all updates before the user sees them.
       const now = new Date().toISOString();
@@ -258,6 +273,37 @@ export default function ActivityDetailScreen() {
     checkUnread();
     fetchActivity();
   }, [checkUnread, fetchActivity]));
+
+  useEffect(() => {
+    if (!user) return;
+    getAllFriendsMemberIds(user.id).then(setAllFriendsIds);
+  }, [user]);
+
+  const handleCreateCircle = useCallback(() => {
+    if (!id) return;
+    const tab = typeof fromTab === 'string' ? fromTab : undefined;
+    if (linkedCircleId) {
+      router.push(`/(app)/circle/${linkedCircleId}${tab ? `?fromTab=${encodeURIComponent(tab)}` : ''}`);
+    } else {
+      const q = new URLSearchParams({ activityId: id });
+      if (tab) q.set('fromTab', tab);
+      router.push(`/(app)/circle/new?${q.toString()}`);
+    }
+  }, [id, linkedCircleId, fromTab, router]);
+
+  const handleAddToFriends = async (userId: string) => {
+    if (!user) return;
+    try {
+      setAddToFriendsLoading(userId);
+      await addUsersToAllFriends(user.id, [userId]);
+      setAllFriendsIds(prev => new Set([...prev, userId]));
+      Toast.show({ type: 'success', text1: 'Added to friends' });
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not add to friends.');
+    } finally {
+      setAddToFriendsLoading(null);
+    }
+  };
 
   const handleBack = useCallback(() => {
     if (fromTab === 'declined' && activity?.my_rsvp && (activity.my_rsvp.status === 'in' || activity.my_rsvp.status === 'maybe')) {
@@ -1256,6 +1302,7 @@ export default function ActivityDetailScreen() {
                 const canRemove = false;
                 const status = rsvp.status;
                 const rowOpacity = status === 'out' ? 0.6 : status === 'pending' ? 0.5 : 1;
+                const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
                 return (
                   <View key={rsvp.id} style={[styles.attendeeRow, { opacity: rowOpacity }]}>
                     <TouchableOpacity style={styles.attendeeRowMain} activeOpacity={1}>
@@ -1275,6 +1322,22 @@ export default function ActivityDetailScreen() {
                       {status === 'out' && <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>Can't go</Text></View>}
                       {status === 'pending' && <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>Invited</Text></View>}
                     </TouchableOpacity>
+                    {showAddToFriends && (
+                      <TouchableOpacity
+                        style={styles.addToFriendsBtn}
+                        onPress={() => handleAddToFriends(rsvp.user_id)}
+                        disabled={addToFriendsLoading === rsvp.user_id}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {addToFriendsLoading === rsvp.user_id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <>
+                              <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+                              <Text style={styles.addToFriendsText}>Add to friends</Text>
+                            </>
+                        }
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               })()}
@@ -1282,6 +1345,7 @@ export default function ActivityDetailScreen() {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
+                const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
                 return (
                   <View key={rsvp.id} style={styles.attendeeRow}>
                     <TouchableOpacity
@@ -1295,6 +1359,22 @@ export default function ActivityDetailScreen() {
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
                       <View style={styles.statusBadgeGoing}><Text style={styles.statusTextGoing}>You're in!</Text></View>
                     </TouchableOpacity>
+                    {showAddToFriends && (
+                      <TouchableOpacity
+                        style={styles.addToFriendsBtn}
+                        onPress={() => handleAddToFriends(rsvp.user_id)}
+                        disabled={addToFriendsLoading === rsvp.user_id}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {addToFriendsLoading === rsvp.user_id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <>
+                              <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+                              <Text style={styles.addToFriendsText}>Add to friends</Text>
+                            </>
+                        }
+                      </TouchableOpacity>
+                    )}
                     {canRemove && (
                       <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name="close-circle" size={24} color={Colors.danger} />
@@ -1307,6 +1387,7 @@ export default function ActivityDetailScreen() {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
+                const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
                 const visibleNote = isMe ? (maybeNote || null) : (isCreator ? (rsvp.note ?? null) : null);
                 return (
                   <View key={rsvp.id} style={styles.attendeeRow}>
@@ -1326,6 +1407,22 @@ export default function ActivityDetailScreen() {
                         <Text style={styles.statusTextMaybe}>Maybe</Text>
                       </View>
                     </TouchableOpacity>
+                    {showAddToFriends && (
+                      <TouchableOpacity
+                        style={styles.addToFriendsBtn}
+                        onPress={() => handleAddToFriends(rsvp.user_id)}
+                        disabled={addToFriendsLoading === rsvp.user_id}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {addToFriendsLoading === rsvp.user_id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <>
+                              <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+                              <Text style={styles.addToFriendsText}>Add to friends</Text>
+                            </>
+                        }
+                      </TouchableOpacity>
+                    )}
                     {canRemove && (
                       <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name="close-circle" size={24} color={Colors.danger} />
@@ -1338,6 +1435,7 @@ export default function ActivityDetailScreen() {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
+                const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
                 return (
                   <View key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.6 }]}>
                     <TouchableOpacity
@@ -1351,6 +1449,22 @@ export default function ActivityDetailScreen() {
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
                       <View style={styles.statusBadgeOut}><Text style={styles.statusTextOut}>Can't go</Text></View>
                     </TouchableOpacity>
+                    {showAddToFriends && (
+                      <TouchableOpacity
+                        style={styles.addToFriendsBtn}
+                        onPress={() => handleAddToFriends(rsvp.user_id)}
+                        disabled={addToFriendsLoading === rsvp.user_id}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {addToFriendsLoading === rsvp.user_id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <>
+                              <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+                              <Text style={styles.addToFriendsText}>Add to friends</Text>
+                            </>
+                        }
+                      </TouchableOpacity>
+                    )}
                     {canRemove && (
                       <TouchableOpacity style={styles.removeInviteeBtn} onPress={() => handleRemoveInvitee(rsvp)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                         <Ionicons name="close-circle" size={24} color={Colors.danger} />
@@ -1363,6 +1477,7 @@ export default function ActivityDetailScreen() {
                 const isMe = rsvp.user_id === user?.id;
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
+                const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
                 return (
                   <View key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.5 }]}>
                     <TouchableOpacity
@@ -1376,6 +1491,22 @@ export default function ActivityDetailScreen() {
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
                       <View style={styles.statusBadgePending}><Text style={styles.statusTextPending}>Invited</Text></View>
                     </TouchableOpacity>
+                    {showAddToFriends && (
+                      <TouchableOpacity
+                        style={styles.addToFriendsBtn}
+                        onPress={() => handleAddToFriends(rsvp.user_id)}
+                        disabled={addToFriendsLoading === rsvp.user_id}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        {addToFriendsLoading === rsvp.user_id
+                          ? <ActivityIndicator size="small" color={Colors.primary} />
+                          : <>
+                              <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+                              <Text style={styles.addToFriendsText}>Add to friends</Text>
+                            </>
+                        }
+                      </TouchableOpacity>
+                    )}
                     {canRemove && (
                       <TouchableOpacity
                         style={styles.removeInviteeBtn}
@@ -1391,44 +1522,64 @@ export default function ActivityDetailScreen() {
             </View>
           )}
 
-          {/* Ping row — below invited list, right-aligned with info button */}
-          {isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0 && (
-            <View style={styles.pingRow}>
-              <View style={{ flex: 1 }} />
-              <View style={styles.pingRowRight}>
-                <View ref={pingIconRef} collapsable={false}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      pingIconRef.current?.measureInWindow((x, y) => {
-                        setPingBubblePosition({ iconX: x, y });
-                        setShowPingBubble(true);
-                      });
-                    }}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.addInviteBtn,
-                    (pingLoading || pingOnCooldown) && styles.pingBtnDisabled,
-                  ]}
-                  onPress={handlePing}
-                  disabled={pingLoading}
-                >
-                  {pingLoading ? (
-                    <ActivityIndicator size="small" color={Colors.primary} />
+          {/* Row: View circle (when linked) + i + Ping — all aligned right */}
+          {(activity.rsvps ?? []).length > 0 || (isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0) ? (
+            <View style={styles.pingCreateSection}>
+              {(linkedCircleId || (isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0)) && (
+                <View style={styles.pingRow}>
+                  {linkedCircleId ? (
+                    <TouchableOpacity style={styles.addInviteBtn} onPress={handleCreateCircle}>
+                      <Ionicons name="people-outline" size={16} color={Colors.primary} />
+                      <Text style={styles.addInviteBtnText}>View circle</Text>
+                    </TouchableOpacity>
                   ) : (
-                    <>
-                      <Ionicons name="notifications-outline" size={16} color={pingOnCooldown ? Colors.textSecondary : Colors.primary} />
-                      <Text style={[styles.addInviteBtnText, pingOnCooldown && { color: Colors.textSecondary }]}>Ping</Text>
-                    </>
+                    <View style={{ flex: 1 }} />
                   )}
+                  <View style={{ flex: 1 }} />
+                  {isCreator && activity.status === 'active' && !past && !activity.is_join_me && (pending.length + maybe.length) > 0 && (
+                    <View style={styles.pingRowRight}>
+                        <View ref={pingIconRef} collapsable={false}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              pingIconRef.current?.measureInWindow((x, y) => {
+                                setPingBubblePosition({ iconX: x, y });
+                                setShowPingBubble(true);
+                              });
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="information-circle-outline" size={20} color="#3B82F6" />
+                          </TouchableOpacity>
+                        </View>
+                        <TouchableOpacity
+                          style={[
+                            styles.addInviteBtn,
+                            (pingLoading || pingOnCooldown) && styles.pingBtnDisabled,
+                          ]}
+                          onPress={handlePing}
+                          disabled={pingLoading}
+                        >
+                          {pingLoading ? (
+                            <ActivityIndicator size="small" color={Colors.primary} />
+                          ) : (
+                            <>
+                              <Ionicons name="notifications-outline" size={16} color={pingOnCooldown ? Colors.textSecondary : Colors.primary} />
+                              <Text style={[styles.addInviteBtnText, pingOnCooldown && { color: Colors.textSecondary }]}>Ping</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+              {(activity.rsvps ?? []).length > 0 && !linkedCircleId && (
+                <TouchableOpacity style={styles.createCircleBtn} onPress={handleCreateCircle}>
+                  <Ionicons name="people-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.createCircleBtnText}>Create a circle</Text>
                 </TouchableOpacity>
-              </View>
+              )}
             </View>
-          )}
+        ) : null}
         </View>
 
         {/* Updates feed — hidden for join me events */}
@@ -1460,6 +1611,15 @@ export default function ActivityDetailScreen() {
               <Ionicons name="create-outline" size={18} color={Colors.text} />
               <Text style={styles.menuItemText}>Edit</Text>
             </TouchableOpacity>
+            {(activity.rsvps?.length ?? 0) > 0 && (
+              <>
+                <View style={styles.menuDivider} />
+                <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleCreateCircle(); }}>
+                  <Ionicons name="people-outline" size={18} color={Colors.text} />
+                  <Text style={styles.menuItemText}>{linkedCircleId ? 'View circle' : 'Create a circle'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
             <View style={styles.menuDivider} />
             <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleClone(); }} disabled={cloneLoading}>
               {cloneLoading
@@ -1735,7 +1895,8 @@ const styles = StyleSheet.create({
   addInviteBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: Colors.accentLight },
   addInviteBtnActive: { borderColor: Colors.border, backgroundColor: Colors.surface },
   addInviteBtnText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
-  pingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  pingCreateSection: { marginTop: 12 },
+  pingRow: { flexDirection: 'row', alignItems: 'center' },
   pingRowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pingBtnDisabled: { opacity: 0.6, borderColor: Colors.textSecondary, backgroundColor: Colors.border },
   pingBubble: { backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 6 },
@@ -1761,6 +1922,33 @@ const styles = StyleSheet.create({
   attendeeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   attendeeRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   removeInviteeBtn: { padding: 4 },
+  addToFriendsBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: Colors.accentLight },
+  addToFriendsText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+  createCircleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: Colors.accentLight,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+  },
+  createCircleBtnInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    backgroundColor: Colors.accentLight,
+  },
+  createCircleBtnText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
   attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: Colors.text },
   youBadge: { backgroundColor: Colors.accentLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   youText: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
