@@ -57,6 +57,17 @@ export async function addUsersToAllFriends(
 }
 
 /**
+ * Returns the set of user IDs in the owner's All Friends circle.
+ * Use to check if participants are friends before showing "To friends".
+ */
+export async function getAllFriendsMemberIds(ownerId: string): Promise<Set<string>> {
+  const allFriendsId = await ensureAllFriendsCircle(ownerId);
+  if (!allFriendsId) return new Set();
+  const { data } = await supabase.from('circle_members').select('user_id').eq('circle_id', allFriendsId);
+  return new Set((data ?? []).map((r: { user_id: string }) => r.user_id));
+}
+
+/**
  * Ensures a user is in the owner's All Friends circle.
  * Call after adding someone to any circle (except when adding to All Friends itself).
  */

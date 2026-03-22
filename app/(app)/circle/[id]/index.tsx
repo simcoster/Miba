@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Circle, CircleMember } from '@/lib/types';
 import { Ionicons } from '@expo/vector-icons';
+import { isPast } from 'date-fns';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmojiPickerButton } from '@/components/EmojiPickerButton';
@@ -33,6 +34,7 @@ export default function CircleDetailScreen() {
   const [isOwner, setIsOwner] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [linkedActivity, setLinkedActivity] = useState<{ id: string; title: string; activity_time: string; status: string } | null>(null);
 
   // Remove from All Friends flow
   const [removeTarget, setRemoveTarget] = useState<{ memberId: string; userId: string; name: string } | null>(null);
@@ -53,17 +55,61 @@ export default function CircleDetailScreen() {
     if (!user || !id) return;
     const [circleRes, membersRes] = await Promise.all([
       supabase.from('circles').select('*').eq('id', id).single(),
-      // Fetch members without embed — profile embed can fail and return empty (e.g. ambiguous FK)
       supabase.from('circle_members').select('id, circle_id, user_id, role, joined_at').eq('circle_id', id),
     ]);
+
+    let membersData = membersRes.data as { id: string; circle_id: string; user_id: string; role: string; joined_at: string }[] | null;
 
     if (circleRes.data) {
       const c = circleRes.data as Circle;
       setCircle(c);
       setIsOwner(c.created_by === user.id);
+
+      if (c.linked_activity_id) {
+        const { data: act } = await supabase
+          .from('activities')
+          .select('id, title, activity_time, status')
+          .eq('id', c.linked_activity_id)
+          .maybeSingle();
+        if (!act || isPast(new Date(act.activity_time)) || act.status === 'cancelled') {
+          await supabase.from('circles').update({ linked_activity_id: null }).eq('id', id);
+          setCircle(prev => prev ? { ...prev, linked_activity_id: null } : null);
+          setLinkedActivity(null);
+        } else {
+          setLinkedActivity(act as { id: string; title: string; activity_time: string; status: string });
+
+          if (c.created_by === user.id) {
+            const { data: rsvps } = await supabase
+              .from('rsvps')
+              .select('user_id')
+              .eq('activity_id', c.linked_activity_id)
+              .neq('user_id', user.id);
+            const eventUserIds = new Set((rsvps ?? []).map((r: { user_id: string }) => r.user_id));
+            const currentUserIds = new Set((membersData ?? []).map((m: { user_id: string }) => m.user_id));
+            const toAdd = [...eventUserIds].filter(uid => !currentUserIds.has(uid));
+            const toRemove = [...currentUserIds].filter(uid => !eventUserIds.has(uid));
+            if (toAdd.length > 0) {
+              await supabase.from('circle_members').insert(toAdd.map(user_id => ({ circle_id: id, user_id })));
+            }
+            if (toRemove.length > 0) {
+              const idsToDelete = (membersData ?? []).filter(m => toRemove.includes(m.user_id)).map(m => m.id);
+              if (idsToDelete.length > 0) {
+                await supabase.from('circle_members').delete().in('id', idsToDelete);
+              }
+            }
+            if (toAdd.length > 0 || toRemove.length > 0) {
+              const { data: refetched } = await supabase.from('circle_members').select('id, circle_id, user_id, role, joined_at').eq('circle_id', id);
+              membersData = refetched as { id: string; circle_id: string; user_id: string; role: string; joined_at: string }[];
+            }
+          }
+        }
+      } else {
+        setLinkedActivity(null);
+      }
     }
-    if (membersRes.data && (membersRes.data as any[]).length > 0) {
-      const memberRows = membersRes.data as { id: string; circle_id: string; user_id: string; role: string; joined_at: string }[];
+
+    const memberRows = membersData ?? [];
+    if (memberRows.length > 0) {
       const userIds = [...new Set(memberRows.map(m => m.user_id))];
       const { data: profilesData } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', userIds);
       const profileMap = new Map((profilesData ?? []).map((p: any) => [p.id, p]));
@@ -74,7 +120,7 @@ export default function CircleDetailScreen() {
       }));
       setMembers(members);
     } else {
-      setMembers(membersRes.data ? (membersRes.data as CircleMember[]) : []);
+      setMembers([]);
     }
   }, [user, id]);
 
@@ -323,6 +369,19 @@ export default function CircleDetailScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {linkedActivity && (
+          <TouchableOpacity
+            style={styles.linkedActivityCard}
+            onPress={() => router.push(`/(app)/activity/${linkedActivity.id}?fromTab=${encodeURIComponent(fromTab ?? 'circles')}`)}
+          >
+            <Ionicons name="calendar-outline" size={22} color={Colors.primary} />
+            <View style={styles.linkedActivityInfo}>
+              <Text style={styles.linkedActivityLabel}>Linked to event</Text>
+              <Text style={styles.linkedActivityTitle} numberOfLines={1}>{linkedActivity.title}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        )}
         {circle.is_all_friends && (
           <>
             <Text style={styles.allFriendsExplanation}>
@@ -477,6 +536,20 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: Colors.textSecondary, fontSize: 14 },
   content: { padding: 20, paddingBottom: 40 },
+  linkedActivityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.accentLight,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    padding: 14,
+    marginBottom: 16,
+  },
+  linkedActivityInfo: { flex: 1, minWidth: 0 },
+  linkedActivityLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
+  linkedActivityTitle: { fontSize: 15, fontWeight: '700', color: Colors.text, marginTop: 2 },
   allFriendsExplanation: {
     fontSize: 15, color: Colors.textSecondary, lineHeight: 22,
     marginBottom: 12, paddingHorizontal: 4,
