@@ -8,7 +8,7 @@ if (__DEV__) {
   const loadTime = new Date().toISOString();
   console.warn('[App] Bundle loaded at', loadTime);
 }
-import { checkForStoreUpdate, checkForOTAUpdate } from '@/lib/versionCheck';
+import { checkForStoreUpdate, checkForOTAUpdate, showOTAUpdateToastIfNeeded } from '@/lib/versionCheck';
 import { ensureBannersCached } from '@/lib/bannerCache';
 import { deleteOldActivitiesForUser } from '@/lib/deleteOldActivities';
 import { useEffect } from 'react';
@@ -53,6 +53,11 @@ function RootLayoutNav() {
   useEffect(() => {
     const t = setTimeout(() => checkForStoreUpdate(), 3000);
     return () => clearTimeout(t);
+  }, []);
+
+  // Show toast if we just applied an OTA update (ran before reload)
+  useEffect(() => {
+    showOTAUpdateToastIfNeeded();
   }, []);
 
   // Check for OTA update on load — fetches and reloads if new update available

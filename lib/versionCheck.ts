@@ -1,22 +1,51 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import * as Linking from 'expo-linking';
 import * as Updates from 'expo-updates';
 import { Alert, Platform } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { supabase } from './supabase';
+
+const OTA_PENDING_TOAST_KEY = 'miba_ota_pending_toast';
+
+const OTA_CHANNELS = ['internal', 'preview', 'production'];
 
 /**
  * Checks for OTA updates on app load. If a new update is available, fetches and reloads immediately.
- * Fails silently in development or when expo-updates is disabled.
+ * Runs for internal, preview, and production builds. Fails silently in development or when updates are disabled.
  */
 export async function checkForOTAUpdate(): Promise<void> {
   try {
-    if (!Updates.isEnabled) return;
+    const channel = Updates.channel ?? '';
+    const shouldCheck = Updates.isEnabled || OTA_CHANNELS.includes(channel);
+    if (!shouldCheck) return;
     const result = await Updates.fetchUpdateAsync();
     if (result.isNew && !result.isRollBackToEmbedded) {
+      await AsyncStorage.setItem(OTA_PENDING_TOAST_KEY, '1');
       await Updates.reloadAsync();
     }
   } catch {
     // Silently ignore — dev mode, network error, or expo-updates disabled
+  }
+}
+
+/**
+ * If we just applied an OTA update (flag set before reload), show toast "Updated [message]".
+ * Call on app load.
+ */
+export async function showOTAUpdateToastIfNeeded(): Promise<void> {
+  try {
+    const pending = await AsyncStorage.getItem(OTA_PENDING_TOAST_KEY);
+    if (pending !== '1') return;
+    await AsyncStorage.removeItem(OTA_PENDING_TOAST_KEY);
+    const manifest = Updates.manifest as Record<string, unknown> | undefined;
+    const meta = manifest?.metadata as Record<string, unknown> | undefined;
+    const extra = manifest?.extra as Record<string, unknown> | undefined;
+    const message = (meta?.message ?? extra?.message ?? '') as string;
+    const text = message.trim() ? `Updated ${message}` : 'Updated';
+    Toast.show({ type: 'success', text1: text });
+  } catch {
+    // Silently ignore
   }
 }
 
