@@ -14,7 +14,6 @@ import { isPast } from 'date-fns';
 import { Avatar } from '@/components/Avatar';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { EmojiPickerButton } from '@/components/EmojiPickerButton';
-import { importContacts } from '@/lib/contactImport';
 import Colors from '@/constants/Colors';
 
 export default function CircleDetailScreen() {
@@ -47,9 +46,6 @@ export default function CircleDetailScreen() {
   const [editName, setEditName] = useState('');
   const [editEmoji, setEditEmoji] = useState('👥');
   const [saveLoading, setSaveLoading] = useState(false);
-
-  // Import from phone
-  const [phoneImportLoading, setPhoneImportLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!user || !id) return;
@@ -319,26 +315,6 @@ export default function CircleDetailScreen() {
     setRemoveStep(1);
   };
 
-  const handleImportFromPhone = async () => {
-    if (!user) return;
-    setPhoneImportLoading(true);
-    try {
-      const { count, error: err } = await importContacts(user.id);
-      if (err) {
-        Alert.alert('Import failed', err);
-      } else if (count > 0) {
-        Alert.alert('Imported', `Imported ${count} contact${count === 1 ? '' : 's'} from your phone.`);
-        fetchAll();
-      } else {
-        Alert.alert('No contacts', 'No contacts with emails or phone numbers were found.');
-      }
-    } catch (e: any) {
-      Alert.alert('Import failed', e.message ?? 'Could not import contacts.');
-    } finally {
-      setPhoneImportLoading(false);
-    }
-  };
-
   if (loading || !circle) {
     return (
       <View style={styles.container}>
@@ -383,27 +359,9 @@ export default function CircleDetailScreen() {
           </TouchableOpacity>
         )}
         {circle.is_all_friends && (
-          <>
-            <Text style={styles.allFriendsExplanation}>
-              Everyone added to any circle will be here too.
-            </Text>
-            {isOwner && (
-              <TouchableOpacity
-                style={[styles.importPhoneBtn, phoneImportLoading && styles.importPhoneBtnDisabled]}
-                onPress={handleImportFromPhone}
-                disabled={phoneImportLoading}
-              >
-                {phoneImportLoading ? (
-                  <ActivityIndicator size="small" color={Colors.primary} />
-                ) : (
-                  <>
-                    <Ionicons name="phone-portrait-outline" size={20} color={Colors.primary} />
-                    <Text style={styles.importPhoneBtnText}>Import contacts from phone</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
-          </>
+          <Text style={styles.allFriendsExplanation}>
+            Everyone added to any circle will be here too.
+          </Text>
         )}
         {isEditing && (
           <View style={styles.editSection}>
@@ -554,21 +512,6 @@ const styles = StyleSheet.create({
     fontSize: 15, color: Colors.textSecondary, lineHeight: 22,
     marginBottom: 12, paddingHorizontal: 4,
   },
-  importPhoneBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: Colors.surface,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 20,
-  },
-  importPhoneBtnDisabled: { opacity: 0.7 },
-  importPhoneBtnText: { fontSize: 15, fontWeight: '600', color: Colors.text },
   editSection: { marginBottom: 24 },
   editLabel: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   editNameRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
