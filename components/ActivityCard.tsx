@@ -231,7 +231,7 @@ export function ActivityCard({
           </View>
         )}
         {activity.location && (
-          <LocationDisplay location={activity.location} variant="card" hideMapsButton />
+          <LocationDisplay location={activity.location} variant="card" />
         )}
       </View>
 

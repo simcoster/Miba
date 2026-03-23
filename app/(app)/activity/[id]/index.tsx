@@ -33,7 +33,7 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { RichText } from '@/components/RichText';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
-import { parseLocation, buildLocationWithPlace, buildGoogleMapsUrl } from '@/lib/locationUtils';
+import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
@@ -964,7 +964,6 @@ export default function ActivityDetailScreen() {
                     location={activity.location}
                     variant="detail"
                     showIcon={false}
-                    hideMapsButton={!past && activity.status === 'active' && !isEditing && parseLocation(activity.location)?.placeId != null}
                   />
                 </View>
               </View>
@@ -976,22 +975,12 @@ export default function ActivityDetailScreen() {
               <Text style={styles.suggestBtnText}>Suggest different time or location</Text>
             </TouchableOpacity>
           )}
-          {!past && activity.status === 'active' && !isEditing && (parseLocation(activity.location)?.placeId != null || (Platform.OS !== 'web' && !isJoinMeNow(activity))) && (
+          {!past && activity.status === 'active' && !isEditing && Platform.OS !== 'web' && !isJoinMeNow(activity) && (
             <View style={styles.actionButtonsRow}>
-              {Platform.OS !== 'web' && !isJoinMeNow(activity) && (
-                <TouchableOpacity style={styles.actionBtn} onPress={handleAddToCalendar}>
-                  <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
-                  <Text style={styles.actionBtnText}>Add to calendar</Text>
-                </TouchableOpacity>
-              )}
-              {parseLocation(activity.location)?.placeId != null && (
-                <TouchableOpacity
-                  style={styles.actionBtnMaps}
-                  onPress={() => Linking.openURL(buildGoogleMapsUrl(parseLocation(activity.location)!.placeId!, parseLocation(activity.location)!.displayName ?? parseLocation(activity.location)!.address))}
-                >
-                  <Ionicons name="map-outline" size={20} color={Colors.primary} />
-                </TouchableOpacity>
-              )}
+              <TouchableOpacity style={styles.actionBtn} onPress={handleAddToCalendar}>
+                <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
+                <Text style={styles.actionBtnText}>Add to calendar</Text>
+              </TouchableOpacity>
             </View>
           )}
           {!past && activity.status === 'active' && !isEditing && (activity.is_join_me ? true : activeLiveLocationPostId) && (
@@ -1066,7 +1055,7 @@ export default function ActivityDetailScreen() {
               <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
               <Text style={styles.addCoverBtnText}>{editDesc.trim() ? 'Change details' : 'Add details'}</Text>
             </TouchableOpacity>
-            {showEditDetailsInput && (
+            {(showEditDetailsInput || !!editDesc.trim()) && (
               <>
                 <TextInput
                   style={[styles.editInput, styles.editTextArea, { marginTop: 10 }]}
@@ -1658,7 +1647,7 @@ export default function ActivityDetailScreen() {
             ]}
             onPress={() => setShowPingBubble(false)}
           >
-            <Text style={styles.pingBubbleText}>Send a reminder to people who haven't responded yet.\nYou can use this once every 24 hours.</Text>
+            <Text style={styles.pingBubbleText}>Send a reminder to people who haven't responded yet.</Text>
           </Pressable>
         )}
       </Modal>
@@ -1774,7 +1763,6 @@ const styles = StyleSheet.create({
   actionButtonsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
   actionBtnText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
-  actionBtnMaps: { padding: 12, marginLeft: 'auto' },
   liveLocationBtn: {
     flexDirection: 'row',
     alignItems: 'center',

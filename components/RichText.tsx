@@ -117,6 +117,16 @@ export function RichText({ children, style, baseColor = Colors.text, linkColor =
           );
         }
         if (seg.type === 'link') {
+          const isLongUrl = seg.text.length > 50 && (seg.text === seg.url || /^https?:\/\//.test(seg.text));
+          const displayText = isLongUrl
+            ? (() => {
+                const u = seg.url;
+                const afterProtocol = u.indexOf('://');
+                if (afterProtocol === -1) return u;
+                const pathStart = u.indexOf('/', afterProtocol + 3);
+                return pathStart === -1 ? u : u.slice(0, pathStart);
+              })()
+            : seg.text;
           return (
             <Text
               key={i}
@@ -124,7 +134,7 @@ export function RichText({ children, style, baseColor = Colors.text, linkColor =
               onPress={() => Linking.openURL(seg.url)}
               suppressHighlighting={false}
             >
-              {seg.text}
+              {displayText}
             </Text>
           );
         }
