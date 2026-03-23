@@ -606,8 +606,12 @@ export default function EventsScreen() {
         )}
       </View>
 
-      <View style={styles.tabRowWrap}>
-        <View style={styles.tabRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabRowWrap}
+        contentContainerStyle={styles.tabRow}
+      >
         {TABS.map(t => (
           <TouchableOpacity
             key={t.id}
@@ -624,8 +628,7 @@ export default function EventsScreen() {
             )}
           </TouchableOpacity>
         ))}
-        </View>
-      </View>
+      </ScrollView>
 
       <View style={styles.contentArea}>
       {loading ? (
@@ -793,8 +796,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   fromPosterLoadingText: { fontSize: 16, color: '#fff', fontWeight: '600' },
-  tabRowWrap: { paddingHorizontal: 20, marginBottom: 12 },
-  tabRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  // flexGrow: 0 + alignSelf — horizontal ScrollView otherwise stretches vertically on Android (empty space above/below tabs).
+  tabRowWrap: { marginBottom: 12, flexGrow: 0, alignSelf: 'stretch' as const },
+  tabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    flexGrow: 0,
+  },
   filterTab: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
