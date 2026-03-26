@@ -32,6 +32,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     [
+      'expo-media-library',
+      {
+        photosPermission: 'Allow Miba to save event posters to your photo library.',
+        savePhotosPermission: 'Allow Miba to save event posters to your photo library.',
+      },
+    ],
+    [
       'expo-build-properties',
       {
         android: {

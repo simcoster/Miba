@@ -37,6 +37,7 @@ import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
+import { copyPosterToClipboard, savePosterToPhotoLibrary } from '@/lib/posterActions';
 import { deleteActivity } from '@/lib/deleteActivity';
 import { markActivityVisited } from '@/lib/visitedActivities';
 import { getAllFriendsMemberIds, addUsersToAllFriends } from '@/lib/allFriends';
@@ -100,6 +101,7 @@ export default function ActivityDetailScreen() {
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [posterUploading, setPosterUploading] = useState(false);
   const [posterScale, setPosterScale] = useState(1);
+  const [posterModalAction, setPosterModalAction] = useState<null | 'copy' | 'save'>(null);
   const { width: screenWidth } = useWindowDimensions();
 
   // Menu / clone state
@@ -243,7 +245,48 @@ export default function ActivityDetailScreen() {
   // Bug fix: reset edit mode when navigating to a different activity
   useEffect(() => { setIsEditing(false); setEditSplashArt(null); setEditPlacePhotoName(null); setShowEditSplashPicker(false); setShowEditDetailsInput(false); setLastPingAt(null); }, [id]);
   useEffect(() => { if (!isEditing) setShowEditSplashPicker(false); setShowEditDetailsInput(false); }, [isEditing]);
-  useEffect(() => { if (!showPosterModal) setPosterScale(1); }, [showPosterModal]);
+  useEffect(() => {
+    if (!showPosterModal) {
+      setPosterScale(1);
+      setPosterModalAction(null);
+    }
+  }, [showPosterModal]);
+
+  const handlePosterCopy = useCallback(async () => {
+    const url = activity?.poster_image_url;
+    if (!url?.trim()) return;
+    setPosterModalAction('copy');
+    try {
+      const kind = await copyPosterToClipboard(url);
+      Toast.show({
+        type: 'success',
+        text1: kind === 'image' ? 'Poster copied' : 'Link copied',
+        text2: kind === 'image' ? 'Paste in Messages or another app' : 'Paste in a browser to open the image',
+      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Couldn’t copy poster' });
+    } finally {
+      setPosterModalAction(null);
+    }
+  }, [activity?.poster_image_url]);
+
+  const handlePosterSave = useCallback(async () => {
+    const url = activity?.poster_image_url;
+    if (!url?.trim()) return;
+    setPosterModalAction('save');
+    try {
+      await savePosterToPhotoLibrary(url);
+      Toast.show({ type: 'success', text1: 'Saved to photos' });
+    } catch (e) {
+      if (e instanceof Error && e.message === 'PERMISSION_DENIED') {
+        Alert.alert('Permission needed', 'Allow photo library access in Settings to save the poster.');
+      } else {
+        Toast.show({ type: 'error', text1: 'Couldn’t save poster' });
+      }
+    } finally {
+      setPosterModalAction(null);
+    }
+  }, [activity?.poster_image_url]);
 
   const checkUnread = useCallback(async () => {
     if (!id || !user) return;
@@ -1034,6 +1077,32 @@ export default function ActivityDetailScreen() {
                     />
                   </ScrollView>
                 )}
+                <View style={styles.posterModalActions}>
+                  <TouchableOpacity
+                    style={[styles.posterModalActionBtn, posterModalAction && styles.posterModalActionBtnDisabled]}
+                    onPress={handlePosterCopy}
+                    disabled={!!posterModalAction}
+                  >
+                    {posterModalAction === 'copy' ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <Ionicons name="copy-outline" size={20} color={Colors.primary} />
+                    )}
+                    <Text style={styles.posterModalActionText}>Copy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.posterModalActionBtn, posterModalAction && styles.posterModalActionBtnDisabled]}
+                    onPress={handlePosterSave}
+                    disabled={!!posterModalAction}
+                  >
+                    {posterModalAction === 'save' ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <Ionicons name="download-outline" size={22} color={Colors.primary} />
+                    )}
+                    <Text style={styles.posterModalActionText}>Download</Text>
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity
                   style={styles.locationImageModalClose}
                   onPress={() => setShowPosterModal(false)}
@@ -1821,6 +1890,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
   },
+  posterModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    width: '100%',
+    maxWidth: 500,
+    justifyContent: 'center',
+  },
+  posterModalActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  posterModalActionBtnDisabled: { opacity: 0.55 },
+  posterModalActionText: { fontSize: 15, fontWeight: '600', color: Colors.primary },
   locationImageModalClose: {
     marginTop: 16,
     paddingVertical: 12,
