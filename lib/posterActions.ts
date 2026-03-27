@@ -29,7 +29,7 @@ export async function copyPosterToClipboard(posterUrl: string): Promise<'image' 
 
 /** Save poster file to the device photo library. */
 export async function savePosterToPhotoLibrary(posterUrl: string): Promise<void> {
-  const { status } = await MediaLibrary.requestPermissionsAsync();
+  const { status } = await MediaLibrary.requestPermissionsAsync(true);
   if (status !== 'granted') {
     throw new Error('PERMISSION_DENIED');
   }
@@ -37,7 +37,7 @@ export async function savePosterToPhotoLibrary(posterUrl: string): Promise<void>
   const dest = `${FileSystem.cacheDirectory}poster-save-${Date.now()}.${ext}`;
   const { uri } = await FileSystem.downloadAsync(posterUrl, dest);
   try {
-    await MediaLibrary.createAssetAsync(uri);
+    await MediaLibrary.saveToLibraryAsync(uri);
   } finally {
     await FileSystem.deleteAsync(dest, { idempotent: true });
   }
