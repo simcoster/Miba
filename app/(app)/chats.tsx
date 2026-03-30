@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useClearTabHighlightOnFocus } from '@/contexts/TabHighlightContext';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isToday, isYesterday } from 'date-fns';
+import { format, isPast, isToday, isYesterday } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar } from '@/components/Avatar';
@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import Colors from '@/constants/Colors';
 import { getActivityCoverProps, hasActivityCover } from '@/lib/activityCover';
+import { isJoinMeNow } from '@/lib/types';
 import { getHiddenActivityIds } from '@/lib/hiddenActivities';
 import type { SplashPreset } from '@/lib/splashArt';
 
@@ -37,6 +38,20 @@ function formatChatTime(dateStr: string): string {
   if (isToday(d)) return format(d, 'h:mm a');
   if (isYesterday(d)) return 'Yesterday';
   return format(d, 'MMM d');
+}
+
+/** Hide event boards / live-location threads once the event is over (Discussions → Events). */
+function isPastEventForDiscussionsTab(a: {
+  activity_time: string;
+  is_join_me?: boolean;
+  join_me_expires_at?: string | null;
+}): boolean {
+  // Join me with an end time: must run before isJoinMeNow — sentinel activity_time is always "future"
+  if (a.is_join_me && a.join_me_expires_at) {
+    return isPast(new Date(a.join_me_expires_at));
+  }
+  if (isJoinMeNow(a)) return false;
+  return isPast(new Date(a.activity_time));
 }
 
 function formatLastMessage(msg: { type: string; content: string } | null): string {
@@ -100,7 +115,7 @@ export default function ChatsScreen() {
         .in('activity_id', activityIds),
       supabase
         .from('posts')
-        .select('id, activity_id, created_at')
+        .select('id, activity_id, created_at, creator_expires_at')
         .in('activity_id', activityIds)
         .eq('post_type', 'live_location')
         .is('chat_closed_at', null),
@@ -174,15 +189,20 @@ export default function ChatsScreen() {
       });
 
     const liveLocationItems: { activityId: string; postId: string; subtitle: string; lastMessageAt: string }[] =
-      (liveLocationPostsRes.data ?? []).map((p: { id: string; activity_id: string; created_at: string }) => {
-        const latest = latestMessageByPostId.get(p.id);
-        return {
-          activityId: p.activity_id,
-          postId: p.id,
-          subtitle: latest ? formatLastMessage({ type: latest.type, content: latest.content }) : 'Live Location',
-          lastMessageAt: latest?.created_at ?? p.created_at,
-        };
-      });
+      (liveLocationPostsRes.data ?? [])
+        .filter((p: { creator_expires_at?: string | null }) => {
+          if (!p.creator_expires_at) return true;
+          return !isPast(new Date(p.creator_expires_at));
+        })
+        .map((p: { id: string; activity_id: string; created_at: string }) => {
+          const latest = latestMessageByPostId.get(p.id);
+          return {
+            activityId: p.activity_id,
+            postId: p.id,
+            subtitle: latest ? formatLastMessage({ type: latest.type, content: latest.content }) : 'Live Location',
+            lastMessageAt: latest?.created_at ?? p.created_at,
+          };
+        });
 
     const allActivityIds = [
       ...mipoItems.map((i) => i.activityId),
@@ -199,18 +219,38 @@ export default function ChatsScreen() {
     );
 
     const [activitiesRes, profilesRes] = await Promise.all([
-      supabase.from('activities').select('id, title, splash_art, place_photo_name, status').in('id', allActivityIds),
+      supabase
+        .from('activities')
+        .select('id, title, splash_art, place_photo_name, status, activity_time, is_join_me, join_me_expires_at')
+        .in('id', allActivityIds),
       supabase.from('profiles').select('id, full_name, avatar_url').in('id', otherUserIds),
     ]);
 
     const activities = new Map(
-      (activitiesRes.data ?? []).map((a: { id: string; title: string; splash_art: string | null; place_photo_name: string | null; status?: string }) => [
-        a.id,
-        a,
-      ])
+      (
+        activitiesRes.data ?? []
+      ).map(
+        (a: {
+          id: string;
+          title: string;
+          splash_art: string | null;
+          place_photo_name: string | null;
+          status?: string;
+          activity_time: string;
+          is_join_me?: boolean;
+          join_me_expires_at?: string | null;
+        }) => [a.id, a]
+      )
     );
     const cancelledActivityIds = new Set(
       (activitiesRes.data ?? []).filter((a: { status?: string }) => a.status === 'cancelled').map((a: { id: string }) => a.id)
+    );
+    const pastEventIds = new Set(
+      (activitiesRes.data ?? [])
+        .filter((a: { activity_time: string; is_join_me?: boolean; join_me_expires_at?: string | null }) =>
+          isPastEventForDiscussionsTab(a)
+        )
+        .map((a: { id: string }) => a.id)
     );
     const profileMap = new Map(
       (profilesRes.data ?? []).map((p: { id: string; full_name: string | null; avatar_url: string | null }) => [
@@ -239,7 +279,11 @@ export default function ChatsScreen() {
     });
 
     const eventChatItems: ChatItem[] = eventItems
-      .filter((i) => !cancelledActivityIds.has(i.activityId))
+      .filter(
+        (i) =>
+          !cancelledActivityIds.has(i.activityId) &&
+          !pastEventIds.has(i.activityId)
+      )
       .map((i) => {
       const activity = activities.get(i.activityId);
       return {
@@ -256,7 +300,11 @@ export default function ChatsScreen() {
     });
 
     const liveLocationChatItems: ChatItem[] = liveLocationItems
-      .filter((i) => !cancelledActivityIds.has(i.activityId))
+      .filter(
+        (i) =>
+          !cancelledActivityIds.has(i.activityId) &&
+          !pastEventIds.has(i.activityId)
+      )
       .map((i) => {
       const activity = activities.get(i.activityId);
       return {
