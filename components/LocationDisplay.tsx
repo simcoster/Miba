@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { parseLocation, buildGoogleMapsUrl } from '@/lib/locationUtils';
+import { parseLocation, buildGoogleMapsUrl, getLocationDisplayText } from '@/lib/locationUtils';
 import Colors from '@/constants/Colors';
 
 interface LocationDisplayProps {
@@ -20,7 +20,9 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
 
   const openMaps = () => {
     if (parsed.placeId) {
-      Linking.openURL(buildGoogleMapsUrl(parsed.placeId, parsed.displayName ?? parsed.address));
+      Linking.openURL(
+        buildGoogleMapsUrl(parsed.placeId, parsed.displayName ?? '', parsed.address)
+      );
     }
   };
 
@@ -34,7 +36,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
 
   const content = (
     <Text style={addressStyle} {...(!allowFullWrap && { numberOfLines: lines })}>
-      {parsed.address}
+      {getLocationDisplayText(location)}
     </Text>
   );
 

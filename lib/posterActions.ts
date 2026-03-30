@@ -1,6 +1,13 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
 import * as Clipboard from 'expo-clipboard';
+
+/** Do not statically import `expo-media-library`: it requires a native build. OTA-only users must still open the activity screen without crashing. Load only when saving to photos. */
+export class MediaLibraryUnavailableError extends Error {
+  constructor() {
+    super('MEDIA_LIBRARY_UNAVAILABLE');
+    this.name = 'MediaLibraryUnavailableError';
+  }
+}
 
 function guessExt(url: string): string {
   const path = url.split('?')[0].toLowerCase();
@@ -27,18 +34,33 @@ export async function copyPosterToClipboard(posterUrl: string): Promise<'image' 
   }
 }
 
-/** Save poster file to the device photo library. */
+/** Save poster file to the device photo library (requires a build that includes `expo-media-library`). */
 export async function savePosterToPhotoLibrary(posterUrl: string): Promise<void> {
-  const { status } = await MediaLibrary.requestPermissionsAsync(true);
-  if (status !== 'granted') {
-    throw new Error('PERMISSION_DENIED');
-  }
-  const ext = guessExt(posterUrl);
-  const dest = `${FileSystem.cacheDirectory}poster-save-${Date.now()}.${ext}`;
-  const { uri } = await FileSystem.downloadAsync(posterUrl, dest);
+  let MediaLibrary: typeof import('expo-media-library');
   try {
-    await MediaLibrary.saveToLibraryAsync(uri);
-  } finally {
-    await FileSystem.deleteAsync(dest, { idempotent: true });
+    MediaLibrary = await import('expo-media-library');
+  } catch {
+    throw new MediaLibraryUnavailableError();
+  }
+  try {
+    const { status } = await MediaLibrary.requestPermissionsAsync(true);
+    if (status !== 'granted') {
+      throw new Error('PERMISSION_DENIED');
+    }
+    const ext = guessExt(posterUrl);
+    const dest = `${FileSystem.cacheDirectory}poster-save-${Date.now()}.${ext}`;
+    const { uri } = await FileSystem.downloadAsync(posterUrl, dest);
+    try {
+      await MediaLibrary.saveToLibraryAsync(uri);
+    } finally {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    }
+  } catch (e) {
+    if (e instanceof MediaLibraryUnavailableError) throw e;
+    const msg = e && typeof e === 'object' && 'message' in e ? String((e as Error).message) : '';
+    if (/native module|expo-media-library|cannot find|turbo.?module|expo.?media/i.test(msg)) {
+      throw new MediaLibraryUnavailableError();
+    }
+    throw e;
   }
 }

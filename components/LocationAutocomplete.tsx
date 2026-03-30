@@ -131,7 +131,7 @@ export function LocationAutocomplete({
       try {
         const details = await fetchPlaceDetails(prediction.placeId, sessionToken);
         if (details) {
-          onChangeText(details.formattedAddress);
+          onChangeText(details.displayName?.trim() || details.formattedAddress);
           // Use Place photo when available; otherwise Street View for addresses
           let placePhotoName = details.placePhotoName;
           if (!placePhotoName && (details.location || details.formattedAddress)) {

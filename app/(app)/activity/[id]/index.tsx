@@ -33,11 +33,11 @@ import { LocationDisplay } from '@/components/LocationDisplay';
 import { RichText } from '@/components/RichText';
 import { SplashArt } from '@/components/SplashArt';
 import { SPLASH_PRESETS, SPLASH_PRESETS_REGULAR, type SplashPreset } from '@/lib/splashArt';
-import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { parseLocation, buildLocationWithPlace, getLocationDisplayText } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterForActivity } from '@/lib/pendingPoster';
 import { uploadPosterImage } from '@/lib/uploadPoster';
-import { copyPosterToClipboard, savePosterToPhotoLibrary } from '@/lib/posterActions';
+import { copyPosterToClipboard } from '@/lib/posterActions';
 import { deleteActivity } from '@/lib/deleteActivity';
 import { markActivityVisited } from '@/lib/visitedActivities';
 import { getAllFriendsMemberIds, addUsersToAllFriends } from '@/lib/allFriends';
@@ -101,7 +101,7 @@ export default function ActivityDetailScreen() {
   const [showPosterModal, setShowPosterModal] = useState(false);
   const [posterUploading, setPosterUploading] = useState(false);
   const [posterScale, setPosterScale] = useState(1);
-  const [posterModalAction, setPosterModalAction] = useState<null | 'copy' | 'save'>(null);
+  const [posterCopying, setPosterCopying] = useState(false);
   const { width: screenWidth } = useWindowDimensions();
 
   // Menu / clone state
@@ -248,14 +248,14 @@ export default function ActivityDetailScreen() {
   useEffect(() => {
     if (!showPosterModal) {
       setPosterScale(1);
-      setPosterModalAction(null);
+      setPosterCopying(false);
     }
   }, [showPosterModal]);
 
   const handlePosterCopy = useCallback(async () => {
     const url = activity?.poster_image_url;
     if (!url?.trim()) return;
-    setPosterModalAction('copy');
+    setPosterCopying(true);
     try {
       const kind = await copyPosterToClipboard(url);
       Toast.show({
@@ -266,25 +266,7 @@ export default function ActivityDetailScreen() {
     } catch {
       Toast.show({ type: 'error', text1: 'Couldn’t copy poster' });
     } finally {
-      setPosterModalAction(null);
-    }
-  }, [activity?.poster_image_url]);
-
-  const handlePosterSave = useCallback(async () => {
-    const url = activity?.poster_image_url;
-    if (!url?.trim()) return;
-    setPosterModalAction('save');
-    try {
-      await savePosterToPhotoLibrary(url);
-      Toast.show({ type: 'success', text1: 'Saved to photos' });
-    } catch (e) {
-      if (e instanceof Error && e.message === 'PERMISSION_DENIED') {
-        Alert.alert('Permission needed', 'Allow photo library access in Settings to save the poster.');
-      } else {
-        Toast.show({ type: 'error', text1: 'Couldn’t save poster' });
-      }
-    } finally {
-      setPosterModalAction(null);
+      setPosterCopying(false);
     }
   }, [activity?.poster_image_url]);
 
@@ -982,7 +964,7 @@ export default function ActivityDetailScreen() {
             {isEditing ? (
               <View style={{ flex: 1 }}>
                 <LocationAutocomplete
-                  value={parseLocation(editLocation)?.address ?? editLocation ?? ''}
+                  value={getLocationDisplayText(editLocation)}
                   onChangeText={(text) => { setEditLocation(text); setEditPlacePhotoName(null); }}
                   onResolvedPlace={(p) => {
                     setEditLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName));
@@ -1079,36 +1061,25 @@ export default function ActivityDetailScreen() {
                 )}
                 <View style={styles.posterModalActions}>
                   <TouchableOpacity
-                    style={[styles.posterModalActionBtn, posterModalAction && styles.posterModalActionBtnDisabled]}
+                    style={[styles.posterModalActionBtn, posterCopying && styles.posterModalActionBtnDisabled]}
                     onPress={handlePosterCopy}
-                    disabled={!!posterModalAction}
+                    disabled={posterCopying}
                   >
-                    {posterModalAction === 'copy' ? (
+                    {posterCopying ? (
                       <ActivityIndicator size="small" color={Colors.primary} />
                     ) : (
-                      <Ionicons name="copy-outline" size={20} color={Colors.primary} />
+                      <Ionicons name="copy-outline" size={14} color={Colors.primary} />
                     )}
                     <Text style={styles.posterModalActionText}>Copy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.posterModalActionBtn, posterModalAction && styles.posterModalActionBtnDisabled]}
-                    onPress={handlePosterSave}
-                    disabled={!!posterModalAction}
+                    style={[styles.posterModalActionBtn, posterCopying && styles.posterModalActionBtnDisabled]}
+                    onPress={() => setShowPosterModal(false)}
+                    disabled={posterCopying}
                   >
-                    {posterModalAction === 'save' ? (
-                      <ActivityIndicator size="small" color={Colors.primary} />
-                    ) : (
-                      <Ionicons name="download-outline" size={22} color={Colors.primary} />
-                    )}
-                    <Text style={styles.posterModalActionText}>Download</Text>
+                    <Text style={styles.posterModalActionText}>Close</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={styles.locationImageModalClose}
-                  onPress={() => setShowPosterModal(false)}
-                >
-                  <Text style={styles.locationImageModalCloseText}>Close</Text>
-                </TouchableOpacity>
               </Pressable>
             </Pressable>
           </GestureHandlerRootView>
@@ -1747,7 +1718,7 @@ export default function ActivityDetailScreen() {
 
             <Text style={styles.suggestionLabel}>Suggested location (optional)</Text>
             <LocationAutocomplete
-              value={parseLocation(suggestLocation)?.address ?? suggestLocation ?? ''}
+              value={getLocationDisplayText(suggestLocation)}
               onChangeText={(text) => setSuggestLocation(text)}
               onResolvedPlace={(p) => setSuggestLocation(buildLocationWithPlace(p.address, p.placeId, p.displayName))}
               placeholder="e.g. Coffee shop downtown"
@@ -1892,35 +1863,27 @@ const styles = StyleSheet.create({
   },
   posterModalActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
+    gap: 8,
+    marginTop: 8,
     width: '100%',
     maxWidth: 500,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   posterModalActionBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Colors.borderLight,
   },
   posterModalActionBtnDisabled: { opacity: 0.55 },
-  posterModalActionText: { fontSize: 15, fontWeight: '600', color: Colors.primary },
-  locationImageModalClose: {
-    marginTop: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-  },
-  locationImageModalCloseText: { fontSize: 16, fontWeight: '600', color: Colors.primary },
+  posterModalActionText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
   metaLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   metaValue: { fontSize: 15, color: Colors.text, fontWeight: '600', marginTop: 1 },
   descCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.border, marginBottom: 12, maxHeight: 128 },

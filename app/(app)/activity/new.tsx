@@ -20,7 +20,7 @@ import { ScreenHeader } from '@/components/ScreenHeader';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { LocationAutocomplete } from '@/components/LocationAutocomplete';
-import { parseLocation, buildLocationWithPlace } from '@/lib/locationUtils';
+import { parseLocation, buildLocationWithPlace, getLocationDisplayText } from '@/lib/locationUtils';
 import { getCoverImageUrl } from '@/lib/placesApi';
 import { getAndClearPendingPosterUri, clearPendingPosterUri, setPendingPosterForActivity } from '@/lib/pendingPoster';
 import { checkMipoVisibleModePermissions } from '@/lib/mipoLocation';
@@ -875,7 +875,7 @@ export default function NewActivityScreen() {
               </View>
               {!joinMeUseLiveLocation && (
                 <LocationAutocomplete
-                  value={parseLocation(location)?.address ?? location ?? ''}
+                  value={getLocationDisplayText(location)}
                   onChangeText={(text) => {
                     setLocation(text);
                     setPlacePhotoName(null);
@@ -897,7 +897,7 @@ export default function NewActivityScreen() {
             </>
           ) : (
             <LocationAutocomplete
-              value={parseLocation(location)?.address ?? location ?? ''}
+              value={getLocationDisplayText(location)}
               onChangeText={(text) => {
                 setLocation(text);
                 setPlacePhotoName(null);
