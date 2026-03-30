@@ -64,6 +64,7 @@ export default function NewActivityScreen() {
   const isClone = clone === '1';
   const isFromPoster = fromPoster === '1';
   const isJoinMe = joinMe === '1';
+  const defaultSplashPreset = (isJoinMe ? SPLASH_PRESETS : SPLASH_PRESETS_REGULAR)[0].id;
 
   const [title, setTitle] = useState(paramTitle ?? '');
   const [description, setDescription] = useState(paramDescription ?? '');
@@ -715,16 +716,18 @@ export default function NewActivityScreen() {
           />
         </View>
         
-        {/* Details (hidden until button tapped) */}
+        {/* Details: "Details" button only when empty; field stays visible once there is text */}
         <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.addCoverBtn}
-            onPress={() => setShowDetailsInput(v => !v)}
-          >
-            <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
-            <Text style={styles.addCoverBtnText}>{description.trim() ? 'Change details' : 'Details'}</Text>
-          </TouchableOpacity>
-          {showDetailsInput && (
+          {!description.trim() && (
+            <TouchableOpacity
+              style={styles.addCoverBtn}
+              onPress={() => setShowDetailsInput(v => !v)}
+            >
+              <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+              <Text style={styles.addCoverBtnText}>Details</Text>
+            </TouchableOpacity>
+          )}
+          {(showDetailsInput || !!description.trim()) && (
             <>
               <TextInput
                 style={[styles.input, styles.textArea, { marginTop: 10 }]}
@@ -887,6 +890,7 @@ export default function NewActivityScreen() {
                       setSplashArt(null);
                     } else {
                       setPlacePhotoName(null);
+                      setSplashArt((prev) => prev ?? defaultSplashPreset);
                     }
                   }}
                   placeholder="Venue or address"
@@ -909,6 +913,7 @@ export default function NewActivityScreen() {
                   setSplashArt(null);
                 } else {
                   setPlacePhotoName(null);
+                  setSplashArt((prev) => prev ?? defaultSplashPreset);
                 }
               }}
               placeholder="Venue or address"

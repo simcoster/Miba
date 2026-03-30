@@ -266,8 +266,8 @@ export function buildPlacePhotoUrl(placePhotoName: string, maxWidthPx = 800): st
 const STREETVIEW_PREFIX = 'streetview:';
 
 /**
- * Build cover image URL. Handles both Places API photos and Street View fallback.
- * For addresses with no place photo, placePhotoName may be "streetview:lat,lng" or "streetview:address".
+ * Build cover image URL. Handles Places API photos and legacy Street View tokens in DB.
+ * New flows only set placePhotoName when Google returns a photo; otherwise splash presets are used.
  */
 export function getCoverImageUrl(placePhotoName: string, maxWidthPx = 800): string {
   if (!placePhotoName || !API_KEY) return '';

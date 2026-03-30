@@ -132,20 +132,12 @@ export function LocationAutocomplete({
         const details = await fetchPlaceDetails(prediction.placeId, sessionToken);
         if (details) {
           onChangeText(details.displayName?.trim() || details.formattedAddress);
-          // Use Place photo when available; otherwise Street View for addresses
-          let placePhotoName = details.placePhotoName;
-          if (!placePhotoName && (details.location || details.formattedAddress)) {
-            if (details.location) {
-              placePhotoName = `streetview:${details.location.latitude},${details.location.longitude}`;
-            } else {
-              placePhotoName = `streetview:${details.formattedAddress}`;
-            }
-          }
+          // Only real Places photos — no Street View; app uses splash presets when absent
           onResolvedPlace?.({
             address: details.formattedAddress,
             placeId: details.placeId,
             displayName: details.displayName,
-            placePhotoName,
+            placePhotoName: details.placePhotoName,
           });
         } else {
           onChangeText(prediction.fullText);

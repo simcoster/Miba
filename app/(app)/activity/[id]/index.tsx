@@ -124,7 +124,7 @@ export default function ActivityDetailScreen() {
   const [suggestPickerMode, setSuggestPickerMode] = useState<'date' | 'time'>('date');
   const [showSuggestPicker, setShowSuggestPicker] = useState(false);
 
-  // Maybe RSVP state
+  /** RSVP note: "Why maybe?" / "Why decline?" (same DB column) */
   const [maybeNote, setMaybeNote] = useState('');
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteDirty, setNoteDirty] = useState(false);
@@ -731,13 +731,13 @@ export default function ActivityDetailScreen() {
     }
   };
 
-  // Sync note field when rsvp first loads
+  // Sync note field when RSVP row or server note / status changes
   useEffect(() => {
     const note = activity?.my_rsvp?.note ?? '';
     setMaybeNote(note);
     setNoteDirty(false);
     lastSavedNote.current = note;
-  }, [activity?.my_rsvp?.id]);
+  }, [activity?.my_rsvp?.id, activity?.my_rsvp?.status, activity?.my_rsvp?.note]);
 
   if (loading) {
     return (
@@ -825,13 +825,17 @@ export default function ActivityDetailScreen() {
       <ScreenHeader title="" showBack onBack={isEditing ? () => setIsEditing(false) : handleBack} rightActions={headerActions} />
       {/* Fixed title — does not scroll */}
       <View style={styles.titleSection}>
-        {((activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (activity.poster_image_url && String(activity.poster_image_url).trim() && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt))) ? (
+        {((activity.place_photo_name && !isEditing) || (activity.splash_art && !isEditing) || (activity.poster_image_url && String(activity.poster_image_url).trim() && !isEditing) || (isEditing && (editPlacePhotoName || editSplashArt || (activity.poster_image_url && String(activity.poster_image_url).trim())))) ? (
           <View style={styles.splashBlock}>
             <SplashArt
-              preset={isEditing ? editSplashArt ?? undefined : activity.splash_art ?? undefined}
+              preset={isEditing ? editSplashArt ?? activity.splash_art ?? undefined : activity.splash_art ?? undefined}
               imageUri={
-                isEditing && editPlacePhotoName
-                  ? getCoverImageUrl(editPlacePhotoName)
+                isEditing
+                  ? editPlacePhotoName
+                    ? getCoverImageUrl(editPlacePhotoName)
+                    : activity.poster_image_url && String(activity.poster_image_url).trim()
+                      ? activity.poster_image_url
+                      : undefined
                   : activity.place_photo_name
                     ? getCoverImageUrl(activity.place_photo_name)
                     : activity.poster_image_url && String(activity.poster_image_url).trim()
@@ -973,6 +977,12 @@ export default function ActivityDetailScreen() {
                       setEditSplashArt(null);
                     } else {
                       setEditPlacePhotoName(null);
+                      setEditSplashArt(
+                        (prev) =>
+                          prev ??
+                          (activity.splash_art as SplashPreset) ??
+                          SPLASH_PRESETS_REGULAR[0].id
+                      );
                     }
                   }}
                   placeholder="Where? (optional)"
@@ -1088,13 +1098,15 @@ export default function ActivityDetailScreen() {
         {/* Description (edit: hidden until button tapped) */}
         {isEditing ? (
           <View style={styles.editSection}>
-            <TouchableOpacity
-              style={styles.addCoverBtn}
-              onPress={() => setShowEditDetailsInput(v => !v)}
-            >
-              <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
-              <Text style={styles.addCoverBtnText}>{editDesc.trim() ? 'Change details' : 'Add details'}</Text>
-            </TouchableOpacity>
+            {!editDesc.trim() && (
+              <TouchableOpacity
+                style={styles.addCoverBtn}
+                onPress={() => setShowEditDetailsInput(v => !v)}
+              >
+                <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+                <Text style={styles.addCoverBtnText}>Add details</Text>
+              </TouchableOpacity>
+            )}
             {(showEditDetailsInput || !!editDesc.trim()) && (
               <>
                 <TextInput
@@ -1176,12 +1188,14 @@ export default function ActivityDetailScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Note / conditions input — shown when status is maybe */}
-                {myRsvp?.status === 'maybe' && (
+                {/* Optional note when maybe or declined */}
+                {(myRsvp?.status === 'maybe' || myRsvp?.status === 'out') && (
                   <View style={styles.noteCard}>
                     <View style={styles.noteCardHeader}>
                       <Ionicons name="document-text-outline" size={15} color={Colors.primary} />
-                      <Text style={styles.noteCardTitle}>Why maybe?</Text>
+                      <Text style={styles.noteCardTitle}>
+                        {myRsvp?.status === 'maybe' ? 'Why maybe?' : 'Why decline?'}
+                      </Text>
                       {noteLoading
                         ? <ActivityIndicator size="small" color={Colors.primary} style={{ marginLeft: 6 }} />
                         : noteDirty && (
@@ -1195,7 +1209,11 @@ export default function ActivityDetailScreen() {
                       style={styles.noteInput}
                       value={maybeNote}
                       onChangeText={text => { setMaybeNote(text); setNoteDirty(text.trim() !== lastSavedNote.current.trim()); }}
-                      placeholder="e.g. need a ride, need to check something…"
+                      placeholder={
+                        myRsvp?.status === 'maybe'
+                          ? 'e.g. need a ride, need to check something…'
+                          : 'e.g. busy that day, out of town…'
+                      }
                       placeholderTextColor={Colors.textSecondary}
                       multiline
                       textAlignVertical="top"
@@ -1354,10 +1372,12 @@ export default function ActivityDetailScreen() {
                   <View key={rsvp.id} style={[styles.attendeeRow, { opacity: rowOpacity }]}>
                     <TouchableOpacity style={styles.attendeeRowMain} activeOpacity={1}>
                       <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                      {status === 'maybe' ? (
+                      {status === 'maybe' || status === 'out' ? (
                         <View style={{ flex: 1 }}>
                           <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
-                          {(isMe ? maybeNote : (isCreator ? rsvp.note : null)) ? <Text style={styles.attendeeNote} numberOfLines={2}>{isMe ? maybeNote : rsvp.note}</Text> : null}
+                          {(isMe ? maybeNote : (isCreator ? rsvp.note : null)) ? (
+                            <Text style={styles.attendeeNote} numberOfLines={2}>{isMe ? maybeNote : rsvp.note}</Text>
+                          ) : null}
                         </View>
                       ) : (
                         <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
@@ -1474,6 +1494,7 @@ export default function ActivityDetailScreen() {
                 const isHost = rsvp.user_id === activity.created_by;
                 const canRemove = isCreator && !isMe && activity.status === 'active' && !past;
                 const showAddToFriends = !isMe && !allFriendsIds.has(rsvp.user_id);
+                const visibleDeclineNote = isMe ? (maybeNote || null) : (isCreator ? (rsvp.note ?? null) : null);
                 return (
                   <View key={rsvp.id} style={[styles.attendeeRow, { opacity: 0.6 }]}>
                     <TouchableOpacity
@@ -1482,7 +1503,12 @@ export default function ActivityDetailScreen() {
                       activeOpacity={canRemove ? 0.7 : 1}
                     >
                       <Avatar uri={rsvp.profile?.avatar_url} name={rsvp.profile?.full_name} size={38} />
-                      <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.attendeeName}>{rsvp.profile?.full_name ?? 'Someone'}</Text>
+                        {visibleDeclineNote ? (
+                          <Text style={styles.attendeeNote} numberOfLines={2}>{visibleDeclineNote}</Text>
+                        ) : null}
+                      </View>
                       {isMe && <View style={styles.youBadge}><Text style={styles.youText}>You</Text></View>}
                       {isHost && <View style={styles.hostBadge}><Text style={styles.hostText}>Host</Text></View>}
                       {showAddToFriends && (

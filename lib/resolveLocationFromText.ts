@@ -77,15 +77,7 @@ export async function resolveLocationFromText(rawText: string): Promise<Resolved
         matched.placeId,
         matched.displayName
       );
-      let placePhotoName = matched.placePhotoName;
-      if (!placePhotoName && (matched.location || matched.formattedAddress)) {
-        if (matched.location) {
-          placePhotoName = `streetview:${matched.location.latitude},${matched.location.longitude}`;
-        } else {
-          placePhotoName = `streetview:${matched.formattedAddress}`;
-        }
-      }
-      return { location, placePhotoName };
+      return { location, placePhotoName: matched.placePhotoName };
     }
     console.log('[resolveLocation] no sub-destination matched for poster text:', trimmed);
   }
@@ -109,15 +101,7 @@ export async function resolveLocationFromText(rawText: string): Promise<Resolved
         matched.placeId,
         matched.displayName
       );
-      let placePhotoName = matched.placePhotoName;
-      if (!placePhotoName && (matched.location || matched.formattedAddress)) {
-        if (matched.location) {
-          placePhotoName = `streetview:${matched.location.latitude},${matched.location.longitude}`;
-        } else {
-          placePhotoName = `streetview:${matched.formattedAddress}`;
-        }
-      }
-      return { location, placePhotoName };
+      return { location, placePhotoName: matched.placePhotoName };
     }
     if (nearby.length > 0) {
       console.log('[resolveLocation] nearby-search: no venue matched poster text:', trimmed);
@@ -130,18 +114,8 @@ export async function resolveLocationFromText(rawText: string): Promise<Resolved
     details.displayName
   );
 
-  // Use Place photo when available; otherwise use Street View for addresses
-  let placePhotoName = details.placePhotoName;
-  if (!placePhotoName && (details.location || details.formattedAddress)) {
-    if (details.location) {
-      placePhotoName = `streetview:${details.location.latitude},${details.location.longitude}`;
-    } else {
-      placePhotoName = `streetview:${details.formattedAddress}`;
-    }
-  }
-
   return {
     location,
-    placePhotoName,
+    placePhotoName: details.placePhotoName,
   };
 }
