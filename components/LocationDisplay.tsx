@@ -12,9 +12,17 @@ interface LocationDisplayProps {
   showIcon?: boolean;
   /** When true, allow full text wrap without line limit */
   allowFullWrap?: boolean;
+  /** Open in maps when tapped (e.g. event details only — list cards stay non-interactive) */
+  openInMaps?: boolean;
 }
 
-export function LocationDisplay({ location, variant = 'card', showIcon = true, allowFullWrap = false }: LocationDisplayProps) {
+export function LocationDisplay({
+  location,
+  variant = 'card',
+  showIcon = true,
+  allowFullWrap = false,
+  openInMaps = false,
+}: LocationDisplayProps) {
   const parsed = parseLocation(location);
   if (!parsed) return null;
 
@@ -31,7 +39,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
   const addressStyle = [
     styles.address,
     variant === 'detail' && styles.addressDetail,
-    parsed.placeId && styles.addressClickable,
+    openInMaps && parsed.placeId && styles.addressClickable,
   ];
 
   const content = (
@@ -50,7 +58,7 @@ export function LocationDisplay({ location, variant = 'card', showIcon = true, a
         />
       )}
       <View style={styles.textBlock}>
-        {parsed.placeId ? (
+        {openInMaps && parsed.placeId ? (
           <TouchableOpacity onPress={openMaps} activeOpacity={0.7}>
             {content}
           </TouchableOpacity>

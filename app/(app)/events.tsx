@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView, Alert,
   BackHandler, Platform, Modal, Pressable, ActivityIndicator,
@@ -174,6 +174,18 @@ const EMPTY: Record<Filter, { emoji: string; title: string; subtitle: string }> 
   declined: { emoji: '🙅', title: 'No declined events', subtitle: 'Events you declined will appear here.' },
 };
 
+/** Same rules as the Invited tab list (pending + not past 24h window + join-me not expired). */
+function getInvitedTabPendingActivities(activities: Activity[], userId: string | undefined): Activity[] {
+  if (!userId) return [];
+  const isPast24h = (s: string) => isPast(addHours(new Date(s), 24));
+  const notPast24h = (s: string) => !isPast24h(s);
+  const notExpired = (a: Activity) =>
+    !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
+  return activities.filter(
+    a => a.my_rsvp?.status === 'pending' && notPast24h(a.activity_time) && notExpired(a),
+  );
+}
+
 export default function EventsScreen() {
   useClearTabHighlightOnFocus();
   const { user, profile } = useAuth();
@@ -186,7 +198,6 @@ export default function EventsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>('upcoming');
   const [error, setError] = useState<string | null>(null);
-  const [invitedCount, setInvitedCount] = useState(0);
   const [showHidden, setShowHidden] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [visitedDetailsIds, setVisitedDetailsIds] = useState<Set<string>>(new Set());
@@ -238,7 +249,24 @@ export default function EventsScreen() {
       };
     }) as Activity[];
 
-    setInvitedCount(raw.filter(a => a.my_rsvp?.status === 'pending' && !isPast(addHours(new Date(a.activity_time), 24))).length);
+    if (__DEV__) {
+      const naivePending = raw.filter(
+        a => a.my_rsvp?.status === 'pending' && !isPast(addHours(new Date(a.activity_time), 24)),
+      );
+      const tabPending = getInvitedTabPendingActivities(raw, user.id);
+      if (naivePending.length !== tabPending.length) {
+        const excluded = naivePending.filter(n => !tabPending.some(t => t.id === n.id));
+        console.log(
+          '[Events:Invited] pending invites excluded from tab (e.g. expired Join me!):',
+          excluded.map(a => ({
+            id: a.id,
+            title: a.title,
+            is_join_me: a.is_join_me,
+            join_me_expires_at: a.join_me_expires_at,
+          })),
+        );
+      }
+    }
 
     const enriched = await enrichWithSeenStatus(raw, user.id);
     setAllActivities(enriched);
@@ -420,6 +448,13 @@ export default function EventsScreen() {
     ? allActivities
     : allActivities.filter(a => !hiddenIds.has(a.id));
 
+  const invitedCount = useMemo(() => {
+    const pool = showHidden
+      ? allActivities
+      : allActivities.filter(a => !hiddenIds.has(a.id));
+    return getInvitedTabPendingActivities(pool, user?.id).length;
+  }, [allActivities, hiddenIds, showHidden, user?.id]);
+
   const getFilteredList = (activities: Activity[], showPastInUpcoming: boolean): ListItem[] => {
     // Event is "past" (moves to Past tab) only if start time was >24h ago
     const isPast24h = (s: string) => isPast(addHours(new Date(s), 24));
@@ -482,11 +517,7 @@ export default function EventsScreen() {
             return rsvpIn || limitedClosed;
           });
       case 'invited': {
-        const notExpired = (a: Activity) =>
-          !a.is_join_me || !a.join_me_expires_at || !isPast(new Date(a.join_me_expires_at));
-        const pending = activities.filter(a =>
-          a.my_rsvp?.status === 'pending' && notPast24h(a.activity_time) && notExpired(a)
-        );
+        const pending = getInvitedTabPendingActivities(activities, user?.id);
         const joinMe = pending
           .filter(a => a.is_join_me)
           .sort((a, b) => (isJoinMeNow(a) ? 0 : 1) - (isJoinMeNow(b) ? 0 : 1) || a.activity_time.localeCompare(b.activity_time));

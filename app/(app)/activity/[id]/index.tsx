@@ -999,6 +999,7 @@ export default function ActivityDetailScreen() {
                     location={activity.location}
                     variant="detail"
                     showIcon={false}
+                    openInMaps
                   />
                 </View>
               </View>
