@@ -12,19 +12,6 @@ import {
   Alert,
   Keyboard,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
-
-class MapErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-  static getDerivedStateFromError = () => ({ hasError: true });
-  render() {
-    if (this.state.hasError) return this.props.fallback;
-    return this.props.children;
-  }
-}
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useGlobalSearchParams, useRouter } from 'expo-router';
 import { useMipo } from '@/contexts/MipoContext';
@@ -37,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Message } from '@/lib/types';
 import { Avatar } from '@/components/Avatar';
+import { LiveLocationMap } from '@/components/LiveLocationMap';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { requestLocationPermission, turnOffLocationSharingIfActiveWhenPermissionDenied } from '@/lib/mipoLocation';
 import { turnOffLiveLocationPost } from '@/lib/liveLocationPost';
@@ -714,41 +702,12 @@ export default function PostChatScreen() {
             keyboardVisible && styles.mapContainerKeyboard,
           ]}
         >
-          <MapErrorBoundary
-            fallback={
-              <View style={styles.mapFallback}>
-                <Ionicons
-                  name="map-outline"
-                  size={32}
-                  color={Colors.textSecondary}
-                />
-                <Text style={styles.mapFallbackText}>Map unavailable</Text>
-              </View>
-            }
-          >
-            <MapView
-              key={locationShares.map((s) => s.user_id).sort().join(',')}
-              style={styles.map}
-              initialRegion={mapRegion}
-            >
-              {locationShares.map((s) => (
-                <Marker
-                  key={s.user_id}
-                  coordinate={{ latitude: s.lat, longitude: s.lng }}
-                  title={
-                    s.user_id === user?.id
-                      ? 'You'
-                      : (s.profile?.full_name ?? 'Friend')
-                  }
-                  image={
-                    s.profile?.avatar_url
-                      ? { uri: s.profile.avatar_url }
-                      : undefined
-                  }
-                />
-              ))}
-            </MapView>
-          </MapErrorBoundary>
+          <LiveLocationMap
+            style={styles.map}
+            initialRegion={mapRegion}
+            currentUserId={user?.id}
+            shares={locationShares}
+          />
         </View>
       )}
 
@@ -927,12 +886,4 @@ const styles = StyleSheet.create({
   mapContainer: { height: 200, backgroundColor: Colors.borderLight },
   mapContainerKeyboard: { height: 100 },
   map: { flex: 1, width: '100%' },
-  mapFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.borderLight,
-    gap: 8,
-  },
-  mapFallbackText: { fontSize: 14, color: Colors.textSecondary },
 });
