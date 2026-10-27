@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
-  Linking, Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  Linking, Modal, Platform, View, Text, TouchableOpacity, ScrollView, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Session, User } from '@supabase/supabase-js';
 import Colors from '@/constants/Colors';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/mipoNotifications';
+import { authLog, summarizeUrl } from '@/lib/authLog';
 import { isAuthCallbackUrl, processAuthCallbackUrl } from '@/lib/authCallback';
 import { Profile } from '@/lib/types';
 
@@ -55,12 +56,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('[Auth] AuthProvider init — starting');
 
     const init = async () => {
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const href = window.location.href;
+        authLog(`web load ${summarizeUrl(href)}`);
+        if (isAuthCallbackUrl(href)) {
+          const ok = await processAuthCallbackUrl(href);
+          authLog(ok ? 'web callback finished' : 'web callback did not create a session');
+          window.history.replaceState({}, '', `${window.location.origin}${window.location.pathname}`);
+          if (!cancelled) setLoading(false);
+          return;
+        }
+      }
+
       // Linking.getInitialURL() can hang on Android — cap at 2s
       const initialUrl = await Promise.race([
         Linking.getInitialURL(),
         new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
       ]);
-      console.log('[Auth] getInitialURL:', initialUrl ? initialUrl.slice(0, 50) + '...' : 'null');
+      authLog(`getInitialURL: ${initialUrl ? summarizeUrl(initialUrl) : 'null'}`);
       if (initialUrl && isAuthCallbackUrl(initialUrl)) {
         console.warn('[Auth] Processing initial URL (OAuth callback — app opened from redirect)');
         await processAuthCallbackUrl(initialUrl);
@@ -98,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        console.warn('[Auth] onAuthStateChange:', _event, 'user:', session?.user?.id ?? 'none');
+        authLog(`auth event ${_event} user=${session?.user?.id ? 'yes' : 'none'}`);
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {

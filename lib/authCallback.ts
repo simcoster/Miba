@@ -1,3 +1,4 @@
+import { authLog } from '@/lib/authLog';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -39,28 +40,33 @@ export function isAuthCallbackUrl(url: string | null): boolean {
  * openAuthSessionAsync's promise was lost.
  */
 export async function processAuthCallbackUrl(url: string): Promise<boolean> {
-  console.warn('[Auth:Callback] processAuthCallbackUrl (deep-link path)');
+  authLog('processing auth callback');
   const params = parseUrlParams(url);
+  if (params.error) {
+    authLog(`callback error: ${params.error}${params.error_description ? ` ${params.error_description}` : ''}`);
+    return false;
+  }
   if (params.access_token && params.refresh_token) {
     const { error } = await supabase.auth.setSession({
       access_token: params.access_token,
       refresh_token: params.refresh_token,
     });
     if (error) {
-      console.warn('[Auth] processAuthCallbackUrl setSession error:', error.message);
+      authLog(`setSession failed: ${error.message}`);
       return false;
     }
-    console.log('[Auth:Callback] setSession success — session established');
+    authLog('setSession success');
     return true;
   }
   if (params.code) {
     const { error } = await supabase.auth.exchangeCodeForSession(url);
     if (error) {
-      console.warn('[Auth] processAuthCallbackUrl exchangeCodeForSession error:', error.message);
+      authLog(`exchangeCodeForSession failed: ${error.message}`);
       return false;
     }
-    console.warn('[Auth:Callback] exchangeCodeForSession success');
+    authLog('exchangeCodeForSession success');
     return true;
   }
+  authLog('callback had no code or tokens');
   return false;
 }

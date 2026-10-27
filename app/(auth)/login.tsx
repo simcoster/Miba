@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert, Image,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert, Image, ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { useRouter } from 'expo-router';
+import { authLog, subscribeAuthLog, summarizeUrl } from '@/lib/authLog';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
-import { Ionicons } from '@expo/vector-icons';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [logLines, setLogLines] = useState<string[]>([]);
+
+  useEffect(() => subscribeAuthLog(setLogLines), []);
 
   const signInWithGoogle = async () => {
     try {
@@ -23,7 +26,7 @@ export default function LoginScreen() {
       // makeRedirectUri handles Expo Go vs standalone (miba://) correctly.
       // PKCE flow (flowType in supabase.ts) uses query params, which Android preserves.
       const redirectTo = makeRedirectUri();
-      console.log('[OAuth] redirectTo:', redirectTo);
+      authLog(`redirectTo ${redirectTo}`);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -33,11 +36,18 @@ export default function LoginScreen() {
       if (error) throw error;
       if (!data.url) throw new Error('No OAuth URL returned');
 
-      console.log('[OAuth] data.url:', data.url);
-      console.log('[OAuth] Opening browser, waiting for redirect...');
+      authLog(`provider ${summarizeUrl(data.url)}`);
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        authLog('web: leaving for Google. This page reloads after you pick an account.');
+        window.location.assign(data.url);
+        return;
+      }
+
+      authLog('opening auth session');
       const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
 
-      console.warn('[OAuth] Browser returned, result.type:', result.type);
+      authLog(`browser result ${result.type}`);
       if (result.type !== 'success') {
         // User cancelled or something went wrong — just stop loading, no error
         return;
@@ -66,6 +76,7 @@ export default function LoginScreen() {
       };
 
       const params = parseUrlParams(url);
+      authLog(`return ${summarizeUrl(url)}`);
 
       if (params.access_token && params.refresh_token) {
         // Implicit flow — tokens are directly in the URL
@@ -82,10 +93,12 @@ export default function LoginScreen() {
         throw new Error('No tokens or code found in redirect URL. Check Supabase redirect URL settings.');
       }
 
-      console.warn('[OAuth] Session set, redirecting to app');
+      authLog('session set, opening app');
       router.replace('/(app)');
     } catch (error: any) {
-      Alert.alert('Sign-in failed', error.message ?? 'Something went wrong. Please try again.');
+      const message = error.message ?? 'Something went wrong. Please try again.';
+      authLog(`sign-in failed: ${message}`);
+      Alert.alert('Sign-in failed', message);
     } finally {
       setLoading(false);
     }
@@ -133,6 +146,15 @@ export default function LoginScreen() {
             </>
           )}
         </TouchableOpacity>
+
+        <View style={styles.logBox}>
+          <Text style={styles.logTitle}>Sign-in log</Text>
+          <ScrollView style={styles.logScroll} nestedScrollEnabled>
+            <Text style={styles.logText} selectable>
+              {logLines.length ? logLines.join('\n') : 'Nothing yet. Press Continue with Google.'}
+            </Text>
+          </ScrollView>
+        </View>
 
         <TouchableOpacity
           onPress={() => WebBrowser.openBrowserAsync('https://simcoster.github.io/Miba/privacy-policy.html')}
@@ -193,6 +215,18 @@ const styles = StyleSheet.create({
   },
   googleIconText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   googleButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  logBox: {
+    marginTop: 16,
+    maxHeight: 140,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    padding: 8,
+  },
+  logTitle: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, marginBottom: 4 },
+  logScroll: { maxHeight: 108 },
+  logText: { fontSize: 11, lineHeight: 15, color: Colors.text, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   disclaimerTouchable: { marginTop: 16 },
   disclaimer: { fontSize: 11, color: Colors.textSecondary, textAlign: 'center', lineHeight: 16 },
   disclaimerLink: { color: Colors.primary, textDecorationLine: 'underline', fontWeight: '600' },
