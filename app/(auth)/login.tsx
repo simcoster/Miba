@@ -23,8 +23,8 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
-      // makeRedirectUri handles Expo Go vs standalone (miba://) correctly.
-      // PKCE flow (flowType in supabase.ts) uses query params, which Android preserves.
+      // makeRedirectUri handles Expo Go (exp://) vs standalone (miba://).
+      // PKCE puts the result in ?code=, which the auth session can return to the app.
       const redirectTo = makeRedirectUri();
       authLog(`redirectTo ${redirectTo}`);
 
@@ -87,7 +87,7 @@ export default function LoginScreen() {
         if (sessionError) throw sessionError;
       } else if (params.code) {
         // PKCE flow — exchange the code for a session
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(url);
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
         if (exchangeError) throw exchangeError;
       } else {
         throw new Error('No tokens or code found in redirect URL. Check Supabase redirect URL settings.');

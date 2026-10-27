@@ -136,6 +136,7 @@ function AndroidBackHandler() {
 function NotificationHandler() {
   const router = useRouter();
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     const handleResponse = (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data as { type?: string; activityId?: string };
       if (data?.type === 'mipo_proximity') {

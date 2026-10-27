@@ -39,6 +39,8 @@ export function isAuthCallbackUrl(url: string | null): boolean {
  * Used when the app opens from a redirect (e.g. Expo Go cold start) and
  * openAuthSessionAsync's promise was lost.
  */
+const pendingExchanges = new Map<string, Promise<boolean>>();
+
 export async function processAuthCallbackUrl(url: string): Promise<boolean> {
   authLog('processing auth callback');
   const params = parseUrlParams(url);
@@ -59,13 +61,19 @@ export async function processAuthCallbackUrl(url: string): Promise<boolean> {
     return true;
   }
   if (params.code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(url);
-    if (error) {
-      authLog(`exchangeCodeForSession failed: ${error.message}`);
-      return false;
-    }
-    authLog('exchangeCodeForSession success');
-    return true;
+    const existing = pendingExchanges.get(params.code);
+    if (existing) return existing;
+    const exchange = (async () => {
+      const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+      if (error) {
+        authLog(`exchangeCodeForSession failed: ${error.message}`);
+        return false;
+      }
+      authLog('exchangeCodeForSession success');
+      return true;
+    })();
+    pendingExchanges.set(params.code, exchange);
+    return exchange;
   }
   authLog('callback had no code or tokens');
   return false;

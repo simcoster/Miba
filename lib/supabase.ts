@@ -44,6 +44,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // Query-param code, not a #access_token fragment. Android Chrome cannot
+    // hand an exp:// URL with a hash back to Expo Go.
+    flowType: 'pkce',
     lock: async (_name, _acquireTimeout, fn) => fn(),
   },
   global: {
